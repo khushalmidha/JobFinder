@@ -5,7 +5,7 @@ import { Settings, Send, ClipboardPaste, Plus } from 'lucide-react';
 
 const Popup = () => {
   const [token, setToken] = useState('');
-  const [backendUrl, setBackendUrl] = useState('http://localhost:5000');
+  const [backendUrl, setBackendUrl] = useState('https://jobfinder-backend.onrender.com'); // default to production URL
   const [rawText, setRawText] = useState('');
   const [contacts, setContacts] = useState([]);
   const [status, setStatus] = useState('');
