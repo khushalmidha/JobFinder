@@ -29,11 +29,11 @@ exports.parseFile = async (req, res) => {
         // Map common headers to our schema keys
         const headers = Object.keys(data[0]);
         const headerMap = {
-          company: headers.find(h => /company|org|organization|employer/i.test(h)),
-          email: headers.find(h => /email|e-mail|mail/i.test(h)),
-          hrName: headers.find(h => /name|hr|recruiter|contact/i.test(h) && !/company|org/i.test(h)),
-          role: headers.find(h => /role|position|job|title/i.test(h)),
-          package: headers.find(h => /package|ctc|salary|pay/i.test(h))
+          company: headers.find(h => /^company$/i.test(h.trim())) || headers.find(h => /company|org|employer/i.test(h)),
+          email: headers.find(h => /^email$/i.test(h.trim())) || headers.find(h => /email|e-mail/i.test(h) && !/extracted|who|by/i.test(h)) || headers.find(h => /mail/i.test(h)),
+          hrName: headers.find(h => /^name$/i.test(h.trim())) || headers.find(h => /name|hr|recruiter|contact/i.test(h) && !/company|org/i.test(h)),
+          role: headers.find(h => /^role$/i.test(h.trim())) || headers.find(h => /role|position|job|title/i.test(h)),
+          package: headers.find(h => /^package$/i.test(h.trim())) || headers.find(h => /package|ctc|salary|pay/i.test(h))
         };
 
         contactsData = data.map(row => {

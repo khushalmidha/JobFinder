@@ -68,9 +68,15 @@ const Dashboard = () => {
   };
 
   const groupedContacts = contacts.reduce((acc, contact) => {
-    const comp = contact.company || 'Unknown';
-    if (!acc[comp]) acc[comp] = [];
-    acc[comp].push(contact);
+    const originalComp = (contact.company || 'Unknown').trim();
+    const normalizedKey = originalComp.toLowerCase();
+    
+    // Find if we already have this company under a different casing
+    const existingKey = Object.keys(acc).find(k => k.toLowerCase() === normalizedKey);
+    const compKey = existingKey || originalComp;
+    
+    if (!acc[compKey]) acc[compKey] = [];
+    acc[compKey].push(contact);
     return acc;
   }, {});
 
