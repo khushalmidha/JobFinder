@@ -5,10 +5,11 @@ const contactSchema = new mongoose.Schema({
   company: { type: String, required: true },
   hrName: { type: String, default: '' },
   email: { type: String, required: true },
-  package: { type: String, default: '' }, // e.g. "12-15 LPA"
+  package: { type: String, default: '' },
   role: { type: String, default: '' },
   source: { type: String, enum: ['extension', 'excel_upload'], default: 'extension' },
-  status: { type: String, enum: ['pending', 'sent', 'failed', 'bounced', 'removed'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'sent', 'failed', 'bounced', 'removed', 'positive_response', 'negative_response', 'auto_reply', 'follow_up_later'], default: 'pending' },
+  notes: { type: String, default: '' },
   lastMailedAt: { type: Date },
 }, {
   timestamps: true

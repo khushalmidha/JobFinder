@@ -49,9 +49,13 @@ const Dashboard = () => {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'sent': return 'bg-green-100 text-green-800 border-green-200';
+      case 'sent': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'bounced': return 'bg-red-100 text-red-800 border-red-200';
       case 'failed': return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'positive_response': return 'bg-green-100 text-green-800 border-green-200';
+      case 'negative_response': return 'bg-red-50 text-red-900 border-red-300';
+      case 'auto_reply': return 'bg-slate-200 text-slate-700 border-slate-300';
+      case 'follow_up_later': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       default: return 'bg-slate-100 text-slate-800 border-slate-200';
     }
   };
@@ -100,6 +104,10 @@ const Dashboard = () => {
               <option value="sent">Sent</option>
               <option value="bounced">Bounced</option>
               <option value="failed">Failed</option>
+              <option value="positive_response">Positive Response</option>
+              <option value="negative_response">Negative Response</option>
+              <option value="auto_reply">Auto Reply</option>
+              <option value="follow_up_later">Follow Up Later</option>
             </select>
           </div>
         </div>
@@ -120,8 +128,8 @@ const Dashboard = () => {
                 <th className="p-4 font-semibold">Company</th>
                 <th className="p-4 font-semibold">HR / Contact</th>
                 <th className="p-4 font-semibold">Email</th>
-                <th className="p-4 font-semibold">Role</th>
                 <th className="p-4 font-semibold">Status</th>
+                <th className="p-4 font-semibold">Notes</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -151,11 +159,13 @@ const Dashboard = () => {
                     <td className="p-4 font-medium text-slate-900">{contact.company}</td>
                     <td className="p-4 text-slate-600">{contact.hrName || '-'}</td>
                     <td className="p-4 text-slate-600">{contact.email}</td>
-                    <td className="p-4 text-slate-600">{contact.role || '-'}</td>
                     <td className="p-4">
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(contact.status)}`}>
-                        {contact.status.charAt(0).toUpperCase() + contact.status.slice(1)}
+                        {contact.status.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
                       </span>
+                    </td>
+                    <td className="p-4 text-slate-500 text-xs max-w-xs truncate" title={contact.notes || ''}>
+                      {contact.notes || '-'}
                     </td>
                   </tr>
                 ))

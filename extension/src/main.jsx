@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
-import { Settings, Send, ClipboardPaste, Plus } from 'lucide-react';
+import { Settings, Send, ClipboardPaste, MailOpen } from 'lucide-react';
 
 const Popup = () => {
   const [token, setToken] = useState('');
-  const [backendUrl, setBackendUrl] = useState('https://jobfinder-backend.onrender.com'); // default to production URL
+  const [backendUrl, setBackendUrl] = useState('https://jobfinder-backend.onrender.com');
   const [rawText, setRawText] = useState('');
   const [contacts, setContacts] = useState([]);
   const [status, setStatus] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
 
   useEffect(() => {
     chrome.storage.local.get(['token', 'backendUrl'], (result) => {
@@ -16,6 +17,67 @@ const Popup = () => {
       if (result.backendUrl) setBackendUrl(result.backendUrl);
     });
   }, []);
+
+  const handleScanGmail = async () => {
+    try {
+      setIsScanning(true);
+      setStatus('Scanning Gmail...');
+      
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab.url.includes('mail.google.com')) {
+        setStatus('Please open a Gmail email thread first.');
+        setIsScanning(false);
+        return;
+      }
+
+      // Inject script to scrape the current email thread
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          // Gmail DOM: .h7 is the message container
+          const messages = document.querySelectorAll('.h7');
+          if (messages.length === 0) return null;
+          
+          // Get the most recent message (last one usually)
+          const lastMsg = messages[messages.length - 1];
+          const bodyEl = lastMsg.querySelector('.a3s');
+          const senderEl = lastMsg.querySelector('span[email]');
+          
+          return {
+            bodyText: bodyEl ? bodyEl.innerText : '',
+            senderEmail: senderEl ? senderEl.getAttribute('email') : ''
+          };
+        }
+      });
+
+      if (!result || !result.senderEmail) {
+        setStatus('Could not extract email. Make sure a thread is open.');
+        setIsScanning(false);
+        return;
+      }
+
+      setStatus(`Found email from ${result.senderEmail}. Analyzing...`);
+
+      // Send to backend for Gemini analysis
+      const res = await fetch(`${backendUrl}/api/mail/analyze-response`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ emailText: result.bodyText, senderEmail: result.senderEmail })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setStatus(`Analyzed! Status: ${data.contact.status}`);
+    } catch (err) {
+      setStatus(`Error: ${err.message}`);
+    } finally {
+      setIsScanning(false);
+    }
+  };
 
   const extractEmails = () => {
     const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
@@ -131,6 +193,18 @@ const Popup = () => {
       <div className="p-3 flex-1 overflow-y-auto">
         {contacts.length === 0 ? (
           <div className="h-full flex flex-col">
+            <button 
+              onClick={handleScanGmail} 
+              disabled={isScanning}
+              className="mb-4 bg-purple-600 text-white py-2 rounded font-medium flex items-center justify-center hover:bg-purple-700 transition disabled:opacity-50"
+            >
+              <MailOpen className="w-4 h-4 mr-2"/> {isScanning ? 'Scanning...' : 'Analyze Open Gmail Thread'}
+            </button>
+            <div className="relative flex py-2 items-center mb-4">
+              <div className="flex-grow border-t border-slate-300"></div>
+              <span className="flex-shrink-0 mx-4 text-slate-400 text-xs uppercase font-medium">OR</span>
+              <div className="flex-grow border-t border-slate-300"></div>
+            </div>
             <label className="block text-sm font-semibold text-slate-700 mb-1">Paste Job Description / Contacts</label>
             <textarea 
               value={rawText}

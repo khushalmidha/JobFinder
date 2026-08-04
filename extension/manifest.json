@@ -13,9 +13,13 @@
   "permissions": [
     "storage",
     "activeTab",
-    "clipboardRead"
+    "clipboardRead",
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
-    "http://localhost:5000/*"
+    "http://localhost:5000/*",
+    "https://jobfinder-backend.onrender.com/*",
+    "https://mail.google.com/*"
   ]
 }
