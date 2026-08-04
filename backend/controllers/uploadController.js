@@ -36,10 +36,16 @@ exports.parseFile = async (req, res) => {
           package: headers.find(h => /^package$/i.test(h.trim())) || headers.find(h => /package|ctc|salary|pay/i.test(h))
         };
 
+        let lastCompany = 'Unknown';
         contactsData = data.map(row => {
-          const comp = headerMap.company ? String(row[headerMap.company]).trim() : '';
+          let comp = headerMap.company ? String(row[headerMap.company]).trim() : '';
+          if (comp) {
+            lastCompany = comp;
+          } else {
+            comp = lastCompany;
+          }
           return {
-            company: comp || 'Unknown',
+            company: comp,
             email: headerMap.email ? String(row[headerMap.email]).trim() : '',
             hrName: headerMap.hrName ? String(row[headerMap.hrName]).trim() : '',
             role: headerMap.role ? String(row[headerMap.role]).trim() : '',
