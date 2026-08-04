@@ -37,8 +37,9 @@ exports.parseFile = async (req, res) => {
         };
 
         contactsData = data.map(row => {
+          const comp = headerMap.company ? String(row[headerMap.company]).trim() : '';
           return {
-            company: headerMap.company ? String(row[headerMap.company]).trim() : 'Unknown',
+            company: comp || 'Unknown',
             email: headerMap.email ? String(row[headerMap.email]).trim() : '',
             hrName: headerMap.hrName ? String(row[headerMap.hrName]).trim() : '',
             role: headerMap.role ? String(row[headerMap.role]).trim() : '',

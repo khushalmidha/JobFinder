@@ -28,6 +28,7 @@ exports.bulkCreate = async (req, res) => {
     // Format contacts with userId
     const toInsert = contacts.map(c => ({
       ...c,
+      company: (c.company && c.company.trim()) ? c.company.trim() : 'Unknown',
       userId: req.user._id,
       source: c.source || 'extension'
     }));
