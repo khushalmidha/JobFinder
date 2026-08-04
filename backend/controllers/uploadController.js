@@ -31,7 +31,6 @@ exports.parseFile = async (req, res) => {
         const headerMap = {
           company: headers.find(h => /^company$/i.test(h.trim())) || headers.find(h => /company|org|employer/i.test(h)),
           email: headers.find(h => /^email$/i.test(h.trim())) || headers.find(h => /email|e-mail/i.test(h) && !/extracted|who|by/i.test(h)) || headers.find(h => /mail/i.test(h)),
-          hrName: headers.find(h => /^name$/i.test(h.trim())) || headers.find(h => /name|hr|recruiter|contact/i.test(h) && !/company|org/i.test(h)),
           role: headers.find(h => /^role$/i.test(h.trim())) || headers.find(h => /role|position|job|title/i.test(h)),
           package: headers.find(h => /^package$/i.test(h.trim())) || headers.find(h => /package|ctc|salary|pay/i.test(h))
         };
@@ -41,7 +40,7 @@ exports.parseFile = async (req, res) => {
           return {
             company: comp || 'Unknown',
             email: headerMap.email ? String(row[headerMap.email]).trim() : '',
-            hrName: headerMap.hrName ? String(row[headerMap.hrName]).trim() : '',
+            hrName: '', // User requested not to store names
             role: headerMap.role ? String(row[headerMap.role]).trim() : '',
             package: headerMap.package ? String(row[headerMap.package]).trim() : ''
           };
