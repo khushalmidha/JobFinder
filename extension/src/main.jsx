@@ -171,10 +171,10 @@ const Popup = () => {
 
   if (!token) {
     return (
-      <div className="p-4 w-80 font-sans text-center">
+      <div className="p-4 w-80 font-sans text-center bg-zinc-950 text-zinc-100">
         <h1 className="text-xl font-bold mb-4">ColdMail Pilot</h1>
-        <p className="mb-4 text-slate-600">Please log in via settings to use the extension.</p>
-        <button onClick={openSettings} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center justify-center w-full">
+        <p className="mb-4 text-zinc-400">Please log in via settings to use the extension.</p>
+        <button onClick={openSettings} className="bg-yellow-500 text-zinc-950 font-bold px-4 py-2 rounded flex items-center justify-center w-full hover:bg-yellow-400 transition-colors">
           <Settings className="w-4 h-4 mr-2" /> Open Settings
         </button>
       </div>
@@ -182,10 +182,10 @@ const Popup = () => {
   }
 
   return (
-    <div className="w-[400px] h-[500px] flex flex-col font-sans bg-slate-50 border-r border-b shadow-sm">
-      <div className="bg-blue-600 text-white p-3 flex justify-between items-center shadow-md">
+    <div className="w-[400px] h-[500px] flex flex-col font-sans bg-zinc-950 text-zinc-200 border-zinc-800 border-r border-b shadow-sm">
+      <div className="bg-yellow-500 text-zinc-950 p-3 flex justify-between items-center shadow-md">
         <h1 className="font-bold text-lg flex items-center"><Send className="w-4 h-4 mr-2"/> ColdMail</h1>
-        <button onClick={openSettings} className="hover:bg-blue-700 p-1 rounded transition">
+        <button onClick={openSettings} className="hover:bg-yellow-400 p-1 rounded transition">
           <Settings className="w-5 h-5" />
         </button>
       </div>
@@ -196,44 +196,44 @@ const Popup = () => {
             <button 
               onClick={handleScanGmail} 
               disabled={isScanning}
-              className="mb-4 bg-purple-600 text-white py-2 rounded font-medium flex items-center justify-center hover:bg-purple-700 transition disabled:opacity-50"
+              className="mb-4 bg-zinc-800 border border-zinc-700 text-yellow-500 py-2 rounded font-bold flex items-center justify-center hover:bg-zinc-700 transition disabled:opacity-50"
             >
               <MailOpen className="w-4 h-4 mr-2"/> {isScanning ? 'Scanning...' : 'Analyze Open Gmail Thread'}
             </button>
             <div className="relative flex py-2 items-center mb-4">
-              <div className="flex-grow border-t border-slate-300"></div>
-              <span className="flex-shrink-0 mx-4 text-slate-400 text-xs uppercase font-medium">OR</span>
-              <div className="flex-grow border-t border-slate-300"></div>
+              <div className="flex-grow border-t border-zinc-800"></div>
+              <span className="flex-shrink-0 mx-4 text-zinc-600 text-xs uppercase font-medium">OR</span>
+              <div className="flex-grow border-t border-zinc-800"></div>
             </div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1">Paste Job Description / Contacts</label>
+            <label className="block text-sm font-semibold text-zinc-300 mb-1">Paste Job Description / Contacts</label>
             <textarea 
               value={rawText}
               onChange={e => setRawText(e.target.value)}
-              className="flex-1 w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
+              className="flex-1 w-full bg-zinc-900 border border-zinc-800 rounded p-2 text-sm focus:ring-2 focus:ring-yellow-500 focus:outline-none resize-none text-zinc-200 placeholder:text-zinc-600"
               placeholder="Paste text containing HR emails here..."
             />
-            <button onClick={extractEmails} className="mt-3 bg-slate-800 text-white py-2 rounded font-medium flex items-center justify-center hover:bg-slate-700 transition">
+            <button onClick={extractEmails} className="mt-3 bg-yellow-500 text-zinc-950 py-2 rounded font-bold flex items-center justify-center hover:bg-yellow-400 transition">
               <ClipboardPaste className="w-4 h-4 mr-2"/> Extract Emails
             </button>
           </div>
         ) : (
           <div>
             <div className="flex justify-between items-center mb-2">
-              <h2 className="font-semibold text-slate-800 text-sm">Review Contacts ({contacts.filter(c => c.selected).length})</h2>
-              <button onClick={() => setContacts([])} className="text-xs text-red-600 hover:underline">Clear</button>
+              <h2 className="font-semibold text-zinc-100 text-sm">Review Contacts ({contacts.filter(c => c.selected).length})</h2>
+              <button onClick={() => setContacts([])} className="text-xs text-red-400 hover:underline">Clear</button>
             </div>
             
             <div className="space-y-2 mb-4">
               {contacts.map(c => (
-                <div key={c.id} className="bg-white p-2 border border-slate-200 rounded flex items-center shadow-sm">
-                  <input type="checkbox" checked={c.selected} onChange={() => toggleContact(c.id)} className="mr-2 h-4 w-4 text-blue-600 rounded border-slate-300" />
+                <div key={c.id} className="bg-zinc-900 p-2 border border-zinc-800 rounded flex items-center shadow-sm">
+                  <input type="checkbox" checked={c.selected} onChange={() => toggleContact(c.id)} className="mr-2 h-4 w-4 bg-zinc-800 text-yellow-500 rounded border-zinc-700 focus:ring-yellow-500" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-slate-500 truncate">{c.email}</p>
+                    <p className="text-xs text-zinc-400 truncate">{c.email}</p>
                     <input 
                       type="text" 
                       value={c.company} 
                       onChange={(e) => updateCompany(c.id, e.target.value)} 
-                      className="text-sm font-medium w-full bg-slate-50 border border-transparent focus:border-blue-300 focus:bg-white rounded px-1 py-0.5 outline-none"
+                      className="text-sm font-medium w-full bg-zinc-800/50 border border-transparent focus:border-yellow-500/50 focus:bg-zinc-800 rounded px-1 py-0.5 outline-none text-zinc-200"
                       placeholder="Company"
                     />
                   </div>
@@ -241,14 +241,14 @@ const Popup = () => {
               ))}
             </div>
 
-            <button onClick={handleSend} className="w-full bg-green-600 text-white py-2 rounded font-medium flex items-center justify-center hover:bg-green-700 transition">
+            <button onClick={handleSend} className="w-full bg-green-500 text-zinc-950 py-2 rounded font-bold flex items-center justify-center hover:bg-green-400 transition">
               <Send className="w-4 h-4 mr-2"/> Send Outreach
             </button>
           </div>
         )}
         
         {status && (
-          <div className="mt-3 p-2 bg-blue-50 text-blue-700 text-xs rounded border border-blue-100 text-center font-medium">
+          <div className="mt-3 p-2 bg-yellow-500/10 text-yellow-500 text-xs rounded border border-yellow-500/20 text-center font-medium">
             {status}
           </div>
         )}

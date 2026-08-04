@@ -82,13 +82,13 @@ const Settings = () => {
     <div className="p-8 max-w-4xl mx-auto font-sans">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-          <p className="text-slate-500 text-sm mt-1">Configure your outreach preferences, API keys, and email provider.</p>
+          <h1 className="text-2xl font-bold text-zinc-100">Settings</h1>
+          <p className="text-zinc-400 text-sm mt-1">Configure your outreach preferences, API keys, and email provider.</p>
         </div>
         <button 
           onClick={handleSave}
           disabled={saving}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg shadow-sm transition disabled:opacity-50 flex items-center"
+          className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-medium py-2 px-6 rounded-lg shadow-sm transition disabled:opacity-50 flex items-center"
         >
           <Save className="w-4 h-4 mr-2" />
           {saving ? 'Saving...' : 'Save Settings'}
@@ -106,60 +106,60 @@ const Settings = () => {
 
       <form className="space-y-8 pb-12">
         {/* Personal Info */}
-        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
-            <User className="w-5 h-5 mr-2 text-blue-500" /> Personal Info
+        <section className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 p-6">
+          <h2 className="text-lg font-bold text-zinc-100 mb-4 flex items-center">
+            <User className="w-5 h-5 mr-2 text-yellow-500" /> Personal Info
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
-              <input type="text" name="name" value={settings.name} onChange={handleChange} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Name</label>
+              <input type="text" name="name" value={settings.name} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-              <input type="email" name="email" value={settings.email} disabled className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-slate-100 text-slate-500 cursor-not-allowed" />
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Email</label>
+              <input type="email" name="email" value={settings.email} disabled className="w-full bg-zinc-800/50 border border-zinc-800 text-zinc-500 rounded-lg p-2 text-sm cursor-not-allowed" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Resume Link (Google Drive, etc.)</label>
-              <input type="text" name="resumeLink" value={settings.resumeLink} onChange={handleChange} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Resume Link (Google Drive, etc.)</label>
+              <input type="text" name="resumeLink" value={settings.resumeLink} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Default Job Link (Optional)</label>
-              <input type="text" name="defaultJobLink" value={settings.defaultJobLink} onChange={handleChange} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Default Job Link (Optional)</label>
+              <input type="text" name="defaultJobLink" value={settings.defaultJobLink} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
             </div>
           </div>
         </section>
 
         {/* API Keys & Credentials */}
-        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
-            <Key className="w-5 h-5 mr-2 text-orange-500" /> Keys & Credentials
+        <section className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 p-6">
+          <h2 className="text-lg font-bold text-zinc-100 mb-4 flex items-center">
+            <Key className="w-5 h-5 mr-2 text-yellow-500" /> Keys & Credentials
           </h2>
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Gemini API Key</label>
-              <p className="text-xs text-slate-500 mb-2">Used for extracting contact info from Excel/CSV uploads.</p>
-              <input type="password" name="geminiApiKey" value={settings.geminiApiKey} onChange={handleChange} placeholder="AIzaSy..." className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Gemini API Key</label>
+              <p className="text-xs text-zinc-500 mb-2">Used for extracting contact info from Excel/CSV uploads.</p>
+              <input type="password" name="geminiApiKey" value={settings.geminiApiKey} onChange={handleChange} placeholder="AIzaSy..." className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
             </div>
             
-            <div className="pt-4 border-t border-slate-100">
-              <h3 className="font-semibold text-slate-800 mb-4">SMTP Configuration (e.g. Gmail)</h3>
+            <div className="pt-4 border-t border-zinc-800">
+              <h3 className="font-semibold text-zinc-100 mb-4">SMTP Configuration (e.g. Gmail)</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Host</label>
-                  <input type="text" name="smtpConfig.host" value={settings.smtpConfig.host} onChange={handleChange} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">Host</label>
+                  <input type="text" name="smtpConfig.host" value={settings.smtpConfig.host} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Port</label>
-                  <input type="number" name="smtpConfig.port" value={settings.smtpConfig.port} onChange={handleChange} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">Port</label>
+                  <input type="number" name="smtpConfig.port" value={settings.smtpConfig.port} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">SMTP Username / Email</label>
-                  <input type="text" name="smtpConfig.user" value={settings.smtpConfig.user} onChange={handleChange} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">SMTP Username / Email</label>
+                  <input type="text" name="smtpConfig.user" value={settings.smtpConfig.user} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">SMTP Password / App Password</label>
-                  <input type="password" name="smtpConfig.pass" value={settings.smtpConfig.pass} onChange={handleChange} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">SMTP Password / App Password</label>
+                  <input type="password" name="smtpConfig.pass" value={settings.smtpConfig.pass} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
                 </div>
               </div>
             </div>
@@ -167,21 +167,21 @@ const Settings = () => {
         </section>
 
         {/* Default Template */}
-        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
-            <FileText className="w-5 h-5 mr-2 text-green-500" /> Default Email Template
+        <section className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 p-6">
+          <h2 className="text-lg font-bold text-zinc-100 mb-4 flex items-center">
+            <FileText className="w-5 h-5 mr-2 text-yellow-500" /> Default Email Template
           </h2>
-          <p className="text-sm text-slate-500 mb-4">
-            Available placeholders: <code>{"{{userName}}"}</code>, <code>{"{{userEmail}}"}</code>, <code>{"{{resumeLink}}"}</code>, <code>{"{{jobLink}}"}</code>, <code>{"{{companyName}}"}</code>, <code>{"{{hrName}}"}</code>.
+          <p className="text-sm text-zinc-400 mb-4">
+            Available placeholders: <code className="text-yellow-500">{"{{userName}}"}</code>, <code className="text-yellow-500">{"{{userEmail}}"}</code>, <code className="text-yellow-500">{"{{resumeLink}}"}</code>, <code className="text-yellow-500">{"{{jobLink}}"}</code>, <code className="text-yellow-500">{"{{companyName}}"}</code>, <code className="text-yellow-500">{"{{hrName}}"}</code>.
           </p>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Subject</label>
-              <input type="text" name="mailTemplate.subject" value={settings.mailTemplate.subject} onChange={handleChange} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Subject</label>
+              <input type="text" name="mailTemplate.subject" value={settings.mailTemplate.subject} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Body</label>
-              <textarea name="mailTemplate.body" value={settings.mailTemplate.body} onChange={handleChange} className="w-full h-64 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none font-mono"></textarea>
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Body</label>
+              <textarea name="mailTemplate.body" value={settings.mailTemplate.body} onChange={handleChange} className="w-full h-64 bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none resize-none font-mono"></textarea>
             </div>
           </div>
         </section>

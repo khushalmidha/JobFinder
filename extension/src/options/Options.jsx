@@ -45,57 +45,57 @@ const Options = () => {
   };
 
   return (
-    <div className="p-8 max-w-lg mx-auto font-sans bg-slate-50 min-h-screen">
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
-        <h1 className="text-2xl font-bold mb-6 text-slate-800">ColdMail Pilot Settings</h1>
+    <div className="p-8 max-w-lg mx-auto font-sans bg-zinc-950 min-h-screen text-zinc-200">
+      <div className="bg-zinc-900 p-6 rounded-lg shadow-sm border border-zinc-800">
+        <h1 className="text-2xl font-bold mb-6 text-zinc-100">ColdMail Pilot Settings</h1>
         
         <div className="mb-6">
-          <label className="block text-sm font-medium mb-1 text-slate-700">Backend URL</label>
+          <label className="block text-sm font-medium mb-1 text-zinc-300">Backend URL</label>
           <input 
             type="text" 
             value={backendUrl} 
             onChange={e => setBackendUrl(e.target.value)}
-            className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+            className="w-full bg-zinc-800 border border-zinc-700 p-2 rounded focus:ring-2 focus:ring-yellow-500 focus:outline-none text-zinc-200" 
           />
         </div>
 
         {!token ? (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1 text-slate-700">Email</label>
+              <label className="block text-sm font-medium mb-1 text-zinc-300">Email</label>
               <input 
                 type="email" 
                 value={email} 
                 onChange={e => setEmail(e.target.value)} 
-                className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                className="w-full bg-zinc-800 border border-zinc-700 p-2 rounded focus:ring-2 focus:ring-yellow-500 focus:outline-none text-zinc-200" 
                 required 
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-slate-700">Password</label>
+              <label className="block text-sm font-medium mb-1 text-zinc-300">Password</label>
               <input 
                 type="password" 
                 value={password} 
                 onChange={e => setPassword(e.target.value)} 
-                className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                className="w-full bg-zinc-800 border border-zinc-700 p-2 rounded focus:ring-2 focus:ring-yellow-500 focus:outline-none text-zinc-200" 
                 required 
               />
             </div>
-            <button type="submit" className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition">
+            <button type="submit" className="w-full bg-yellow-500 text-zinc-950 font-bold p-2 rounded hover:bg-yellow-400 transition">
               Login to Backend
             </button>
-            {loginStatus && <p className="text-sm mt-2 font-medium text-slate-600">{loginStatus}</p>}
+            {loginStatus && <p className="text-sm mt-2 font-medium text-zinc-400">{loginStatus}</p>}
           </form>
         ) : (
           <div>
-            <p className="text-green-600 font-medium mb-4 flex items-center">
-              <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span>
+            <p className="text-green-400 font-medium mb-4 flex items-center">
+              <span className="w-2 h-2 rounded-full bg-green-400 mr-2"></span>
               Connected to backend
             </p>
-            <button onClick={handleLogout} className="w-full bg-slate-200 text-slate-800 p-2 rounded hover:bg-slate-300 transition">
+            <button onClick={handleLogout} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-300 p-2 rounded hover:bg-zinc-700 transition">
               Logout
             </button>
-            <p className="text-sm text-slate-500 mt-4">You can manage templates and SMTP settings from the Web Dashboard.</p>
+            <p className="text-sm text-zinc-500 mt-4">You can manage templates and SMTP settings from the Web Dashboard.</p>
           </div>
         )}
       </div>
