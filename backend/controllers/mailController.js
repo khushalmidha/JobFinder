@@ -44,6 +44,10 @@ exports.sendBatch = async (req, res) => {
         user: user.smtpConfig.user,
         pass: user.smtpConfig.pass, // decryption happens automatically via mongoose getter
       },
+      tls: {
+        rejectUnauthorized: false
+      },
+      family: 4 // Force IPv4 to prevent ENETUNREACH on IPv6-lacking hosts
     });
 
     res.json({ message: `Queued ${contacts.length} emails for sending.`, count: contacts.length });
