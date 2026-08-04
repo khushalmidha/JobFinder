@@ -105,3 +105,15 @@ exports.getLogs = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.getQueueStatus = async (req, res) => {
+  try {
+    res.json({
+      pending: emailQueue.pending, // items waiting
+      size: emailQueue.size,       // items currently processing
+      isPaused: emailQueue.isPaused
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
