@@ -32,9 +32,19 @@ exports.bulkCreate = async (req, res) => {
       source: c.source || 'extension'
     }));
     
-    // Simple deduplication based on email for this user
+    // Deduplicate the incoming payload itself (keep first occurrence)
+    const uniqueIncoming = [];
+    const seenIncomingEmails = new Set();
+    for (const c of toInsert) {
+      if (!seenIncomingEmails.has(c.email)) {
+        seenIncomingEmails.add(c.email);
+        uniqueIncoming.push(c);
+      }
+    }
+
+    // Simple deduplication against existing database based on email for this user
     const existingEmails = (await Contact.find({ userId: req.user._id }).select('email')).map(c => c.email);
-    const newContacts = toInsert.filter(c => !existingEmails.includes(c.email));
+    const newContacts = uniqueIncoming.filter(c => !existingEmails.includes(c.email));
 
     if (newContacts.length === 0) {
       return res.status(200).json({ message: 'No new contacts to add (all were duplicates)', added: 0 });
