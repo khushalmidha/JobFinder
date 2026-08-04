@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Search, Mail, Filter, AlertCircle } from 'lucide-react';
+import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
 
 const Dashboard = () => {
@@ -10,7 +10,9 @@ const Dashboard = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showCompose, setShowCompose] = useState(false);
+  const [composeData, setComposeData] = useState({ ids: [], jobLink: '' });
   const [error, setError] = useState('');
+  const [jobLinks, setJobLinks] = useState({}); // { companyName: 'jobLink' }
 
   const fetchContacts = async () => {
     try {
@@ -39,12 +41,17 @@ const Dashboard = () => {
     setSelectedIds(newSelected);
   };
 
-  const toggleSelectAll = () => {
-    if (selectedIds.size === contacts.length) {
-      setSelectedIds(new Set());
+  const toggleSelectCompany = (companyContacts) => {
+    const companyIds = companyContacts.map(c => c._id);
+    const allSelected = companyIds.every(id => selectedIds.has(id));
+    
+    const newSelected = new Set(selectedIds);
+    if (allSelected) {
+      companyIds.forEach(id => newSelected.delete(id));
     } else {
-      setSelectedIds(new Set(contacts.map(c => c._id)));
+      companyIds.forEach(id => newSelected.add(id));
     }
+    setSelectedIds(newSelected);
   };
 
   const getStatusColor = (status) => {
@@ -60,124 +67,150 @@ const Dashboard = () => {
     }
   };
 
+  const groupedContacts = contacts.reduce((acc, contact) => {
+    const comp = contact.company || 'Unknown';
+    if (!acc[comp]) acc[comp] = [];
+    acc[comp].push(contact);
+    return acc;
+  }, {});
+
+  const handleComposeCompany = (company, companyContacts) => {
+    const selectedInCompany = companyContacts.filter(c => selectedIds.has(c._id)).map(c => c._id);
+    const idsToUse = selectedInCompany.length > 0 ? selectedInCompany : companyContacts.map(c => c._id);
+    
+    setComposeData({
+      ids: idsToUse,
+      jobLink: jobLinks[company] || ''
+    });
+    setShowCompose(true);
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto font-sans">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">Contacts</h1>
-          <p className="text-zinc-400 text-sm mt-1">Manage and outreach to your saved contacts.</p>
+          <h1 className="text-2xl font-bold text-zinc-100">Contacts by Company</h1>
+          <p className="text-zinc-400 text-sm mt-1">Manage outreach per company and inject specific Job Links.</p>
         </div>
-        <button 
-          onClick={() => setShowCompose(true)}
-          disabled={selectedIds.size === 0}
-          className={`flex items-center px-4 py-2 rounded-lg font-medium transition-colors shadow-sm ${
-            selectedIds.size > 0 ? 'bg-yellow-500 text-zinc-950 hover:bg-yellow-400' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-          }`}
-        >
-          <Mail className="w-4 h-4 mr-2" />
-          Compose & Send ({selectedIds.size})
-        </button>
       </div>
 
-      <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 overflow-hidden">
-        {/* Toolbar */}
-        <div className="p-4 border-b border-zinc-800 flex space-x-4 bg-zinc-900/50">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-            <input 
-              type="text" 
-              placeholder="Search companies, emails, roles..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-sm text-zinc-200 placeholder:text-zinc-500"
-            />
-          </div>
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="pl-9 pr-8 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-sm appearance-none text-zinc-200"
-            >
-              <option value="">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="sent">Sent</option>
-              <option value="bounced">Bounced</option>
-              <option value="failed">Failed</option>
-              <option value="positive_response">Positive Response</option>
-              <option value="negative_response">Negative Response</option>
-              <option value="auto_reply">Auto Reply</option>
-              <option value="follow_up_later">Follow Up Later</option>
-            </select>
-          </div>
+      <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 mb-8 p-4 flex space-x-4">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <input 
+            type="text" 
+            placeholder="Search companies, emails, roles..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-sm text-zinc-200 placeholder:text-zinc-500"
+          />
         </div>
+        <div className="relative">
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="pl-9 pr-8 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-sm appearance-none text-zinc-200"
+          >
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="sent">Sent</option>
+            <option value="bounced">Bounced</option>
+            <option value="failed">Failed</option>
+            <option value="positive_response">Positive Response</option>
+            <option value="negative_response">Negative Response</option>
+            <option value="auto_reply">Auto Reply</option>
+            <option value="follow_up_later">Follow Up Later</option>
+          </select>
+        </div>
+      </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-zinc-900 border-b border-zinc-800 text-zinc-400 text-xs uppercase tracking-wider">
-                <th className="p-4 w-12 text-center">
+      {loading ? (
+        <div className="text-center p-12 text-zinc-500">Loading contacts...</div>
+      ) : Object.keys(groupedContacts).length === 0 ? (
+        <div className="text-center p-12 bg-zinc-900 rounded-xl border border-zinc-800">
+          <AlertCircle className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
+          <p className="text-zinc-400 font-medium">No contacts found.</p>
+          <p className="text-zinc-500 text-sm mt-1">Import some contacts or use the extension to add them.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {Object.entries(groupedContacts).map(([company, companyContacts]) => (
+            <div key={company} className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden shadow-sm">
+              {/* Company Header */}
+              <div className="p-4 border-b border-zinc-800 bg-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center space-x-3">
                   <input 
                     type="checkbox" 
-                    checked={contacts.length > 0 && selectedIds.size === contacts.length}
-                    onChange={toggleSelectAll}
-                    className="rounded border-zinc-700 bg-zinc-800 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-zinc-900"
+                    checked={companyContacts.length > 0 && companyContacts.every(c => selectedIds.has(c._id))}
+                    onChange={() => toggleSelectCompany(companyContacts)}
+                    className="rounded border-zinc-700 bg-zinc-800 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-zinc-900 w-5 h-5"
                   />
-                </th>
-                <th className="p-4 font-semibold">Company</th>
-                <th className="p-4 font-semibold">HR / Contact</th>
-                <th className="p-4 font-semibold">Email</th>
-                <th className="p-4 font-semibold">Status</th>
-                <th className="p-4 font-semibold">Notes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800/50">
-              {loading ? (
-                <tr>
-                  <td colSpan="6" className="p-8 text-center text-zinc-500">Loading contacts...</td>
-                </tr>
-              ) : contacts.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="p-12 text-center">
-                    <AlertCircle className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
-                    <p className="text-zinc-400 font-medium">No contacts found.</p>
-                    <p className="text-zinc-500 text-sm mt-1">Import some contacts or use the extension to add them.</p>
-                  </td>
-                </tr>
-              ) : (
-                contacts.map(contact => (
-                  <tr key={contact._id} className="hover:bg-zinc-800/50 transition-colors">
-                    <td className="p-4 text-center">
-                      <input 
-                        type="checkbox" 
-                        checked={selectedIds.has(contact._id)}
-                        onChange={() => toggleSelect(contact._id)}
-                        className="rounded border-zinc-700 bg-zinc-800 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-zinc-900"
-                      />
-                    </td>
-                    <td className="p-4 font-medium text-zinc-200">{contact.company}</td>
-                    <td className="p-4 text-zinc-400">{contact.hrName || '-'}</td>
-                    <td className="p-4 text-zinc-400">{contact.email}</td>
-                    <td className="p-4">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(contact.status)}`}>
-                        {contact.status.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                      </span>
-                    </td>
-                    <td className="p-4 text-zinc-500 text-xs max-w-xs truncate" title={contact.notes || ''}>
-                      {contact.notes || '-'}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                  <h2 className="text-lg font-bold text-zinc-100">{company}</h2>
+                  <span className="bg-zinc-800 text-zinc-400 text-xs px-2 py-0.5 rounded-full font-medium">
+                    {companyContacts.length} contact{companyContacts.length > 1 ? 's' : ''}
+                  </span>
+                </div>
+                
+                <div className="flex items-center space-x-3 w-full md:w-auto">
+                  <div className="relative flex-1 md:w-64">
+                    <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Job ID or Link (Optional)"
+                      value={jobLinks[company] || ''}
+                      onChange={(e) => setJobLinks({ ...jobLinks, [company]: e.target.value })}
+                      className="w-full pl-9 pr-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-sm text-zinc-200 placeholder:text-zinc-500"
+                    />
+                  </div>
+                  <button 
+                    onClick={() => handleComposeCompany(company, companyContacts)}
+                    className="flex-shrink-0 flex items-center px-4 py-2 bg-yellow-500 text-zinc-950 hover:bg-yellow-400 rounded-lg font-bold transition-colors shadow-sm text-sm"
+                  >
+                    <Mail className="w-4 h-4 mr-2" />
+                    Send to Company
+                  </button>
+                </div>
+              </div>
+
+              {/* Contacts List */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <tbody className="divide-y divide-zinc-800/50">
+                    {companyContacts.map(contact => (
+                      <tr key={contact._id} className="hover:bg-zinc-800/30 transition-colors">
+                        <td className="p-3 pl-4 w-12 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedIds.has(contact._id)}
+                            onChange={() => toggleSelect(contact._id)}
+                            className="rounded border-zinc-700 bg-zinc-800 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-zinc-900"
+                          />
+                        </td>
+                        <td className="p-3 text-zinc-300 font-medium w-1/4">{contact.hrName || 'HR Team'}</td>
+                        <td className="p-3 text-zinc-400 w-1/4">{contact.email}</td>
+                        <td className="p-3 w-1/4">
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(contact.status)}`}>
+                            {contact.status.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                          </span>
+                        </td>
+                        <td className="p-3 text-zinc-500 text-xs max-w-xs truncate" title={contact.notes || ''}>
+                          {contact.notes || '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
 
       {showCompose && (
         <ComposePanel 
-          selectedIds={Array.from(selectedIds)} 
+          selectedIds={composeData.ids} 
+          jobLinkOverride={composeData.jobLink}
           onClose={() => setShowCompose(false)} 
           onSuccess={() => {
             setShowCompose(false);

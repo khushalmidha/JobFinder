@@ -16,48 +16,43 @@ exports.parseFile = async (req, res) => {
       return res.status(400).json({ error: 'Gemini API key is missing. Please update your settings.' });
     }
 
-    let fileContent = '';
+    let contactsData = [];
     const ext = req.file.originalname.split('.').pop().toLowerCase();
 
     if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
       const workbook = xlsx.readFile(req.file.path);
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
-      fileContent = data.map(row => row.join(', ')).join('\n');
+      const data = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+      
+      if (data.length > 0) {
+        // Map common headers to our schema keys
+        const headers = Object.keys(data[0]);
+        const headerMap = {
+          company: headers.find(h => /company|org|organization|employer/i.test(h)),
+          email: headers.find(h => /email|e-mail|mail/i.test(h)),
+          hrName: headers.find(h => /name|hr|recruiter|contact/i.test(h) && !/company|org/i.test(h)),
+          role: headers.find(h => /role|position|job|title/i.test(h)),
+          package: headers.find(h => /package|ctc|salary|pay/i.test(h))
+        };
+
+        contactsData = data.map(row => {
+          return {
+            company: headerMap.company ? String(row[headerMap.company]).trim() : 'Unknown',
+            email: headerMap.email ? String(row[headerMap.email]).trim() : '',
+            hrName: headerMap.hrName ? String(row[headerMap.hrName]).trim() : '',
+            role: headerMap.role ? String(row[headerMap.role]).trim() : '',
+            package: headerMap.package ? String(row[headerMap.package]).trim() : ''
+          };
+        }).filter(c => c.email && /.+@.+\..+/.test(c.email)); // only keep rows with a valid email format
+      }
     } else {
-      // For MVP, just handling excel/csv
       fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: 'Unsupported file type. Please upload Excel or CSV.' });
     }
 
     // Clean up uploaded file
     fs.unlinkSync(req.file.path);
-
-    // Call Gemini API
-    const ai = new GoogleGenAI({ apiKey: user.geminiApiKey });
-
-    const prompt = `
-    Extract contact and job information from the following raw data.
-    The data is in a comma-separated format where each line represents a row from a spreadsheet.
-    Extract company, HR/recruiter name (if present), email, package/CTC (if mentioned), and role (if mentioned).
-    Return a strict JSON array of objects. Do not include markdown formatting or any other text.
-    Each object must have these keys: "company" (string), "hrName" (string), "email" (string), "package" (string), "role" (string).
-    If a value is not found, leave it as an empty string. Only include rows that have at least an email and a company.
-
-    Raw Data:
-    ${fileContent.substring(0, 10000)} // truncate to avoid huge payload
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-      }
-    });
-
-    let contactsData = JSON.parse(response.text);
 
     res.json({ contacts: contactsData });
   } catch (error) {

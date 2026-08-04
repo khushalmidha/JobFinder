@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import api from '../services/api';
 import { X, Send } from 'lucide-react';
 
-const ComposePanel = ({ selectedIds, onClose, onSuccess }) => {
+const ComposePanel = ({ selectedIds, jobLinkOverride, onClose, onSuccess }) => {
   const [subjectOverride, setSubjectOverride] = useState('');
   const [bodyOverride, setBodyOverride] = useState('');
   const [loading, setLoading] = useState(false);
@@ -15,7 +15,8 @@ const ComposePanel = ({ selectedIds, onClose, onSuccess }) => {
       await api.post('/mail/send', { 
         contactIds: selectedIds,
         subjectOverride: subjectOverride || undefined,
-        bodyOverride: bodyOverride || undefined
+        bodyOverride: bodyOverride || undefined,
+        jobLinkOverride: jobLinkOverride || undefined
       });
       onSuccess();
     } catch (err) {
