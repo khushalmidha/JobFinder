@@ -8,6 +8,8 @@ const Import = () => {
   const [parsedContacts, setParsedContacts] = useState([]);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
+  const [rawText, setRawText] = useState('');
+  const [textLoading, setTextLoading] = useState(false);
   const fileInputRef = useRef(null);
 
   const handleUpload = async (e) => {
@@ -28,6 +30,21 @@ const Import = () => {
       setStatus(err.response?.data?.error || 'Failed to parse file. Make sure Gemini API Key is set in Settings.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTextParse = async () => {
+    if (!rawText.trim()) return;
+    try {
+      setTextLoading(true);
+      setStatus('');
+      const { data } = await api.post('/upload/parse-text', { text: rawText });
+      setParsedContacts(data.contacts || []);
+      setRawText('');
+    } catch (err) {
+      setStatus(err.response?.data?.error || 'Failed to parse text. Make sure Gemini API Key is set.');
+    } finally {
+      setTextLoading(false);
     }
   };
 
@@ -79,40 +96,64 @@ const Import = () => {
       )}
 
       {parsedContacts.length === 0 ? (
-        <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 p-8">
-          <form onSubmit={handleUpload} className="flex flex-col items-center">
-            <div 
-              className="w-full max-w-xl border-2 border-dashed border-zinc-700 rounded-xl p-12 text-center hover:bg-zinc-800/50 transition-colors cursor-pointer"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <UploadCloud className="w-12 h-12 text-zinc-500 mx-auto mb-4" />
-              <p className="font-medium text-zinc-300 mb-1">Click to upload or drag and drop</p>
-              <p className="text-sm text-zinc-500">CSV, XLS, or XLSX</p>
-              <input 
-                type="file" 
-                ref={fileInputRef}
-                className="hidden" 
-                accept=".csv, .xlsx, .xls"
-                onChange={(e) => setFile(e.target.files[0])}
-              />
-            </div>
-            
-            {file && (
-              <div className="mt-6 flex items-center bg-zinc-800 px-4 py-2 rounded-lg text-sm text-zinc-300">
-                <FileType className="w-4 h-4 mr-2 text-yellow-500" />
-                <span className="font-medium">{file.name}</span>
-                <span className="ml-2 text-zinc-500">({Math.round(file.size / 1024)} KB)</span>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 p-8 flex flex-col justify-center">
+            <h2 className="font-bold text-zinc-100 mb-2 text-center">Upload File</h2>
+            <p className="text-sm text-zinc-400 mb-6 text-center">Upload a CSV or Excel file containing contact data.</p>
+            <form onSubmit={handleUpload} className="flex flex-col items-center">
+              <div 
+                className="w-full max-w-xl border-2 border-dashed border-zinc-700 rounded-xl p-8 text-center hover:bg-zinc-800/50 transition-colors cursor-pointer"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <UploadCloud className="w-12 h-12 text-zinc-500 mx-auto mb-4" />
+                <p className="font-medium text-zinc-300 mb-1">Click to upload or drag and drop</p>
+                <p className="text-sm text-zinc-500">CSV, XLS, or XLSX</p>
+                <input 
+                  type="file" 
+                  ref={fileInputRef}
+                  className="hidden" 
+                  accept=".csv, .xlsx, .xls"
+                  onChange={(e) => setFile(e.target.files[0])}
+                />
               </div>
-            )}
-            
-            <button 
-              type="submit"
-              disabled={!file || loading}
-              className="mt-8 bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-medium py-3 px-8 rounded-lg shadow-sm transition disabled:opacity-50"
-            >
-              {loading ? 'AI is parsing file...' : 'Extract with Gemini'}
-            </button>
-          </form>
+              
+              {file && (
+                <div className="mt-6 flex items-center bg-zinc-800 px-4 py-2 rounded-lg text-sm text-zinc-300">
+                  <FileType className="w-4 h-4 mr-2 text-yellow-500" />
+                  <span className="font-medium">{file.name}</span>
+                  <span className="ml-2 text-zinc-500">({Math.round(file.size / 1024)} KB)</span>
+                </div>
+              )}
+              
+              <button 
+                type="submit"
+                disabled={!file || loading}
+                className="mt-8 bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-medium py-3 px-8 rounded-lg shadow-sm transition disabled:opacity-50 w-full max-w-xs"
+              >
+                {loading ? 'AI is parsing file...' : 'Extract from File'}
+              </button>
+            </form>
+          </div>
+
+          <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 p-8 flex flex-col">
+            <h2 className="font-bold text-zinc-100 mb-2">AI Magic Paste</h2>
+            <p className="text-sm text-zinc-400 mb-4">Paste random text containing emails, names, or companies. Gemini will extract them automatically.</p>
+            <textarea
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder="e.g. Sundar Pichai (sundar@google.com) from Google.&#10;Nvidia recruiter is jensen@nvidia.com..."
+              className="flex-1 w-full bg-zinc-950 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-200 placeholder-zinc-700 outline-none focus:border-yellow-500 transition-colors min-h-[200px] resize-none mb-6"
+            />
+            <div className="flex justify-center">
+              <button
+                onClick={handleTextParse}
+                disabled={!rawText.trim() || textLoading}
+                className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-medium py-3 px-8 rounded-lg shadow-sm transition disabled:opacity-50 w-full max-w-xs"
+              >
+                {textLoading ? 'AI is extracting...' : 'Extract with Gemini'}
+              </button>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 overflow-hidden">

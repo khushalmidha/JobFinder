@@ -69,3 +69,54 @@ exports.parseFile = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.parseText = async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || text.trim() === '') {
+      return res.status(400).json({ error: 'No text provided.' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user.geminiApiKey) {
+      return res.status(400).json({ error: 'Gemini API key is missing. Please update your settings.' });
+    }
+
+    const ai = new GoogleGenAI({ apiKey: user.geminiApiKey });
+    const prompt = `Extract a list of contacts from the following raw text. Return the result strictly as a JSON array of objects. Each object must have these string fields: 'company', 'email', 'hrName', 'role', 'package'. If a field is not found, leave it as an empty string, except for 'company' which should default to 'Unknown' if not found.
+
+    Raw text:
+    ${text}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+      }
+    });
+
+    let jsonString = response.text || '[]';
+    // Clean up markdown formatting if any
+    jsonString = jsonString.replace(/```json/gi, '').replace(/```/g, '').trim();
+    
+    let contactsData = JSON.parse(jsonString);
+    if (!Array.isArray(contactsData)) {
+      contactsData = [contactsData];
+    }
+    
+    // Fallbacks
+    contactsData = contactsData.map(c => ({
+      company: c.company || 'Unknown',
+      email: c.email || '',
+      hrName: c.hrName || '',
+      role: c.role || '',
+      package: c.package || ''
+    })).filter(c => c.email && /.+@.+\..+/.test(c.email));
+
+    res.json({ contacts: contactsData });
+  } catch (error) {
+    console.error('Gemini Parsing Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
