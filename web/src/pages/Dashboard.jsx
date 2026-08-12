@@ -17,11 +17,7 @@ const Dashboard = () => {
   const fetchContacts = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      if (statusFilter) params.append('status', statusFilter);
-      
-      const { data } = await api.get(`/contacts?${params.toString()}`);
+      const { data } = await api.get('/contacts');
       setContacts(data);
     } catch (err) {
       setError('Failed to load contacts');
@@ -32,7 +28,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchContacts();
-  }, [search, statusFilter]);
+  }, []);
 
   const toggleSelect = (id) => {
     const newSelected = new Set(selectedIds);
@@ -67,7 +63,20 @@ const Dashboard = () => {
     }
   };
 
-  const groupedContacts = contacts.reduce((acc, contact) => {
+  const filteredContacts = contacts.filter(c => {
+    const s = search.toLowerCase();
+    const matchSearch = !search || 
+      (c.company || '').toLowerCase().includes(s) || 
+      (c.hrName || '').toLowerCase().includes(s) || 
+      (c.email || '').toLowerCase().includes(s) || 
+      (c.role || '').toLowerCase().includes(s);
+    
+    const matchStatus = !statusFilter || c.status === statusFilter;
+    
+    return matchSearch && matchStatus;
+  });
+
+  const groupedContacts = filteredContacts.reduce((acc, contact) => {
     const originalComp = (contact.company || 'Unknown').trim();
     const normalizedKey = originalComp.toLowerCase();
     
