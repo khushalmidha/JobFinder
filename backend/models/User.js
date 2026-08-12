@@ -27,6 +27,12 @@ const userSchema = new mongoose.Schema({
     default: '',
     set: encrypt,
     get: decrypt
+  },
+  brevoApiKey: {
+    type: String,
+    default: '',
+    set: encrypt,
+    get: decrypt
   }
 }, {
   timestamps: true,

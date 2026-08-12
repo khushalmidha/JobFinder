@@ -19,6 +19,7 @@ const Settings = () => {
     resumeLink: '',
     defaultJobLink: '',
     geminiApiKey: '',
+    brevoApiKey: '',
     smtpConfig: {
       host: 'smtp.gmail.com',
       port: 465,
@@ -184,6 +185,12 @@ const Settings = () => {
               <label className="block text-sm font-medium text-zinc-300 mb-1">Gemini API Key</label>
               <p className="text-xs text-zinc-500 mb-2">Used for extracting contact info from Excel/CSV uploads.</p>
               <input type="password" name="geminiApiKey" value={settings.geminiApiKey} onChange={handleChange} placeholder="AIzaSy..." className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
+            </div>
+
+            <div className="pt-4">
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Brevo API Key (Recommended for Deployed Version)</label>
+              <p className="text-xs text-zinc-500 mb-2">Free at brevo.com — emails will be sent via Brevo API (HTTPS) instead of SMTP. This works on all hosting providers including Render.</p>
+              <input type="password" name="brevoApiKey" value={settings.brevoApiKey} onChange={handleChange} placeholder="xkeysib-..." className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
             </div>
             
             <div className="pt-4 border-t border-zinc-800">

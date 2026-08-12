@@ -12,6 +12,29 @@ const User = require('../models/User');
 const Contact = require('../models/Contact');
 const MailLog = require('../models/MailLog');
 
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
+
+async function sendWithBrevo(apiKey, { from, fromName, to, subject, text }) {
+  const response = await fetch(BREVO_API_URL, {
+    method: 'POST',
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender: { name: fromName, email: from },
+      to: [{ email: to }],
+      subject,
+      textContent: text,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.message || `Brevo API error: ${response.status}`);
+  }
+  return payload;
+}
+
 // Use a simple in-memory queue with concurrency 1 and interval 3 seconds
 // This ensures we don't hit rate limits quickly for Gmail
 const emailQueue = new PQueue({ concurrency: 1, intervalCap: 1, interval: 3000 });
@@ -35,8 +58,10 @@ exports.sendBatch = async (req, res) => {
     const userId = req.user._id;
 
     const user = await User.findById(userId);
-    if (!user.smtpConfig || !user.smtpConfig.user || !user.smtpConfig.pass) {
-      return res.status(400).json({ error: 'SMTP configuration is missing. Please update your settings.' });
+    const useBrevo = !!user.brevoApiKey;
+
+    if (!useBrevo && (!user.smtpConfig || !user.smtpConfig.user || !user.smtpConfig.pass)) {
+      return res.status(400).json({ error: 'Email configuration is missing. Please update your settings.' });
     }
 
     const contacts = await Contact.find({ _id: { $in: contactIds }, userId });
@@ -45,29 +70,32 @@ exports.sendBatch = async (req, res) => {
       return res.status(400).json({ error: 'No valid contacts found to send emails.' });
     }
 
-    let smtpHostIp = user.smtpConfig.host;
-    try {
-      const { address } = await lookup(user.smtpConfig.host, { family: 4 });
-      if (address) smtpHostIp = address;
-    } catch (e) {
-      console.warn("Failed to manually resolve SMTP host to IPv4", e);
-    }
+    let transporter;
+    if (!useBrevo) {
+      let smtpHostIp = user.smtpConfig.host;
+      try {
+        const { address } = await lookup(user.smtpConfig.host, { family: 4 });
+        if (address) smtpHostIp = address;
+      } catch (e) {
+        console.warn("Failed to manually resolve SMTP host to IPv4", e);
+      }
 
-    const transporter = nodemailer.createTransport({
-      host: smtpHostIp,
-      port: user.smtpConfig.port,
-      secure: user.smtpConfig.port === 465,
-      auth: {
-        user: user.smtpConfig.user,
-        pass: user.smtpConfig.pass,
-      },
-      tls: {
-        rejectUnauthorized: false,
-        servername: user.smtpConfig.host
-      },
-      family: 4,
-      lookup: lookupSmtpHost
-    });
+      transporter = nodemailer.createTransport({
+        host: smtpHostIp,
+        port: user.smtpConfig.port,
+        secure: user.smtpConfig.port === 465,
+        auth: {
+          user: user.smtpConfig.user,
+          pass: user.smtpConfig.pass,
+        },
+        tls: {
+          rejectUnauthorized: false,
+          servername: user.smtpConfig.host
+        },
+        family: 4,
+        lookup: lookupSmtpHost
+      });
+    }
 
     res.json({ message: `Queued ${contacts.length} emails for sending.`, count: contacts.length });
 
@@ -78,12 +106,25 @@ exports.sendBatch = async (req, res) => {
           const subject = renderTemplate(subjectOverride || user.mailTemplate.subject, user, contact, jobLinkOverride, roleOverride);
           const body = renderTemplate(bodyOverride || user.mailTemplate.body, user, contact, jobLinkOverride, roleOverride);
 
-          const info = await transporter.sendMail({
-            from: `"${user.name}" <${user.smtpConfig.user}>`,
-            to: contact.email,
-            subject: subject,
-            text: body, // plain text body
-          });
+          let messageId = '';
+          if (useBrevo) {
+            const result = await sendWithBrevo(user.brevoApiKey, {
+              from: user.email || user.smtpConfig?.user || 'noreply@jobfinder.com',
+              fromName: user.name || '',
+              to: contact.email,
+              subject,
+              text: body,
+            });
+            messageId = result.messageId || 'brevo-' + Date.now();
+          } else {
+            const info = await transporter.sendMail({
+              from: `"${user.name}" <${user.smtpConfig.user}>`,
+              to: contact.email,
+              subject: subject,
+              text: body, // plain text body
+            });
+            messageId = info.messageId;
+          }
 
           // Log success
           await MailLog.create({
@@ -92,7 +133,7 @@ exports.sendBatch = async (req, res) => {
             subject,
             body,
             status: 'sent',
-            providerMessageId: info.messageId
+            providerMessageId: messageId
           });
 
           await Contact.findByIdAndUpdate(contact._id, { status: 'sent', lastMailedAt: new Date() });
@@ -145,7 +186,24 @@ exports.testConnection = async (req, res) => {
   let user;
   try {
     user = await User.findById(req.user._id);
-    if (!user || !user.smtpConfig || !user.smtpConfig.user || !user.smtpConfig.pass) {
+    if (!user) {
+      return res.status(400).json({ error: 'User not found.' });
+    }
+
+    if (user.brevoApiKey) {
+      console.log('Starting Brevo API verify');
+      const response = await fetch('https://api.brevo.com/v3/account', {
+        headers: { 'api-key': user.brevoApiKey }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || `Brevo API error: ${response.status}`);
+      }
+      console.log('Brevo verify success');
+      return res.json({ message: 'Brevo API connected successfully!' });
+    }
+
+    if (!user.smtpConfig || !user.smtpConfig.user || !user.smtpConfig.pass) {
       return res.status(400).json({ error: 'SMTP configuration is missing. Please save your settings first.' });
     }
 
@@ -181,7 +239,7 @@ exports.testConnection = async (req, res) => {
     console.log('SMTP verify success');
     res.json({ message: 'Gmail connected successfully!' });
   } catch (error) {
-    console.error('SMTP Test Error:', error);
+    console.error('Connection Test Error:', error);
     let smtpHostIp = user && user.smtpConfig ? user.smtpConfig.host : 'unknown';
     if (user && user.smtpConfig) {
       try {
@@ -190,7 +248,10 @@ exports.testConnection = async (req, res) => {
       } catch (e) {}
     }
     
-    let errorDump = `Message: ${error.message} | Code: ${error.code} | Address: ${error.address} | ResolvedIP: ${smtpHostIp} | Syscall: ${error.syscall}`;
+    let errorDump = `Message: ${error.message}`;
+    if (!user?.brevoApiKey) {
+       errorDump += ` | Code: ${error.code} | Address: ${error.address} | ResolvedIP: ${smtpHostIp} | Syscall: ${error.syscall}`;
+    }
     res.status(400).json({ 
       error: `Failed to connect. Technical error: ${errorDump}` 
     });
