@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const PQueue = require('p-queue').default;
 const dns = require('dns');
+const { lookup } = require('dns').promises;
 dns.setDefaultResultOrder('ipv4first'); // Force IPv4 to fix ENETUNREACH on Render
 
 const lookupSmtpHost = (hostname, options, callback) => {
@@ -44,8 +45,16 @@ exports.sendBatch = async (req, res) => {
       return res.status(400).json({ error: 'No valid contacts found to send emails.' });
     }
 
+    let smtpHostIp = user.smtpConfig.host;
+    try {
+      const { address } = await lookup(user.smtpConfig.host, { family: 4 });
+      if (address) smtpHostIp = address;
+    } catch (e) {
+      console.warn("Failed to manually resolve SMTP host to IPv4", e);
+    }
+
     const transporter = nodemailer.createTransport({
-      host: user.smtpConfig.host,
+      host: smtpHostIp,
       port: user.smtpConfig.port,
       secure: user.smtpConfig.port === 465,
       auth: {
@@ -139,8 +148,16 @@ exports.testConnection = async (req, res) => {
       return res.status(400).json({ error: 'SMTP configuration is missing. Please save your settings first.' });
     }
 
+    let smtpHostIp = user.smtpConfig.host;
+    try {
+      const { address } = await lookup(user.smtpConfig.host, { family: 4 });
+      if (address) smtpHostIp = address;
+    } catch (e) {
+      console.warn("Failed to manually resolve SMTP host to IPv4", e);
+    }
+
     const transporter = nodemailer.createTransport({
-      host: user.smtpConfig.host,
+      host: smtpHostIp,
       port: user.smtpConfig.port,
       secure: user.smtpConfig.port === 465,
       auth: {
