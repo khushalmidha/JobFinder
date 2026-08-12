@@ -181,8 +181,15 @@ exports.testConnection = async (req, res) => {
     res.json({ message: 'Gmail connected successfully!' });
   } catch (error) {
     console.error('SMTP Test Error:', error);
+    let smtpHostIp = user.smtpConfig.host;
+    try {
+      const { address } = await lookup(user.smtpConfig.host, { family: 4 });
+      if (address) smtpHostIp = address;
+    } catch (e) {}
+    
+    let errorDump = `Message: ${error.message} | Code: ${error.code} | Address: ${error.address} | ResolvedIP: ${smtpHostIp} | Syscall: ${error.syscall}`;
     res.status(400).json({ 
-      error: 'Failed to connect. Please make sure you are using an App Password (not your normal Gmail password), and that 2-Step Verification is enabled on your Google account. Technical error: ' + error.message 
+      error: `Failed to connect. Technical error: ${errorDump}` 
     });
   }
 };
