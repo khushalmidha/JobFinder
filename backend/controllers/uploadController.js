@@ -44,7 +44,7 @@ exports.parseFile = async (req, res) => {
           const originalEmail = headerMap.email ? String(row[headerMap.email]).trim() : '';
           const emailLower = originalEmail.toLowerCase();
           
-          if (!comp && emailLower.includes('@')) {
+          if ((!comp || comp.toLowerCase() === 'unknown') && emailLower.includes('@')) {
             const domain = emailLower.split('@')[1];
             if (domain && !genericDomains.includes(domain)) {
               const domainName = domain.split('.')[0];
