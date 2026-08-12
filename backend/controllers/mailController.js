@@ -1,5 +1,8 @@
 const nodemailer = require('nodemailer');
 const PQueue = require('p-queue').default;
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first'); // Force IPv4 to fix ENETUNREACH on Render
+
 const User = require('../models/User');
 const Contact = require('../models/Contact');
 const MailLog = require('../models/MailLog');
