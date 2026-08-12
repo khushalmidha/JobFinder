@@ -3,6 +3,10 @@ const PQueue = require('p-queue').default;
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first'); // Force IPv4 to fix ENETUNREACH on Render
 
+const lookupSmtpHost = (hostname, options, callback) => {
+  dns.lookup(hostname, { ...options, family: 4 }, callback);
+};
+
 const User = require('../models/User');
 const Contact = require('../models/Contact');
 const MailLog = require('../models/MailLog');
@@ -43,15 +47,17 @@ exports.sendBatch = async (req, res) => {
     const transporter = nodemailer.createTransport({
       host: user.smtpConfig.host,
       port: user.smtpConfig.port,
-      secure: user.smtpConfig.port === 465, // true for 465, false for other ports
+      secure: user.smtpConfig.port === 465,
       auth: {
         user: user.smtpConfig.user,
-        pass: user.smtpConfig.pass, // decryption happens automatically via mongoose getter
+        pass: user.smtpConfig.pass,
       },
       tls: {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        servername: user.smtpConfig.host
       },
-      family: 4 // Force IPv4 to prevent ENETUNREACH on IPv6-lacking hosts
+      family: 4,
+      lookup: lookupSmtpHost
     });
 
     res.json({ message: `Queued ${contacts.length} emails for sending.`, count: contacts.length });
@@ -142,9 +148,11 @@ exports.testConnection = async (req, res) => {
         pass: user.smtpConfig.pass,
       },
       tls: {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        servername: user.smtpConfig.host
       },
       family: 4,
+      lookup: lookupSmtpHost,
       connectionTimeout: 5000,
       greetingTimeout: 5000,
       socketTimeout: 5000
