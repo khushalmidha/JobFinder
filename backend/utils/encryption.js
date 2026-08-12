@@ -14,14 +14,19 @@ function encrypt(text) {
 
 function decrypt(text) {
   if (!text) return text;
-  let textParts = text.split(':');
-  if (textParts.length !== 2) return text;
-  let iv = Buffer.from(textParts.shift(), 'hex');
-  let encryptedText = Buffer.from(textParts.join(':'), 'hex');
-  let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)), iv);
-  let decrypted = decipher.update(encryptedText);
-  decrypted = Buffer.concat([decrypted, decipher.final()]);
-  return decrypted.toString();
+  try {
+    let textParts = text.split(':');
+    if (textParts.length !== 2) return text;
+    let iv = Buffer.from(textParts.shift(), 'hex');
+    let encryptedText = Buffer.from(textParts.join(':'), 'hex');
+    let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)), iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+  } catch (error) {
+    console.error('Decryption failed:', error.message);
+    return '';
+  }
 }
 
 module.exports = { encrypt, decrypt };
