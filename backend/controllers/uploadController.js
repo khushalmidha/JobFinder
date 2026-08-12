@@ -37,16 +37,30 @@ exports.parseFile = async (req, res) => {
         };
 
         let lastCompany = 'Unknown';
+        const genericDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'icloud.com', 'aol.com', 'protonmail.com'];
+
         contactsData = data.map(row => {
           let comp = headerMap.company ? String(row[headerMap.company]).trim() : '';
-          if (comp) {
+          const originalEmail = headerMap.email ? String(row[headerMap.email]).trim() : '';
+          const emailLower = originalEmail.toLowerCase();
+          
+          if (!comp && emailLower.includes('@')) {
+            const domain = emailLower.split('@')[1];
+            if (domain && !genericDomains.includes(domain)) {
+              const domainName = domain.split('.')[0];
+              comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+            }
+          }
+
+          if (comp && comp.toLowerCase() !== 'unknown') {
             lastCompany = comp;
           } else {
             comp = lastCompany;
           }
+          
           return {
             company: comp,
-            email: headerMap.email ? String(row[headerMap.email]).trim() : '',
+            email: originalEmail,
             hrName: headerMap.hrName ? String(row[headerMap.hrName]).trim() : '',
             role: headerMap.role ? String(row[headerMap.role]).trim() : '',
             package: headerMap.package ? String(row[headerMap.package]).trim() : ''
@@ -105,14 +119,37 @@ exports.parseText = async (req, res) => {
       contactsData = [contactsData];
     }
     
-    // Fallbacks
-    contactsData = contactsData.map(c => ({
-      company: c.company || 'Unknown',
-      email: c.email || '',
-      hrName: c.hrName || '',
-      role: c.role || '',
-      package: c.package || ''
-    })).filter(c => c.email && /.+@.+\..+/.test(c.email));
+    // Fallbacks and domain extraction
+    let lastCompanyText = 'Unknown';
+    const genericDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'icloud.com', 'aol.com', 'protonmail.com'];
+
+    contactsData = contactsData.map(c => {
+      let comp = c.company || '';
+      const originalEmail = c.email || '';
+      const emailLower = originalEmail.toLowerCase();
+      
+      if ((!comp || comp.toLowerCase() === 'unknown') && emailLower.includes('@')) {
+        const domain = emailLower.split('@')[1];
+        if (domain && !genericDomains.includes(domain)) {
+          const domainName = domain.split('.')[0];
+          comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+        }
+      }
+
+      if (comp && comp.toLowerCase() !== 'unknown') {
+        lastCompanyText = comp;
+      } else {
+        comp = lastCompanyText;
+      }
+
+      return {
+        company: comp,
+        email: originalEmail,
+        hrName: c.hrName || '',
+        role: c.role || '',
+        package: c.package || ''
+      };
+    }).filter(c => c.email && /.+@.+\..+/.test(c.email));
 
     res.json({ contacts: contactsData });
   } catch (error) {
