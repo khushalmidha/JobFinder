@@ -113,7 +113,8 @@ const Settings = () => {
       const { data } = await api.post('/mail/test-connection');
       setTestResult({ type: 'success', message: data.message });
     } catch (err) {
-      setTestResult({ type: 'error', message: err.response?.data?.error || 'Failed to connect. Please check credentials.' });
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to connect. Please check credentials.';
+      setTestResult({ type: 'error', message: errorMsg });
     } finally {
       setTestingConnection(false);
     }
