@@ -144,10 +144,15 @@ exports.testConnection = async (req, res) => {
       tls: {
         rejectUnauthorized: false
       },
-      family: 4
+      family: 4,
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000
     });
 
+    console.log(`Starting SMTP verify for user: ${user.smtpConfig.user}`);
     await transporter.verify();
+    console.log('SMTP verify success');
     res.json({ message: 'Gmail connected successfully!' });
   } catch (error) {
     console.error('SMTP Test Error:', error);
