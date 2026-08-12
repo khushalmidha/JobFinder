@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import api from '../services/api';
 import { UploadCloud, FileType, CheckCircle, AlertCircle } from 'lucide-react';
 
@@ -10,7 +10,21 @@ const Import = () => {
   const [status, setStatus] = useState('');
   const [rawText, setRawText] = useState('');
   const [textLoading, setTextLoading] = useState(false);
+  const [companyOverride, setCompanyOverride] = useState('');
+  const [existingCompanies, setExistingCompanies] = useState([]);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      try {
+        const { data } = await api.get('/contacts/companies');
+        setExistingCompanies(data || []);
+      } catch (err) {
+        console.error('Failed to fetch companies', err);
+      }
+    };
+    fetchCompanies();
+  }, []);
 
   const handleUpload = async (e) => {
     e.preventDefault();
@@ -38,9 +52,13 @@ const Import = () => {
     try {
       setTextLoading(true);
       setStatus('');
-      const { data } = await api.post('/upload/parse-text', { text: rawText });
+      const { data } = await api.post('/upload/parse-text', { 
+        text: rawText,
+        companyOverride: companyOverride 
+      });
       setParsedContacts(data.contacts || []);
       setRawText('');
+      setCompanyOverride('');
     } catch (err) {
       setStatus(err.response?.data?.error || 'Failed to parse text. Make sure Gemini API Key is set.');
     } finally {
@@ -138,6 +156,24 @@ const Import = () => {
           <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 p-8 flex flex-col">
             <h2 className="font-bold text-zinc-100 mb-2">AI Magic Paste</h2>
             <p className="text-sm text-zinc-400 mb-4">Paste random text containing emails, names, or companies. Gemini will extract them automatically.</p>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Force Company (Optional)</label>
+              <input 
+                type="text"
+                list="company-list"
+                value={companyOverride}
+                onChange={(e) => setCompanyOverride(e.target.value)}
+                placeholder="Leave blank for AI auto-detect"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-zinc-200 placeholder-zinc-700 outline-none focus:border-yellow-500 transition-colors"
+              />
+              <datalist id="company-list">
+                {existingCompanies.map((c, i) => (
+                  <option key={i} value={c} />
+                ))}
+              </datalist>
+            </div>
+
             <textarea
               value={rawText}
               onChange={(e) => setRawText(e.target.value)}

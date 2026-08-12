@@ -22,6 +22,19 @@ exports.getContacts = async (req, res) => {
   }
 };
 
+exports.getCompanies = async (req, res) => {
+  try {
+    const companies = await Contact.distinct('company', { userId: req.user._id });
+    // Filter out empty and Unknown, then sort
+    const validCompanies = companies
+      .filter(c => c && c.trim() && c.toLowerCase() !== 'unknown')
+      .sort((a, b) => a.localeCompare(b));
+    res.json(validCompanies);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 exports.bulkCreate = async (req, res) => {
   try {
     const { contacts } = req.body;

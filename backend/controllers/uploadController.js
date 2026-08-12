@@ -86,7 +86,7 @@ exports.parseFile = async (req, res) => {
 
 exports.parseText = async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, companyOverride } = req.body;
     if (!text || text.trim() === '') {
       return res.status(400).json({ error: 'No text provided.' });
     }
@@ -128,18 +128,23 @@ exports.parseText = async (req, res) => {
       const originalEmail = c.email || '';
       const emailLower = originalEmail.toLowerCase();
       
-      if ((!comp || comp.toLowerCase() === 'unknown') && emailLower.includes('@')) {
-        const domain = emailLower.split('@')[1];
-        if (domain && !genericDomains.includes(domain)) {
-          const domainName = domain.split('.')[0];
-          comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
-        }
-      }
-
-      if (comp && comp.toLowerCase() !== 'unknown') {
-        lastCompanyText = comp;
+      // Force company if override provided
+      if (companyOverride && companyOverride.trim()) {
+        comp = companyOverride.trim();
       } else {
-        comp = lastCompanyText;
+        if ((!comp || comp.toLowerCase() === 'unknown') && emailLower.includes('@')) {
+          const domain = emailLower.split('@')[1];
+          if (domain && !genericDomains.includes(domain)) {
+            const domainName = domain.split('.')[0];
+            comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+          }
+        }
+
+        if (comp && comp.toLowerCase() !== 'unknown') {
+          lastCompanyText = comp;
+        } else {
+          comp = lastCompanyText;
+        }
       }
 
       return {

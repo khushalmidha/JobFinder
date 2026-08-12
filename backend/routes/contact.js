@@ -4,6 +4,7 @@ const contactController = require('../controllers/contactController');
 const auth = require('../middleware/auth');
 
 router.get('/', auth, contactController.getContacts);
+router.get('/companies', auth, contactController.getCompanies);
 router.post('/bulk', auth, contactController.bulkCreate);
 router.patch('/:id', auth, contactController.updateContact);
 router.delete('/:id', auth, contactController.deleteContact);
