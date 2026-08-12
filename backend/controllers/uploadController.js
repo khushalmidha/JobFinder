@@ -45,10 +45,16 @@ exports.parseFile = async (req, res) => {
           const emailLower = originalEmail.toLowerCase();
           
           if ((!comp || comp.toLowerCase() === 'unknown') && emailLower.includes('@')) {
-            const domain = emailLower.split('@')[1];
-            if (domain && !genericDomains.includes(domain)) {
-              const domainName = domain.split('.')[0];
-              comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+            const emails = emailLower.split(/[\s,]+/).filter(e => e.trim() !== '');
+            for (const e of emails) {
+              if (e.includes('@')) {
+                const domain = e.split('@')[1];
+                if (domain && !genericDomains.includes(domain)) {
+                  const domainName = domain.split('.')[0];
+                  comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+                  break; // Found the corporate domain
+                }
+              }
             }
           }
 
@@ -133,10 +139,16 @@ exports.parseText = async (req, res) => {
         comp = companyOverride.trim();
       } else {
         if ((!comp || comp.toLowerCase() === 'unknown') && emailLower.includes('@')) {
-          const domain = emailLower.split('@')[1];
-          if (domain && !genericDomains.includes(domain)) {
-            const domainName = domain.split('.')[0];
-            comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+          const emails = emailLower.split(/[\s,]+/).filter(e => e.trim() !== '');
+          for (const e of emails) {
+            if (e.includes('@')) {
+              const domain = e.split('@')[1];
+              if (domain && !genericDomains.includes(domain)) {
+                const domainName = domain.split('.')[0];
+                comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+                break; // Found the corporate domain
+              }
+            }
           }
         }
 
