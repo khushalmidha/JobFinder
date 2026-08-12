@@ -26,7 +26,7 @@ app.get('/api/health', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/coldmail')
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/jobfinder')
   .then(() => {
     console.log('Connected to MongoDB');
     app.listen(PORT, () => {
