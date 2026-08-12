@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const User = require('../models/User');
+const { GoogleGenAI } = require('@google/genai');
 
 exports.signup = async (req, res) => {
   try {
@@ -53,6 +54,59 @@ exports.updateSettings = async (req, res) => {
     delete updates.passwordHash; // prevent password change here
     const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true }).select('-passwordHash');
     res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.convertTemplate = async (req, res) => {
+  try {
+    const { rawText } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (!user.geminiApiKey) {
+      return res.status(400).json({ error: 'Gemini API key is missing. Please set it in Settings.' });
+    }
+
+    const ai = new GoogleGenAI({ apiKey: user.geminiApiKey });
+    
+    const prompt = `You are an AI assistant that helps convert personalized cold emails into parameterized Handlebars-style templates.
+    I will provide you with a raw email text that may include both a subject line and a body.
+    Your job is to replace the specific names/roles/details in the text with the following placeholders exactly as they are (do NOT invent new ones):
+    {{companyName}}
+    {{role}}
+    {{jobId}}
+    {{userName}}
+    {{college}}
+    {{cgpa}}
+    {{userEmail}}
+    {{userPhone}}
+    {{resumeLink}}
+
+    Return ONLY a valid JSON object with two keys: "subject" and "body". 
+    If the raw text does not explicitly mention a subject, invent a suitable parameterized subject line.
+    Do NOT include any markdown formatting like \`\`\`json around your response.
+
+    Here is the raw text to convert:
+    ${rawText}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+
+    let convertedText = response.text || '';
+    convertedText = convertedText.replace(/^\`\`\`(json|text)?/, '').replace(/\`\`\`$/, '').trim();
+    
+    let result;
+    try {
+      result = JSON.parse(convertedText);
+    } catch (e) {
+      // Fallback if parsing fails
+      result = { subject: "Default Subject (AI Parsing Failed)", body: convertedText };
+    }
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

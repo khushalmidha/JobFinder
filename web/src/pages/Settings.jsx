@@ -7,6 +7,10 @@ const Settings = () => {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   
+  const [showAiConverter, setShowAiConverter] = useState(false);
+  const [rawAiText, setRawAiText] = useState('');
+  const [converting, setConverting] = useState(false);
+  
   const [settings, setSettings] = useState({
     name: '',
     email: '',
@@ -73,6 +77,28 @@ const Settings = () => {
       setStatus('Failed to save settings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAiConvert = async () => {
+    if (!rawAiText.trim()) return;
+    setConverting(true);
+    try {
+      const { data } = await api.post('/auth/convert-template', { rawText: rawAiText });
+      setSettings(prev => ({
+        ...prev,
+        mailTemplate: {
+          subject: data.subject || prev.mailTemplate.subject,
+          body: data.body || prev.mailTemplate.body
+        }
+      }));
+      setShowAiConverter(false);
+      setRawAiText('');
+      setStatus('Template converted! Make sure to save settings.');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to convert template');
+    } finally {
+      setConverting(false);
     }
   };
 
@@ -168,12 +194,43 @@ const Settings = () => {
 
         {/* Default Template */}
         <section className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 p-6">
-          <h2 className="text-lg font-bold text-zinc-100 mb-4 flex items-center">
-            <FileText className="w-5 h-5 mr-2 text-yellow-500" /> Default Email Template
-          </h2>
+          <div className="flex justify-between items-start mb-4">
+            <h2 className="text-lg font-bold text-zinc-100 flex items-center">
+              <FileText className="w-5 h-5 mr-2 text-yellow-500" /> Default Email Template
+            </h2>
+            <button
+              type="button"
+              onClick={() => setShowAiConverter(!showAiConverter)}
+              className="bg-zinc-800 hover:bg-zinc-700 text-yellow-500 text-sm font-medium py-1.5 px-3 rounded-lg border border-zinc-700 transition"
+            >
+              {showAiConverter ? 'Close AI Converter' : 'Convert with AI ✨'}
+            </button>
+          </div>
           <p className="text-sm text-zinc-400 mb-4">
-            Available placeholders: <code className="text-yellow-500">{"{{userName}}"}</code>, <code className="text-yellow-500">{"{{userEmail}}"}</code>, <code className="text-yellow-500">{"{{resumeLink}}"}</code>, <code className="text-yellow-500">{"{{jobLink}}"}</code>, <code className="text-yellow-500">{"{{companyName}}"}</code>, <code className="text-yellow-500">{"{{hrName}}"}</code>.
+            Available placeholders: <code className="text-yellow-500">{"{{userName}}"}</code>, <code className="text-yellow-500">{"{{userEmail}}"}</code>, <code className="text-yellow-500">{"{{resumeLink}}"}</code>, <code className="text-yellow-500">{"{{jobLink}}"}</code>, <code className="text-yellow-500">{"{{companyName}}"}</code>, <code className="text-yellow-500">{"{{hrName}}"}</code>, <code className="text-yellow-500">{"{{role}}"}</code>.
           </p>
+
+          {showAiConverter && (
+            <div className="mb-6 bg-zinc-800/50 p-4 rounded-lg border border-yellow-500/20">
+              <h3 className="text-sm font-bold text-yellow-500 mb-2">AI Template Converter</h3>
+              <p className="text-xs text-zinc-400 mb-3">Paste your personalized email below (including subject if you have one). AI will automatically replace company names, roles, and your personal info with the correct <code className="text-zinc-300">{"{{tags}}"}</code>.</p>
+              <textarea 
+                value={rawAiText}
+                onChange={(e) => setRawAiText(e.target.value)}
+                placeholder="Subject: Referral Request for Backend Intern | Enterpret... \n\nHi [Name],\nI came across the Backend Intern role at Enterpret..."
+                className="w-full h-40 bg-zinc-900 border border-zinc-700 text-zinc-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-yellow-500 outline-none resize-none mb-3"
+              ></textarea>
+              <button
+                type="button"
+                onClick={handleAiConvert}
+                disabled={converting || !rawAiText.trim()}
+                className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 text-sm font-bold py-2 px-4 rounded-lg shadow-sm transition disabled:opacity-50"
+              >
+                {converting ? 'Converting...' : 'Generate Smart Template'}
+              </button>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-1">Subject</label>

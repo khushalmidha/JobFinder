@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import api from '../services/api';
 import { X, Send } from 'lucide-react';
 
-const ComposePanel = ({ selectedIds, jobLinkOverride, onClose, onSuccess }) => {
+const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onSuccess }) => {
   const [subjectOverride, setSubjectOverride] = useState('');
   const [bodyOverride, setBodyOverride] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,7 +16,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, onClose, onSuccess }) => {
         contactIds: selectedIds,
         subjectOverride: subjectOverride || undefined,
         bodyOverride: bodyOverride || undefined,
-        jobLinkOverride: jobLinkOverride || undefined
+        jobLinkOverride: jobLinkOverride || undefined,
+        roleOverride: roleOverride || undefined
       });
       onSuccess();
     } catch (err) {
@@ -45,7 +46,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, onClose, onSuccess }) => {
           <div className="mb-6">
             <p className="text-sm text-zinc-400 mb-4">
               Leave fields blank to use your default template from Settings.
-              Placeholders available: <code className="bg-zinc-800 px-1 py-0.5 rounded text-yellow-500">{"{{companyName}}"}</code>, <code className="bg-zinc-800 px-1 py-0.5 rounded text-yellow-500">{"{{hrName}}"}</code>, <code className="bg-zinc-800 px-1 py-0.5 rounded text-yellow-500">{"{{userName}}"}</code>.
+              Placeholders available: <code className="bg-zinc-800 px-1 py-0.5 rounded text-yellow-500">{"{{companyName}}"}</code>, <code className="bg-zinc-800 px-1 py-0.5 rounded text-yellow-500">{"{{hrName}}"}</code>, <code className="bg-zinc-800 px-1 py-0.5 rounded text-yellow-500">{"{{role}}"}</code>.
             </p>
           </div>
 

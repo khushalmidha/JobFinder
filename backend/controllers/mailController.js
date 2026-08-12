@@ -8,21 +8,22 @@ const MailLog = require('../models/MailLog');
 // This ensures we don't hit rate limits quickly for Gmail
 const emailQueue = new PQueue({ concurrency: 1, intervalCap: 1, interval: 3000 });
 
-function renderTemplate(template, user, contact, jobLinkOverride) {
+function renderTemplate(template, user, contact, jobLinkOverride, roleOverride) {
   let content = template;
   content = content.replace(/{{userName}}/g, user.name || '');
   content = content.replace(/{{userEmail}}/g, user.email || '');
-  // add more replacements as needed like {{college}}, {{cgpa}}, {{userPhone}} if they were added to user schema
   content = content.replace(/{{resumeLink}}/g, user.resumeLink || '');
   content = content.replace(/{{jobLink}}/g, jobLinkOverride || user.defaultJobLink || '');
+  content = content.replace(/{{jobId}}/g, jobLinkOverride || user.defaultJobLink || '');
   content = content.replace(/{{companyName}}/g, contact.company || '');
   content = content.replace(/{{hrName}}/g, contact.hrName || '');
+  content = content.replace(/{{role}}/g, roleOverride || contact.role || '');
   return content;
 }
 
 exports.sendBatch = async (req, res) => {
   try {
-    const { contactIds, subjectOverride, bodyOverride, jobLinkOverride } = req.body;
+    const { contactIds, subjectOverride, bodyOverride, jobLinkOverride, roleOverride } = req.body;
     const userId = req.user._id;
 
     const user = await User.findById(userId);
@@ -56,8 +57,8 @@ exports.sendBatch = async (req, res) => {
     for (const contact of contacts) {
       emailQueue.add(async () => {
         try {
-          const subject = renderTemplate(subjectOverride || user.mailTemplate.subject, user, contact, jobLinkOverride);
-          const body = renderTemplate(bodyOverride || user.mailTemplate.body, user, contact, jobLinkOverride);
+          const subject = renderTemplate(subjectOverride || user.mailTemplate.subject, user, contact, jobLinkOverride, roleOverride);
+          const body = renderTemplate(bodyOverride || user.mailTemplate.body, user, contact, jobLinkOverride, roleOverride);
 
           const info = await transporter.sendMail({
             from: `"${user.name}" <${user.smtpConfig.user}>`,

@@ -13,6 +13,7 @@ const Dashboard = () => {
   const [composeData, setComposeData] = useState({ ids: [], jobLink: '' });
   const [error, setError] = useState('');
   const [jobLinks, setJobLinks] = useState({}); // { companyName: 'jobLink' }
+  const [roles, setRoles] = useState({}); // { companyName: 'role' }
 
   const fetchContacts = async () => {
     try {
@@ -95,7 +96,8 @@ const Dashboard = () => {
     
     setComposeData({
       ids: idsToUse,
-      jobLink: jobLinks[company] || ''
+      jobLink: jobLinks[company] || '',
+      role: roles[company] || ''
     });
     setShowCompose(true);
   };
@@ -175,11 +177,21 @@ const Dashboard = () => {
                 </div>
                 
                 <div className="flex items-center space-x-3 w-full md:w-auto">
-                  <div className="relative flex-1 md:w-64">
+                  <div className="relative flex-1 md:w-48">
                     <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                     <input 
                       type="text" 
-                      placeholder="Job ID or Link (Optional)"
+                      placeholder="Role (e.g. SDE 1)"
+                      value={roles[company] || ''}
+                      onChange={(e) => setRoles({ ...roles, [company]: e.target.value })}
+                      className="w-full pl-9 pr-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-sm text-zinc-200 placeholder:text-zinc-500"
+                    />
+                  </div>
+                  <div className="relative flex-1 md:w-48">
+                    <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Job ID or Link"
                       value={jobLinks[company] || ''}
                       onChange={(e) => setJobLinks({ ...jobLinks, [company]: e.target.value })}
                       className="w-full pl-9 pr-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-sm text-zinc-200 placeholder:text-zinc-500"
@@ -233,6 +245,7 @@ const Dashboard = () => {
         <ComposePanel 
           selectedIds={composeData.ids} 
           jobLinkOverride={composeData.jobLink}
+          roleOverride={composeData.role}
           onClose={() => setShowCompose(false)} 
           onSuccess={() => {
             setShowCompose(false);
