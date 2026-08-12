@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
 
 const Dashboard = () => {
@@ -102,6 +102,35 @@ const Dashboard = () => {
     setShowCompose(true);
   };
 
+  const downloadCSV = () => {
+    if (contacts.length === 0) return;
+    
+    // Headers
+    const headers = ['Company', 'HR Name', 'Email', 'Role', 'Status', 'Date Added', 'Last Mailed'];
+    
+    // Data rows
+    const rows = filteredContacts.map(c => [
+      `"${(c.company || '').replace(/"/g, '""')}"`,
+      `"${(c.hrName || '').replace(/"/g, '""')}"`,
+      `"${(c.email || '').replace(/"/g, '""')}"`,
+      `"${(c.role || '').replace(/"/g, '""')}"`,
+      `"${(c.status || '').replace(/"/g, '""')}"`,
+      `"${new Date(c.createdAt).toLocaleDateString()}"`,
+      `"${c.lastMailedAt ? new Date(c.lastMailedAt).toLocaleDateString() : 'Never'}"`
+    ]);
+    
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'jobfinder_contacts.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto font-sans">
       <div className="flex justify-between items-center mb-8">
@@ -115,6 +144,16 @@ const Dashboard = () => {
             )}
           </div>
           <p className="text-zinc-400 text-sm mt-1">Manage outreach per company and inject specific Job Links.</p>
+        </div>
+        <div>
+          <button 
+            onClick={downloadCSV}
+            disabled={contacts.length === 0}
+            className="flex items-center space-x-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-4 py-2 rounded-lg font-medium transition-colors border border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export to Excel (CSV)</span>
+          </button>
         </div>
       </div>
 
