@@ -142,9 +142,10 @@ exports.getQueueStatus = async (req, res) => {
 };
 
 exports.testConnection = async (req, res) => {
+  let user;
   try {
-    const user = await User.findById(req.user._id);
-    if (!user.smtpConfig || !user.smtpConfig.user || !user.smtpConfig.pass) {
+    user = await User.findById(req.user._id);
+    if (!user || !user.smtpConfig || !user.smtpConfig.user || !user.smtpConfig.pass) {
       return res.status(400).json({ error: 'SMTP configuration is missing. Please save your settings first.' });
     }
 
@@ -181,11 +182,13 @@ exports.testConnection = async (req, res) => {
     res.json({ message: 'Gmail connected successfully!' });
   } catch (error) {
     console.error('SMTP Test Error:', error);
-    let smtpHostIp = user.smtpConfig.host;
-    try {
-      const { address } = await lookup(user.smtpConfig.host, { family: 4 });
-      if (address) smtpHostIp = address;
-    } catch (e) {}
+    let smtpHostIp = user && user.smtpConfig ? user.smtpConfig.host : 'unknown';
+    if (user && user.smtpConfig) {
+      try {
+        const { address } = await lookup(user.smtpConfig.host, { family: 4 });
+        if (address) smtpHostIp = address;
+      } catch (e) {}
+    }
     
     let errorDump = `Message: ${error.message} | Code: ${error.code} | Address: ${error.address} | ResolvedIP: ${smtpHostIp} | Syscall: ${error.syscall}`;
     res.status(400).json({ 
