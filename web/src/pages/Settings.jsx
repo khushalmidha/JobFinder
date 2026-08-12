@@ -6,6 +6,8 @@ const Settings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState(null);
   
   const [showAiConverter, setShowAiConverter] = useState(false);
   const [rawAiText, setRawAiText] = useState('');
@@ -102,6 +104,21 @@ const Settings = () => {
     }
   };
 
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setTestResult(null);
+    // First save the settings so the backend has the latest credentials to test
+    try {
+      await api.patch('/auth/settings', settings);
+      const { data } = await api.post('/mail/test-connection');
+      setTestResult({ type: 'success', message: data.message });
+    } catch (err) {
+      setTestResult({ type: 'error', message: err.response?.data?.error || 'Failed to connect. Please check credentials.' });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
   if (loading) return <div className="p-8 text-center text-slate-500">Loading settings...</div>;
 
   return (
@@ -187,6 +204,21 @@ const Settings = () => {
                   <label className="block text-xs font-medium text-zinc-400 mb-1">SMTP Password / App Password</label>
                   <input type="password" name="smtpConfig.pass" value={settings.smtpConfig.pass} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
                 </div>
+              </div>
+              <div className="mt-6 flex flex-col items-start">
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testingConnection || !settings.smtpConfig.user || !settings.smtpConfig.pass}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-yellow-500 text-sm font-medium py-2 px-4 rounded-lg border border-zinc-700 transition disabled:opacity-50"
+                >
+                  {testingConnection ? 'Testing...' : 'Test Connection'}
+                </button>
+                {testResult && (
+                  <div className={`mt-3 text-sm p-3 rounded-lg border w-full ${testResult.type === 'success' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                    {testResult.message}
+                  </div>
+                )}
               </div>
             </div>
           </div>

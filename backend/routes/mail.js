@@ -7,6 +7,7 @@ const auth = require('../middleware/auth');
 router.post('/send', auth, mailController.sendBatch);
 router.get('/logs', auth, mailController.getLogs);
 router.get('/queue-status', auth, mailController.getQueueStatus);
+router.post('/test-connection', auth, mailController.testConnection);
 router.post('/analyze-response', auth, analyzeController.analyzeResponse);
 
 module.exports = router;

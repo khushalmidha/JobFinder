@@ -122,3 +122,34 @@ exports.getQueueStatus = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.testConnection = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user.smtpConfig || !user.smtpConfig.user || !user.smtpConfig.pass) {
+      return res.status(400).json({ error: 'SMTP configuration is missing. Please save your settings first.' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: user.smtpConfig.host,
+      port: user.smtpConfig.port,
+      secure: user.smtpConfig.port === 465,
+      auth: {
+        user: user.smtpConfig.user,
+        pass: user.smtpConfig.pass,
+      },
+      tls: {
+        rejectUnauthorized: false
+      },
+      family: 4
+    });
+
+    await transporter.verify();
+    res.json({ message: 'Gmail connected successfully!' });
+  } catch (error) {
+    console.error('SMTP Test Error:', error);
+    res.status(400).json({ 
+      error: 'Failed to connect. Please make sure you are using an App Password (not your normal Gmail password), and that 2-Step Verification is enabled on your Google account. Technical error: ' + error.message 
+    });
+  }
+};
