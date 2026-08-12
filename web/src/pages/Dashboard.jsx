@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
+import * as XLSX from 'xlsx';
 
 const Dashboard = () => {
   const [contacts, setContacts] = useState([]);
@@ -102,33 +103,36 @@ const Dashboard = () => {
     setShowCompose(true);
   };
 
-  const downloadCSV = () => {
+  const downloadExcel = () => {
     if (contacts.length === 0) return;
     
-    // Headers
-    const headers = ['Company', 'HR Name', 'Email', 'Role', 'Status', 'Date Added', 'Last Mailed'];
+    const formattedData = filteredContacts.map(c => ({
+      'Company': c.company || '',
+      'HR Name': c.hrName || '',
+      'Email': c.email || '',
+      'Role': c.role || '',
+      'Status': c.status || '',
+      'Date Added': new Date(c.createdAt).toLocaleDateString(),
+      'Last Mailed': c.lastMailedAt ? new Date(c.lastMailedAt).toLocaleDateString() : 'Never'
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(formattedData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Contacts");
     
-    // Data rows
-    const rows = filteredContacts.map(c => [
-      `"${(c.company || '').replace(/"/g, '""')}"`,
-      `"${(c.hrName || '').replace(/"/g, '""')}"`,
-      `"${(c.email || '').replace(/"/g, '""')}"`,
-      `"${(c.role || '').replace(/"/g, '""')}"`,
-      `"${(c.status || '').replace(/"/g, '""')}"`,
-      `"${new Date(c.createdAt).toLocaleDateString()}"`,
-      `"${c.lastMailedAt ? new Date(c.lastMailedAt).toLocaleDateString() : 'Never'}"`
-    ]);
-    
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'jobfinder_contacts.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Auto-size columns roughly
+    const colWidths = [
+      { wch: 20 }, // Company
+      { wch: 20 }, // HR Name
+      { wch: 30 }, // Email
+      { wch: 20 }, // Role
+      { wch: 15 }, // Status
+      { wch: 15 }, // Date Added
+      { wch: 15 }  // Last Mailed
+    ];
+    worksheet['!cols'] = colWidths;
+
+    XLSX.writeFile(workbook, "JobFinder_Contacts.xlsx");
   };
 
   return (
@@ -147,12 +151,12 @@ const Dashboard = () => {
         </div>
         <div>
           <button 
-            onClick={downloadCSV}
+            onClick={downloadExcel}
             disabled={contacts.length === 0}
             className="flex items-center space-x-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-4 py-2 rounded-lg font-medium transition-colors border border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Download className="w-4 h-4" />
-            <span>Export to Excel (CSV)</span>
+            <span>Export to Excel</span>
           </button>
         </div>
       </div>
