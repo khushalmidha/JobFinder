@@ -39,9 +39,22 @@ exports.bulkCreate = async (req, res) => {
   try {
     const { contacts } = req.body;
     const existingCompanies = await Contact.distinct('company', { userId: req.user._id });
+
+    // Split multiple emails into separate contacts
+    let flattenedContacts = [];
+    for (const c of contacts) {
+      if (c.email && c.email.match(/[\s,;]/)) {
+        const emails = c.email.split(/[\s,;]+/).filter(e => e.trim());
+        for (const e of emails) {
+          flattenedContacts.push({ ...c, email: e.trim() });
+        }
+      } else {
+        flattenedContacts.push(c);
+      }
+    }
     
     // Format contacts with userId and enforce consistent company casing
-    const toInsert = contacts.map(c => {
+    const toInsert = flattenedContacts.map(c => {
       let comp = (c.company && c.company.trim()) ? c.company.trim() : 'Unknown';
       
       if (comp.toLowerCase() !== 'unknown') {
