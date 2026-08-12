@@ -38,13 +38,35 @@ exports.getCompanies = async (req, res) => {
 exports.bulkCreate = async (req, res) => {
   try {
     const { contacts } = req.body;
-    // Format contacts with userId
-    const toInsert = contacts.map(c => ({
-      ...c,
-      company: (c.company && c.company.trim()) ? c.company.trim() : 'Unknown',
-      userId: req.user._id,
-      source: c.source || 'extension'
-    }));
+    const existingCompanies = await Contact.distinct('company', { userId: req.user._id });
+    
+    // Format contacts with userId and enforce consistent company casing
+    const toInsert = contacts.map(c => {
+      let comp = (c.company && c.company.trim()) ? c.company.trim() : 'Unknown';
+      
+      if (comp.toLowerCase() !== 'unknown') {
+        const lowerComp = comp.toLowerCase();
+        // 1. Exact case-insensitive match
+        let match = existingCompanies.find(n => n.toLowerCase() === lowerComp);
+        
+        // 2. Suffix removal match (e.g. "Zeptonow" -> "Zepto", "Yellow ai" -> "Yellow")
+        if (!match && (lowerComp.endsWith('now') || lowerComp.endsWith('ai') || lowerComp.endsWith(' games'))) {
+           match = existingCompanies.find(n => {
+             const nLower = n.toLowerCase();
+             return lowerComp.startsWith(nLower) || nLower.startsWith(lowerComp);
+           });
+        }
+        
+        if (match) comp = match;
+      }
+
+      return {
+        ...c,
+        company: comp,
+        userId: req.user._id,
+        source: c.source || 'extension'
+      };
+    });
     
     // Deduplicate the incoming payload itself (keep first occurrence)
     const uniqueIncoming = [];

@@ -104,7 +104,14 @@ const Dashboard = () => {
     <div className="p-8 max-w-7xl mx-auto font-sans">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">Contacts by Company</h1>
+          <div className="flex items-center space-x-3">
+            <h1 className="text-2xl font-bold text-zinc-100">Contacts by Company</h1>
+            {!loading && contacts.length > 0 && (
+              <span className="bg-zinc-800 text-yellow-500 text-xs px-2.5 py-1 rounded-full font-bold border border-yellow-500/20 shadow-sm">
+                {filteredContacts.length} {filteredContacts.length !== contacts.length ? `of ${contacts.length} ` : ''}Contacts
+              </span>
+            )}
+          </div>
           <p className="text-zinc-400 text-sm mt-1">Manage outreach per company and inject specific Job Links.</p>
         </div>
       </div>
