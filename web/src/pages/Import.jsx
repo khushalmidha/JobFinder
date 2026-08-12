@@ -60,7 +60,7 @@ const Import = () => {
       setRawText('');
       setCompanyOverride('');
     } catch (err) {
-      setStatus(err.response?.data?.error || 'Failed to parse text. Make sure Gemini API Key is set.');
+      setStatus(err.response?.data?.error || err.message || 'Failed to parse text.');
     } finally {
       setTextLoading(false);
     }
@@ -79,7 +79,7 @@ const Import = () => {
       setParsedContacts([]);
       setFile(null);
     } catch (err) {
-      setStatus(err.response?.data?.error || 'Failed to save contacts.');
+      setStatus(err.response?.data?.error || err.message || 'Failed to save contacts.');
     } finally {
       setSaving(false);
     }
