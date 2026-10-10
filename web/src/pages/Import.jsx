@@ -12,6 +12,8 @@ const Import = () => {
   const [textLoading, setTextLoading] = useState(false);
   const [companyOverride, setCompanyOverride] = useState('');
   const [existingCompanies, setExistingCompanies] = useState([]);
+  const [progress, setProgress] = useState(0);
+  const [liveCount, setLiveCount] = useState(0);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -26,6 +28,26 @@ const Import = () => {
     fetchCompanies();
   }, []);
 
+  const startProgressTimer = () => {
+    setProgress(0);
+    const expectedTimeMs = 12000;
+    const updateInterval = 100;
+    const totalSteps = expectedTimeMs / updateInterval;
+    let currentStep = 0;
+
+    const interval = setInterval(() => {
+      currentStep++;
+      const newProgress = 95 * (1 - Math.pow(1 - (currentStep / totalSteps), 3));
+      if (currentStep >= totalSteps) {
+        setProgress(95);
+      } else {
+        setProgress(newProgress);
+      }
+    }, updateInterval);
+
+    return interval;
+  };
+
   const handleUpload = async (e) => {
     e.preventDefault();
     if (!file) return;
@@ -33,36 +55,169 @@ const Import = () => {
     const formData = new FormData();
     formData.append('file', file);
 
+    const normalizeContacts = (contactsData) => {
+      let lastCompanyText = 'Unknown';
+      const genericDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'icloud.com', 'aol.com', 'protonmail.com'];
+
+      return contactsData.map(c => {
+        let comp = c.company || '';
+        const originalEmail = c.email || '';
+        const emailLower = originalEmail.toLowerCase();
+        
+        if (companyOverride && companyOverride.trim()) {
+          comp = companyOverride.trim();
+        } else {
+          if ((!comp || comp.toLowerCase() === 'unknown') && emailLower.includes('@')) {
+            const emails = emailLower.split(/[\s,]+/).filter(e => e.trim() !== '');
+            for (const e of emails) {
+              if (e.includes('@')) {
+                const domain = e.split('@')[1];
+                if (domain && !genericDomains.includes(domain)) {
+                  const domainName = domain.split('.')[0];
+                  comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+                  break;
+                }
+              }
+            }
+          }
+
+          if (comp && comp.toLowerCase() !== 'unknown') {
+            lastCompanyText = comp;
+          } else {
+            comp = lastCompanyText;
+          }
+        }
+
+        return {
+          company: comp,
+          email: originalEmail,
+          hrName: c.hrName || '',
+          role: c.role || '',
+          package: c.package || ''
+        };
+      }).filter(c => c.email && /.+@.+\..+/.test(c.email));
+    };
+
+    let timer;
     try {
       setLoading(true);
       setStatus('');
+      setLiveCount(0);
+      timer = startProgressTimer();
       const { data } = await api.post('/upload/parse', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onDownloadProgress: (progressEvent) => {
+          const text = progressEvent.event.target.responseText;
+          if (text) {
+            const match = text.match(/"email"\s*:/gi);
+            if (match) {
+              setLiveCount(match.length);
+            }
+          }
+        }
       });
-      setParsedContacts(data.contacts || []);
+      clearInterval(timer);
+      setProgress(100);
+      
+      let contacts = data.contacts || [];
+      if (file.name.toLowerCase().endsWith('.pdf')) {
+        contacts = normalizeContacts(contacts);
+      }
+      setParsedContacts(contacts);
     } catch (err) {
+      clearInterval(timer);
+      setProgress(0);
       setStatus(err.response?.data?.error || 'Failed to parse file. Make sure Gemini API Key is set in Settings.');
     } finally {
-      setLoading(false);
+      setTimeout(() => {
+        setLoading(false);
+        setProgress(0);
+      }, 500);
     }
   };
 
   const handleTextParse = async () => {
     if (!rawText.trim()) return;
+
+    const normalizeContacts = (contactsData) => {
+      let lastCompanyText = 'Unknown';
+      const genericDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'icloud.com', 'aol.com', 'protonmail.com'];
+
+      return contactsData.map(c => {
+        let comp = c.company || '';
+        const originalEmail = c.email || '';
+        const emailLower = originalEmail.toLowerCase();
+        
+        if (companyOverride && companyOverride.trim()) {
+          comp = companyOverride.trim();
+        } else {
+          if ((!comp || comp.toLowerCase() === 'unknown') && emailLower.includes('@')) {
+            const emails = emailLower.split(/[\s,]+/).filter(e => e.trim() !== '');
+            for (const e of emails) {
+              if (e.includes('@')) {
+                const domain = e.split('@')[1];
+                if (domain && !genericDomains.includes(domain)) {
+                  const domainName = domain.split('.')[0];
+                  comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+                  break;
+                }
+              }
+            }
+          }
+
+          if (comp && comp.toLowerCase() !== 'unknown') {
+            lastCompanyText = comp;
+          } else {
+            comp = lastCompanyText;
+          }
+        }
+
+        return {
+          company: comp,
+          email: originalEmail,
+          hrName: c.hrName || '',
+          role: c.role || '',
+          package: c.package || ''
+        };
+      }).filter(c => c.email && /.+@.+\..+/.test(c.email));
+    };
+
+    let timer;
     try {
       setTextLoading(true);
       setStatus('');
+      setLiveCount(0);
+      timer = startProgressTimer();
       const { data } = await api.post('/upload/parse-text', { 
         text: rawText,
         companyOverride: companyOverride 
+      }, {
+        onDownloadProgress: (progressEvent) => {
+          const text = progressEvent.event.target.responseText;
+          if (text) {
+            const match = text.match(/"email"\s*:/gi);
+            if (match) {
+              setLiveCount(match.length);
+            }
+          }
+        }
       });
-      setParsedContacts(data.contacts || []);
+      clearInterval(timer);
+      setProgress(100);
+      
+      const contacts = normalizeContacts(data.contacts || []);
+      setParsedContacts(contacts);
       setRawText('');
       setCompanyOverride('');
     } catch (err) {
+      clearInterval(timer);
+      setProgress(0);
       setStatus(err.response?.data?.error || err.message || 'Failed to parse text.');
     } finally {
-      setTextLoading(false);
+      setTimeout(() => {
+        setTextLoading(false);
+        setProgress(0);
+      }, 500);
     }
   };
 
@@ -99,9 +254,18 @@ const Import = () => {
 
   return (
     <div className="p-8 max-w-5xl mx-auto font-sans">
+      {(loading || textLoading || saving) && (
+        <div className="fixed top-0 left-0 right-0 h-1.5 bg-zinc-900 z-50 overflow-hidden">
+          <div 
+            className="h-full bg-yellow-500 transition-all duration-300 ease-out"
+            style={{ width: `${saving ? 100 : progress}%` }}
+          ></div>
+        </div>
+      )}
+
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-zinc-100">Import Contacts</h1>
-        <p className="text-zinc-400 text-sm mt-1">Upload a CSV or Excel file. Gemini AI will automatically extract contact info.</p>
+        <p className="text-zinc-400 text-sm mt-1">Upload a CSV, Excel, or PDF file. Gemini AI will automatically extract contact info.</p>
       </div>
 
       {status && (
@@ -117,7 +281,7 @@ const Import = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 p-8 flex flex-col justify-center">
             <h2 className="font-bold text-zinc-100 mb-2 text-center">Upload File</h2>
-            <p className="text-sm text-zinc-400 mb-6 text-center">Upload a CSV or Excel file containing contact data.</p>
+            <p className="text-sm text-zinc-400 mb-6 text-center">Upload a CSV, Excel, or PDF file containing contact data.</p>
             <form onSubmit={handleUpload} className="flex flex-col items-center">
               <div 
                 className="w-full max-w-xl border-2 border-dashed border-zinc-700 rounded-xl p-8 text-center hover:bg-zinc-800/50 transition-colors cursor-pointer"
@@ -125,12 +289,12 @@ const Import = () => {
               >
                 <UploadCloud className="w-12 h-12 text-zinc-500 mx-auto mb-4" />
                 <p className="font-medium text-zinc-300 mb-1">Click to upload or drag and drop</p>
-                <p className="text-sm text-zinc-500">CSV, XLS, or XLSX</p>
+                <p className="text-sm text-zinc-500">CSV, XLS, XLSX, or PDF</p>
                 <input 
                   type="file" 
                   ref={fileInputRef}
                   className="hidden" 
-                  accept=".csv, .xlsx, .xls"
+                  accept=".csv, .xlsx, .xls, .pdf"
                   onChange={(e) => setFile(e.target.files[0])}
                 />
               </div>
@@ -148,7 +312,7 @@ const Import = () => {
                 disabled={!file || loading}
                 className="mt-8 bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-medium py-3 px-8 rounded-lg shadow-sm transition disabled:opacity-50 w-full max-w-xs"
               >
-                {loading ? 'AI is parsing file...' : 'Extract from File'}
+                {loading ? `Parsing... (${liveCount} extracted)` : 'Extract from File'}
               </button>
             </form>
           </div>
@@ -186,7 +350,7 @@ const Import = () => {
                 disabled={!rawText.trim() || textLoading}
                 className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-medium py-3 px-8 rounded-lg shadow-sm transition disabled:opacity-50 w-full max-w-xs"
               >
-                {textLoading ? 'AI is extracting...' : 'Extract with Gemini'}
+                {textLoading ? `Extracting... (${liveCount} extracted)` : 'Extract with Gemini'}
               </button>
             </div>
           </div>

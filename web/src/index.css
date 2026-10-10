@@ -23,3 +23,11 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-zinc-600;
 }
+
+@keyframes loading-bar {
+  0% { transform: translateX(-100%); width: 50%; }
+  100% { transform: translateX(200%); width: 50%; }
+}
+.animate-loading-bar {
+  animation: loading-bar 1.5s infinite linear;
+}

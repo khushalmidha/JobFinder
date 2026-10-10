@@ -64,3 +64,54 @@ exports.analyzeResponse = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.generateFormAnswers = async (req, res) => {
+  try {
+    const { company, role, question, resumeDetails } = req.body;
+    const userId = req.user._id;
+
+    if (!question) {
+      return res.status(400).json({ error: 'Missing question parameter' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user.geminiApiKey) {
+      return res.status(400).json({ error: 'Gemini API key is not configured.' });
+    }
+
+    const ai = new GoogleGenAI({ apiKey: user.geminiApiKey });
+
+    const prompt = `
+You are writing a humanoid, highly authentic, professional response for a job application form question.
+Candidate: Khushal Midha (B.Tech Computer Science & AI at IIIT Lucknow, CGPA 8.72/10, LeetCode Guardian 2137, Codeforces Expert 1809, ICPC Amritapuri Regionalist).
+Target Company: ${company || 'the hiring company'}
+Target Role: ${role || 'Software Development Engineer'}
+Selected Resume Specialization / Highlights: ${JSON.stringify(resumeDetails || {})}
+
+Question asked on application form:
+"${question}"
+
+Instructions:
+- Write in the first person ("I").
+- Sound deeply human, articulate, enthusiastic, and grounded. Avoid cliché buzzwords like "I am a passionate synergy-driven learner".
+- Cite real project details (e.g. MediPulse high concurrency with Redis distributed locks & Kafka, or QuantDesk C++ deterministic order book, or ThreatGraph GNNs, or Coffeee.io SDE internship).
+- Keep length appropriate for an application essay (1-2 crisp paragraphs, roughly 80-160 words).
+- Return JSON: { "answer": "..." }
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      }
+    });
+
+    const aiData = JSON.parse(response.text);
+    res.json({ success: true, answer: aiData.answer });
+  } catch (error) {
+    console.error('Generate Form Answer Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+

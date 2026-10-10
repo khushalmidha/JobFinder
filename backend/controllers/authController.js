@@ -111,3 +111,35 @@ exports.convertTemplate = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.blockCompany = async (req, res) => {
+  try {
+    const { company } = req.body;
+    if (!company) return res.status(400).json({ error: 'Company name required' });
+    
+    const user = await User.findById(req.user._id);
+    if (!user.blockedCompanies.includes(company)) {
+      user.blockedCompanies.push(company);
+      await user.save();
+    }
+    
+    res.json({ message: 'Company blocked successfully', blockedCompanies: user.blockedCompanies });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.unblockCompany = async (req, res) => {
+  try {
+    const { company } = req.body;
+    if (!company) return res.status(400).json({ error: 'Company name required' });
+    
+    const user = await User.findById(req.user._id);
+    user.blockedCompanies = user.blockedCompanies.filter(c => c !== company);
+    await user.save();
+    
+    res.json({ message: 'Company unblocked successfully', blockedCompanies: user.blockedCompanies });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

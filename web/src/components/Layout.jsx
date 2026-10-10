@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, Settings, LogOut, Send } from 'lucide-react';
+import { LayoutDashboard, Users, Settings, LogOut, Send, Briefcase } from 'lucide-react';
 
 const Layout = ({ onLogout }) => {
   const location = useLocation();
@@ -14,6 +14,7 @@ const Layout = ({ onLogout }) => {
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/jobs', label: 'Job Hunter & HR Sheet', icon: Briefcase },
     { path: '/import', label: 'Import Contacts', icon: Users },
     { path: '/logs', label: 'Queue & Logs', icon: Send },
     { path: '/settings', label: 'Settings', icon: Settings },

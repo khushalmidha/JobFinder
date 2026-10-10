@@ -20,6 +20,8 @@ const Settings = () => {
     defaultJobLink: '',
     geminiApiKey: '',
     brevoApiKey: '',
+    hunterApiKey: '',
+    apolloApiKey: '',
     smtpConfig: {
       host: 'smtp.gmail.com',
       port: 465,
@@ -77,7 +79,7 @@ const Settings = () => {
       setStatus('Settings saved successfully!');
       setTimeout(() => setStatus(''), 3000);
     } catch (err) {
-      setStatus('Failed to save settings');
+      setStatus(err.response?.data?.error || err.message || 'Failed to save settings');
     } finally {
       setSaving(false);
     }
@@ -192,6 +194,18 @@ const Settings = () => {
               <p className="text-xs text-zinc-500 mb-2">Free at brevo.com — emails will be sent via Brevo API (HTTPS) instead of SMTP. This works on all hosting providers including Render.</p>
               <input type="password" name="brevoApiKey" value={settings.brevoApiKey} onChange={handleChange} placeholder="xkeysib-..." className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
             </div>
+
+            <div className="pt-4 border-t border-zinc-800/60">
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Hunter.io API Key</label>
+              <p className="text-xs text-zinc-500 mb-2">Get free key at <a href="https://hunter.io/api_keys" target="_blank" rel="noreferrer" className="text-yellow-400 underline">hunter.io/api_keys</a> — used for automated recruiter domain discovery & verification.</p>
+              <input type="password" name="hunterApiKey" value={settings.hunterApiKey || ''} onChange={handleChange} placeholder="e.g. 5a1b2c3d..." className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
+            </div>
+
+            <div className="pt-4 border-t border-zinc-800/60">
+              <label className="block text-sm font-medium text-zinc-300 mb-1">Apollo.io API Key</label>
+              <p className="text-xs text-zinc-500 mb-2">Get free key at <a href="https://app.apollo.io/#/settings/integrations/api_keys" target="_blank" rel="noreferrer" className="text-yellow-400 underline">apollo.io API settings</a> — used for large-scale talent acquisition and recruiter lead extraction.</p>
+              <input type="password" name="apolloApiKey" value={settings.apolloApiKey || ''} onChange={handleChange} placeholder="e.g. apollo_api_key_..." className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
+            </div>
             
             <div className="pt-4 border-t border-zinc-800">
               <h3 className="font-semibold text-zinc-100 mb-4">SMTP Configuration (e.g. Gmail)</h3>
@@ -210,8 +224,11 @@ const Settings = () => {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-zinc-400 mb-1">SMTP Password / App Password</label>
-                  <input type="password" name="smtpConfig.pass" value={settings.smtpConfig.pass} onChange={handleChange} className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
+                  <input type="password" name="smtpConfig.pass" value={settings.smtpConfig.pass} onChange={handleChange} placeholder="16-character Google App Password" className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
                 </div>
+              </div>
+              <div className="mt-3 p-3 bg-amber-950/30 border border-amber-800/40 rounded-lg text-xs text-amber-300/90 leading-relaxed">
+                ⚠️ <strong>Important for Gmail Accounts:</strong> Google blocks normal account passwords for automated apps. You must enable 2-Step Verification on your Google Account and generate a 16-character <strong>App Password</strong> at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="underline font-bold text-yellow-400">myaccount.google.com/apppasswords</a>, then paste that 16-character code here without spaces.
               </div>
               <div className="mt-6 flex flex-col items-start">
                 <button

@@ -1,7 +1,39 @@
 const { GoogleGenAI } = require('@google/genai');
 const xlsx = require('xlsx');
 const fs = require('fs');
+const pdfParse = require('pdf-parse');
 const User = require('../models/User');
+
+const parseWithGeminiStream = async (text, user, companyOverride, res) => {
+  console.log('Starting Gemini API request with text length:', text.length);
+  const ai = new GoogleGenAI({ apiKey: user.geminiApiKey });
+  const prompt = `Extract a list of contacts from the following raw text. Return the result strictly as a JSON array of objects. Each object must have these string fields: 'company', 'email', 'hrName', 'role', 'package'. If a field is not found, leave it as an empty string, except for 'company' which should default to 'Unknown' if not found.
+
+  Raw text:
+  ${text}`;
+
+  const responseStream = await ai.models.generateContentStream({
+    model: 'gemini-2.5-flash',
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+    }
+  });
+
+  res.setHeader('Content-Type', 'application/json');
+  res.write('{"contacts":');
+  
+  for await (const chunk of responseStream) {
+    if (chunk.text) {
+      // Remove any markdown codeblocks if Gemini still hallucinates them in stream
+      let cleanText = chunk.text.replace(/```json/gi, '').replace(/```/g, '');
+      res.write(cleanText);
+    }
+  }
+  
+  res.write('}');
+  res.end();
+};
 
 exports.parseFile = async (req, res) => {
   try {
@@ -73,20 +105,31 @@ exports.parseFile = async (req, res) => {
           };
         }).filter(c => c.email && /.+@.+\..+/.test(c.email)); // only keep rows with a valid email format
       }
+    } else if (ext === 'pdf') {
+      const dataBuffer = fs.readFileSync(req.file.path);
+      const pdfData = await pdfParse(dataBuffer);
+      fs.unlinkSync(req.file.path);
+      await parseWithGeminiStream(pdfData.text.substring(0, 50000), user, '', res);
+      return; // Stream handled response
     } else {
       fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: 'Unsupported file type. Please upload Excel or CSV.' });
+      return res.status(400).json({ error: 'Unsupported file type. Please upload Excel, CSV, or PDF.' });
     }
 
     // Clean up uploaded file
-    fs.unlinkSync(req.file.path);
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
     res.json({ contacts: contactsData });
   } catch (error) {
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    res.status(500).json({ error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    } else {
+      res.write(`], "error": ${JSON.stringify(error.message)}}`);
+      res.end();
+    }
   }
 };
 
@@ -102,75 +145,14 @@ exports.parseText = async (req, res) => {
       return res.status(400).json({ error: 'Gemini API key is missing. Please update your settings.' });
     }
 
-    const ai = new GoogleGenAI({ apiKey: user.geminiApiKey });
-    const prompt = `Extract a list of contacts from the following raw text. Return the result strictly as a JSON array of objects. Each object must have these string fields: 'company', 'email', 'hrName', 'role', 'package'. If a field is not found, leave it as an empty string, except for 'company' which should default to 'Unknown' if not found.
-
-    Raw text:
-    ${text}`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-      }
-    });
-
-    let jsonString = response.text || '[]';
-    // Clean up markdown formatting if any
-    jsonString = jsonString.replace(/```json/gi, '').replace(/```/g, '').trim();
-    
-    let contactsData = JSON.parse(jsonString);
-    if (!Array.isArray(contactsData)) {
-      contactsData = [contactsData];
-    }
-    
-    // Fallbacks and domain extraction
-    let lastCompanyText = 'Unknown';
-    const genericDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'icloud.com', 'aol.com', 'protonmail.com'];
-
-    contactsData = contactsData.map(c => {
-      let comp = c.company || '';
-      const originalEmail = c.email || '';
-      const emailLower = originalEmail.toLowerCase();
-      
-      // Force company if override provided
-      if (companyOverride && companyOverride.trim()) {
-        comp = companyOverride.trim();
-      } else {
-        if ((!comp || comp.toLowerCase() === 'unknown') && emailLower.includes('@')) {
-          const emails = emailLower.split(/[\s,]+/).filter(e => e.trim() !== '');
-          for (const e of emails) {
-            if (e.includes('@')) {
-              const domain = e.split('@')[1];
-              if (domain && !genericDomains.includes(domain)) {
-                const domainName = domain.split('.')[0];
-                comp = domainName.charAt(0).toUpperCase() + domainName.slice(1);
-                break; // Found the corporate domain
-              }
-            }
-          }
-        }
-
-        if (comp && comp.toLowerCase() !== 'unknown') {
-          lastCompanyText = comp;
-        } else {
-          comp = lastCompanyText;
-        }
-      }
-
-      return {
-        company: comp,
-        email: originalEmail,
-        hrName: c.hrName || '',
-        role: c.role || '',
-        package: c.package || ''
-      };
-    }).filter(c => c.email && /.+@.+\..+/.test(c.email));
-
-    res.json({ contacts: contactsData });
+    await parseWithGeminiStream(text, user, companyOverride, res);
   } catch (error) {
     console.error('Gemini Parsing Error:', error);
-    res.status(500).json({ error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    } else {
+      res.write(`], "error": ${JSON.stringify(error.message)}}`);
+      res.end();
+    }
   }
 };

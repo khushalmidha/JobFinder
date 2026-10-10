@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
-import { Settings, Send, ClipboardPaste, MailOpen } from 'lucide-react';
+import { Settings, Sparkles, Send, MailOpen, ClipboardPaste, Zap, Briefcase } from 'lucide-react';
+import { AutoApplyPanel } from './components/AutoApplyPanel';
 
 const Popup = () => {
+  const [activeTab, setActiveTab] = useState('auto-apply');
   const [token, setToken] = useState('');
   const [backendUrl, setBackendUrl] = useState('https://jobfinder-backend.onrender.com');
+
+  // ColdMail outreach states
   const [rawText, setRawText] = useState('');
   const [contacts, setContacts] = useState([]);
   const [status, setStatus] = useState('');
@@ -30,15 +34,12 @@ const Popup = () => {
         return;
       }
 
-      // Inject script to scrape the current email thread
+      // Inject script to scrape current email thread
       const [{ result }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: () => {
-          // Gmail DOM: .h7 is the message container
           const messages = document.querySelectorAll('.h7');
           if (messages.length === 0) return null;
-          
-          // Get the most recent message (last one usually)
           const lastMsg = messages[messages.length - 1];
           const bodyEl = lastMsg.querySelector('.a3s');
           const senderEl = lastMsg.querySelector('span[email]');
@@ -58,7 +59,6 @@ const Popup = () => {
 
       setStatus(`Found email from ${result.senderEmail}. Analyzing...`);
 
-      // Send to backend for Gemini analysis
       const res = await fetch(`${backendUrl}/api/mail/analyze-response`, {
         method: 'POST',
         headers: {
@@ -82,14 +82,11 @@ const Popup = () => {
   const extractEmails = () => {
     const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
     const matches = rawText.match(emailRegex) || [];
-    
-    // Deduplicate array
     const uniqueEmails = [...new Set(matches)];
     
     const parsedContacts = uniqueEmails.map(email => {
       const domain = email.split('@')[1];
       let company = domain.split('.')[0];
-      // Capitalize company
       company = company.charAt(0).toUpperCase() + company.slice(1);
       
       return {
@@ -112,7 +109,6 @@ const Popup = () => {
 
     setStatus('Saving contacts...');
     try {
-      // 1. Bulk create contacts
       const createRes = await fetch(`${backendUrl}/api/contacts/bulk`, {
         method: 'POST',
         headers: {
@@ -132,7 +128,6 @@ const Popup = () => {
         return setStatus('All contacts were already imported.');
       }
 
-      // 2. Queue emails
       setStatus('Sending emails...');
       const sendRes = await fetch(`${backendUrl}/api/mail/send`, {
         method: 'POST',
@@ -153,14 +148,6 @@ const Popup = () => {
     }
   };
 
-  const toggleContact = (id) => {
-    setContacts(contacts.map(c => c.id === id ? { ...c, selected: !c.selected } : c));
-  };
-
-  const updateCompany = (id, newCompany) => {
-    setContacts(contacts.map(c => c.id === id ? { ...c, company: newCompany } : c));
-  };
-
   const openSettings = () => {
     if (chrome.runtime.openOptionsPage) {
       chrome.runtime.openOptionsPage();
@@ -169,87 +156,155 @@ const Popup = () => {
     }
   };
 
-  if (!token) {
-    return (
-      <div className="p-4 w-80 font-sans text-center bg-zinc-950 text-zinc-100">
-        <h1 className="text-xl font-bold mb-4">ColdMail Pilot</h1>
-        <p className="mb-4 text-zinc-400">Please log in via settings to use the extension.</p>
-        <button onClick={openSettings} className="bg-yellow-500 text-zinc-950 font-bold px-4 py-2 rounded flex items-center justify-center w-full hover:bg-yellow-400 transition-colors">
-          <Settings className="w-4 h-4 mr-2" /> Open Settings
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-[400px] h-[500px] flex flex-col font-sans bg-zinc-950 text-zinc-200 border-zinc-800 border-r border-b shadow-sm">
-      <div className="bg-yellow-500 text-zinc-950 p-3 flex justify-between items-center shadow-md">
-        <h1 className="font-bold text-lg flex items-center"><Send className="w-4 h-4 mr-2"/> ColdMail</h1>
-        <button onClick={openSettings} className="hover:bg-yellow-400 p-1 rounded transition">
-          <Settings className="w-5 h-5" />
+    <div className="w-[430px] min-h-[580px] max-h-[640px] flex flex-col font-sans bg-zinc-950 text-zinc-100 shadow-2xl select-none">
+      {/* Top Header */}
+      <div className="bg-zinc-900 border-b border-zinc-800 px-3.5 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-yellow-500 to-amber-300 flex items-center justify-center font-black text-zinc-950 text-xs shadow-sm">
+            <Zap className="w-4 h-4 fill-zinc-950 text-zinc-950" />
+          </div>
+          <div>
+            <div className="font-extrabold text-sm tracking-tight text-zinc-100 flex items-center gap-1.5">
+              JobFinder <span className="text-[10px] bg-yellow-500/20 text-yellow-400 font-bold px-1.5 py-0.2 rounded border border-yellow-500/30">AI PILOT</span>
+            </div>
+            <div className="text-[10px] text-zinc-400 font-medium">Khushal Midha Profile Active</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <button 
+            onClick={() => window.open('http://localhost:5173/jobs', '_blank')} 
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-yellow-400 hover:bg-zinc-800 transition"
+            title="Open Career Portal Hunter & HR Sheet"
+          >
+            <Briefcase className="w-4 h-4" />
+          </button>
+          <button 
+            onClick={openSettings} 
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition"
+            title="Settings & Backend Config"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Modern Tab Bar */}
+      <div className="flex bg-zinc-950 border-b border-zinc-800/80 px-2 pt-2 gap-1">
+        <button
+          onClick={() => setActiveTab('auto-apply')}
+          className={`flex-1 pb-2 pt-1 px-3 text-xs font-bold rounded-t-lg transition flex items-center justify-center gap-1.5 ${
+            activeTab === 'auto-apply'
+              ? 'bg-zinc-900 text-yellow-400 border-t-2 border-yellow-500 border-x border-zinc-800'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5 text-yellow-400" /> Auto-Apply & CTC
+        </button>
+        <button
+          onClick={() => setActiveTab('cold-outreach')}
+          className={`flex-1 pb-2 pt-1 px-3 text-xs font-bold rounded-t-lg transition flex items-center justify-center gap-1.5 ${
+            activeTab === 'cold-outreach'
+              ? 'bg-zinc-900 text-yellow-400 border-t-2 border-yellow-500 border-x border-zinc-800'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Send className="w-3.5 h-3.5" /> ColdMail Outreach
         </button>
       </div>
-      
-      <div className="p-3 flex-1 overflow-y-auto">
-        {contacts.length === 0 ? (
-          <div className="h-full flex flex-col">
-            <button 
-              onClick={handleScanGmail} 
-              disabled={isScanning}
-              className="mb-4 bg-zinc-800 border border-zinc-700 text-yellow-500 py-2 rounded font-bold flex items-center justify-center hover:bg-zinc-700 transition disabled:opacity-50"
-            >
-              <MailOpen className="w-4 h-4 mr-2"/> {isScanning ? 'Scanning...' : 'Analyze Open Gmail Thread'}
-            </button>
-            <div className="relative flex py-2 items-center mb-4">
-              <div className="flex-grow border-t border-zinc-800"></div>
-              <span className="flex-shrink-0 mx-4 text-zinc-600 text-xs uppercase font-medium">OR</span>
-              <div className="flex-grow border-t border-zinc-800"></div>
-            </div>
-            <label className="block text-sm font-semibold text-zinc-300 mb-1">Paste Job Description / Contacts</label>
-            <textarea 
-              value={rawText}
-              onChange={e => setRawText(e.target.value)}
-              className="flex-1 w-full bg-zinc-900 border border-zinc-800 rounded p-2 text-sm focus:ring-2 focus:ring-yellow-500 focus:outline-none resize-none text-zinc-200 placeholder:text-zinc-600"
-              placeholder="Paste text containing HR emails here..."
-            />
-            <button onClick={extractEmails} className="mt-3 bg-yellow-500 text-zinc-950 py-2 rounded font-bold flex items-center justify-center hover:bg-yellow-400 transition">
-              <ClipboardPaste className="w-4 h-4 mr-2"/> Extract Emails
-            </button>
-          </div>
-        ) : (
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="font-semibold text-zinc-100 text-sm">Review Contacts ({contacts.filter(c => c.selected).length})</h2>
-              <button onClick={() => setContacts([])} className="text-xs text-red-400 hover:underline">Clear</button>
-            </div>
-            
-            <div className="space-y-2 mb-4">
-              {contacts.map(c => (
-                <div key={c.id} className="bg-zinc-900 p-2 border border-zinc-800 rounded flex items-center shadow-sm">
-                  <input type="checkbox" checked={c.selected} onChange={() => toggleContact(c.id)} className="mr-2 h-4 w-4 bg-zinc-800 text-yellow-500 rounded border-zinc-700 focus:ring-yellow-500" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-zinc-400 truncate">{c.email}</p>
-                    <input 
-                      type="text" 
-                      value={c.company} 
-                      onChange={(e) => updateCompany(c.id, e.target.value)} 
-                      className="text-sm font-medium w-full bg-zinc-800/50 border border-transparent focus:border-yellow-500/50 focus:bg-zinc-800 rounded px-1 py-0.5 outline-none text-zinc-200"
-                      placeholder="Company"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
 
-            <button onClick={handleSend} className="w-full bg-green-500 text-zinc-950 py-2 rounded font-bold flex items-center justify-center hover:bg-green-400 transition">
-              <Send className="w-4 h-4 mr-2"/> Send Outreach
-            </button>
-          </div>
-        )}
-        
-        {status && (
-          <div className="mt-3 p-2 bg-yellow-500/10 text-yellow-500 text-xs rounded border border-yellow-500/20 text-center font-medium">
-            {status}
+      {/* Main Body Content */}
+      <div className="flex-1 p-3.5 overflow-y-auto bg-zinc-950 space-y-3">
+        {activeTab === 'auto-apply' ? (
+          <AutoApplyPanel token={token} backendUrl={backendUrl} />
+        ) : (
+          <div className="space-y-3">
+            {!token ? (
+              <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl text-center space-y-3">
+                <p className="text-xs text-zinc-400">ColdMail bulk outreach requires backend authentication.</p>
+                <button 
+                  onClick={openSettings} 
+                  className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-bold px-4 py-2 rounded-lg text-xs w-full transition"
+                >
+                  Configure in Settings
+                </button>
+              </div>
+            ) : contacts.length === 0 ? (
+              <div className="space-y-3">
+                <button 
+                  onClick={handleScanGmail} 
+                  disabled={isScanning}
+                  className="w-full bg-zinc-900 border border-zinc-800 hover:border-yellow-500/40 text-yellow-400 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center transition disabled:opacity-50"
+                >
+                  <MailOpen className="w-4 h-4 mr-2"/> {isScanning ? 'Scanning...' : 'Analyze Open Gmail Thread'}
+                </button>
+                <div className="relative flex py-1 items-center">
+                  <div className="flex-grow border-t border-zinc-800"></div>
+                  <span className="flex-shrink-0 mx-3 text-zinc-600 text-[10px] font-bold">OR</span>
+                  <div className="flex-grow border-t border-zinc-800"></div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">Paste Job Description / Contacts</label>
+                  <textarea 
+                    value={rawText}
+                    onChange={e => setRawText(e.target.value)}
+                    rows={5}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-xs focus:ring-2 focus:ring-yellow-500 focus:outline-none resize-none text-zinc-200 placeholder:text-zinc-600"
+                    placeholder="Paste text containing recruiter/HR emails..."
+                  />
+                </div>
+                <button 
+                  onClick={extractEmails} 
+                  className="w-full bg-yellow-500 hover:bg-yellow-400 text-zinc-950 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center transition"
+                >
+                  <ClipboardPaste className="w-4 h-4 mr-2"/> Extract Emails
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <h2 className="font-bold text-zinc-200 text-xs">Review Contacts ({contacts.filter(c => c.selected).length})</h2>
+                  <button onClick={() => setContacts([])} className="text-[11px] text-red-400 hover:underline">Clear All</button>
+                </div>
+                
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {contacts.map(c => (
+                    <div key={c.id} className="bg-zinc-900 p-2 border border-zinc-800 rounded-lg flex items-center gap-2">
+                      <input 
+                        type="checkbox" 
+                        checked={c.selected} 
+                        onChange={() => setContacts(contacts.map(item => item.id === c.id ? { ...item, selected: !item.selected } : item))} 
+                        className="rounded border-zinc-700 text-yellow-500 focus:ring-yellow-500" 
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] text-zinc-400 truncate">{c.email}</p>
+                        <input 
+                          type="text" 
+                          value={c.company} 
+                          onChange={(e) => setContacts(contacts.map(item => item.id === c.id ? { ...item, company: e.target.value } : item))} 
+                          className="text-xs font-semibold w-full bg-zinc-800/60 border border-transparent focus:border-yellow-500/50 rounded px-1.5 py-0.5 outline-none text-zinc-200"
+                          placeholder="Company"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button 
+                  onClick={handleSend} 
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-zinc-950 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center transition"
+                >
+                  <Send className="w-4 h-4 mr-2"/> Send Outreach to {contacts.filter(c => c.selected).length} Contacts
+                </button>
+              </div>
+            )}
+
+            {status && (
+              <div className="p-2 bg-yellow-500/10 text-yellow-400 text-[11px] rounded-lg border border-yellow-500/20 text-center font-medium">
+                {status}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -6,3 +6,5 @@ dist-tsc/
 build/
 coverage/
 *.log
+backend/uploads/
+*.pem

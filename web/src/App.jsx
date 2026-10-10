@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Import from './pages/Import';
+import JobHunter from './pages/JobHunter';
 import Settings from './pages/Settings';
 import Logs from './pages/Logs';
 import Login from './pages/Login';
@@ -17,6 +18,7 @@ function App() {
         
         <Route path="/" element={isAuthenticated ? <Layout onLogout={() => setIsAuthenticated(false)} /> : <Navigate to="/login" />}>
           <Route index element={<Dashboard />} />
+          <Route path="jobs" element={<JobHunter />} />
           <Route path="import" element={<Import />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<Settings />} />

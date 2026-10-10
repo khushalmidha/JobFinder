@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ColdMail Pilot",
+  "name": "JobFinder AI & Auto-Apply Pilot",
   "version": "1.0.0",
-  "description": "Capture emails and send template outreach instantly",
+  "description": "Auto-detects role, company, estimated SDE1 CTC/Base, best resume matching, and humanoid auto-fill with Email OTP extraction.",
   "action": {
     "default_popup": "index.html"
   },
@@ -10,6 +10,17 @@
     "page": "src/options/index.html",
     "open_in_tab": true
   },
+  "background": {
+    "service_worker": "src/background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/index.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "permissions": [
     "storage",
     "activeTab",
@@ -20,6 +31,7 @@
   "host_permissions": [
     "http://localhost:5000/*",
     "https://jobfinder-backend.onrender.com/*",
-    "https://mail.google.com/*"
+    "https://mail.google.com/*",
+    "<all_urls>"
   ]
 }

@@ -21,7 +21,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
       });
       onSuccess();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to queue emails');
+      console.error('Failed to queue emails:', err);
+      setError(err.response?.data?.error || err.message || 'Failed to queue emails');
     } finally {
       setLoading(false);
     }

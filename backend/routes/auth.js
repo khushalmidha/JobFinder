@@ -8,5 +8,7 @@ router.post('/login', authController.login);
 router.get('/settings', auth, authController.getSettings);
 router.patch('/settings', auth, authController.updateSettings);
 router.post('/convert-template', auth, authController.convertTemplate);
+router.post('/block-company', auth, authController.blockCompany);
+router.post('/unblock-company', auth, authController.unblockCompany);
 
 module.exports = router;

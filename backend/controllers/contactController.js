@@ -3,11 +3,20 @@ const { GoogleGenAI } = require('@google/genai');
 
 exports.getContacts = async (req, res) => {
   try {
-    const { company, status, minPackage, maxPackage, search } = req.query;
+    const { company, status, minPackage, maxPackage, search, isShared } = req.query;
     let query = { userId: req.user._id };
 
     if (company) query.company = { $regex: new RegExp(company, 'i') };
-    if (status) query.status = status;
+    if (status) {
+      if (status === 'replied') {
+        query.status = { $in: ['replied', 'reply_received', 'positive_response', 'negative_response'] };
+      } else {
+        query.status = status;
+      }
+    }
+    if (isShared !== undefined) {
+      query.isShared = isShared === 'true';
+    }
     if (search) query.$or = [
       { company: { $regex: new RegExp(search, 'i') } },
       { hrName: { $regex: new RegExp(search, 'i') } },
@@ -125,6 +134,94 @@ exports.deleteContact = async (req, res) => {
     const contact = await Contact.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
     if (!contact) return res.status(404).json({ error: 'Contact not found.' });
     res.json({ message: 'Contact deleted successfully.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Toggle manual shared status for a contact
+ */
+exports.toggleShared = async (req, res) => {
+  try {
+    const contact = await Contact.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!contact) return res.status(404).json({ error: 'Contact not found.' });
+    
+    contact.isShared = !contact.isShared;
+    await contact.save();
+
+    res.json({ 
+      message: contact.isShared ? 'Contact marked as Shared' : 'Contact removed from Shared', 
+      contact 
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Mark contact as Replied
+ */
+exports.markReplied = async (req, res) => {
+  try {
+    const { replySnippet } = req.body;
+    const contact = await Contact.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!contact) return res.status(404).json({ error: 'Contact not found.' });
+
+    contact.status = 'replied';
+    contact.repliedAt = new Date();
+    if (replySnippet) contact.replySnippet = replySnippet;
+    await contact.save();
+
+    res.json({ message: 'Contact marked as Replied! 💬', contact });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Bulk toggle shared status
+ */
+exports.bulkToggleShared = async (req, res) => {
+  try {
+    const { contactIds, setShared = true } = req.body;
+    if (!contactIds || !Array.isArray(contactIds)) {
+      return res.status(400).json({ error: 'contactIds array required.' });
+    }
+
+    const result = await Contact.updateMany(
+      { _id: { $in: contactIds }, userId: req.user._id },
+      { $set: { isShared: Boolean(setShared) } }
+    );
+
+    res.json({ 
+      message: `Updated ${result.modifiedCount} contacts as ${setShared ? 'Shared' : 'Private'}`, 
+      modifiedCount: result.modifiedCount 
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Bulk mark contacts as Replied
+ */
+exports.bulkMarkReplied = async (req, res) => {
+  try {
+    const { contactIds } = req.body;
+    if (!contactIds || !Array.isArray(contactIds)) {
+      return res.status(400).json({ error: 'contactIds array required.' });
+    }
+
+    const result = await Contact.updateMany(
+      { _id: { $in: contactIds }, userId: req.user._id },
+      { $set: { status: 'replied', repliedAt: new Date() } }
+    );
+
+    res.json({ 
+      message: `Marked ${result.modifiedCount} contacts as Replied! 💬`, 
+      modifiedCount: result.modifiedCount 
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

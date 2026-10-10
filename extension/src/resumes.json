@@ -1,0 +1,302 @@
+{
+  "profile": {
+    "name": "Khushal Midha",
+    "firstName": "Khushal",
+    "lastName": "Midha",
+    "email": "midhakhushal5@gmail.com",
+    "secondaryEmail": "khushalmidha19@gmail.com",
+    "phone": "+91 90507 40836",
+    "phoneRaw": "9050740836",
+    "countryCode": "+91",
+    "location": "Lucknow, Uttar Pradesh, India",
+    "currentCity": "Lucknow",
+    "country": "India",
+    "openToRelocate": true,
+    "linkedin": "https://www.linkedin.com/in/khushalmidha",
+    "github": "https://github.com/khushalmidha",
+    "portfolio": "https://github.com/khushalmidha",
+    "leetcode": "https://leetcode.com/u/khushalmidha",
+    "codeforces": "https://codeforces.com/profile/khushalmidha",
+    "codechef": "https://www.codechef.com/users/khushalmidha",
+    "education": {
+      "institution": "Indian Institute of Information Technology, Lucknow",
+      "shortInstitution": "IIIT Lucknow",
+      "degree": "B.Tech in Computer Science and Artificial Intelligence",
+      "major": "Computer Science and Artificial Intelligence",
+      "cgpa": "8.72",
+      "cgpaScale": "10",
+      "startYear": "2023",
+      "endYear": "2027",
+      "graduationDate": "July 2027",
+      "currentYearOfStudy": "3rd Year",
+      "coursework": ["Object Oriented Programming", "Database Management Systems", "Computer Networks", "Operating Systems", "Data Structures & Algorithms"]
+    },
+    "workAuthorization": {
+      "authorizedInIndia": "Yes",
+      "requiresSponsorship": "No",
+      "noticePeriodDays": "0",
+      "noticePeriodText": "Immediate (0 days)",
+      "currentEmploymentStatus": "Student / Available for Internship & Full-time",
+      "gender": "Male",
+      "pronouns": "He/Him"
+    },
+    "currentExperience": {
+      "company": "Coffeee.io",
+      "role": "SDE Intern",
+      "location": "Remote",
+      "duration": "Jun 2025 – Aug 2025",
+      "years": "0.3",
+      "highlights": [
+        "Built a project-based assessment module (Java, Spring Boot, React, PostgreSQL) where candidates debug live codebases via error logs, graded automatically against hidden test cases.",
+        "Developed a read-only AI assistant (LLMs, Redis, Docker) to provide contextual hints without edit access, preserving evaluation integrity; validated in staging."
+      ]
+    },
+    "salaryExpectations": {
+      "currency": "INR",
+      "expectedCtcLpa": "22 LPA",
+      "expectedBaseLpa": "18 LPA",
+      "formattedRange": "₹18 - ₹25 LPA",
+      "flexible": true
+    }
+  },
+  "resumes": [
+    {
+      "id": "variant_sde_fullstack",
+      "title": "Full-Stack & Backend SDE",
+      "badge": "Core SDE",
+      "targetRoles": [
+        "Software Engineer",
+        "SDE 1",
+        "Fullstack Developer",
+        "Backend Developer",
+        "Frontend Developer",
+        "Software Development Engineer",
+        "Web Developer",
+        "Software Engineer Intern"
+      ],
+      "primaryKeywords": ["react", "node", "express", "fastapi", "spring boot", "mongodb", "postgresql", "kafka", "redis", "javascript", "typescript", "rest api", "saas", "fullstack"],
+      "headline": "Full-Stack & Systems Engineer skilled in MERN, FastAPI, Kafka, Redis, and high-concurrency microservices",
+      "projects": [
+        {
+          "name": "MediPulse",
+          "stack": "MERN, FastAPI, Hugging Face Transformers, Redis, Kafka, Socket.IO, WebRTC, RAG",
+          "points": [
+            "Built a multi-tenant healthcare SaaS with 125 REST APIs, 24 MongoDB models, and 34 React pages, supporting appointments, live OPD queues, WebRTC consultations, and hospital portals with 7-role RBAC via JWT & Google OAuth.",
+            "Developed an AI triage engine combining a Gemini agent, 3 Hugging Face models, and a custom RAG pipeline (using text-embedding-004 & Cosine Similarity) via FastAPI for accurate disease prediction, specialty routing, and context-aware patient memory.",
+            "Engineered real-time OPD queues and virtual wallets using Socket.IO, Redis, and Kafka, implementing atomic transactions, distributed locks, idempotent refunds, and asynchronous event processing for concurrency-safe operations."
+          ]
+        },
+        {
+          "name": "IIITLBachat",
+          "stack": "React.js, Node.js, MongoDB, Gemini AI, Sarvam AI, Chart.js, Google OAuth",
+          "points": [
+            "Built an AI finance platform (MERN) featuring multilingual voice expense entry via Sarvam AI, collaborative family expense circles, and weekly budget tracking with overspend anomaly detection.",
+            "Engineered AI receipt/PDF extraction with confidence scoring, an interactive finance chatbot, and dynamic insights dashboards utilizing Chart.js for spending heatmaps, investment projections, and real-time data synchronization."
+          ]
+        },
+        {
+          "name": "TriageAgent",
+          "stack": "Python, LiteLLM, FAISS, RAG, Sentence-Transformers, LLMs",
+          "points": [
+            "Architected a provider-agnostic AI support agent utilizing LiteLLM and FAISS for semantic retrieval (RAG), improving intent classification accuracy by 37% (achieving 81.4%) over keyword baselines.",
+            "Engineered a 6-signal risk escalation engine and an automated LLM-as-a-Judge evaluation pipeline, achieving a perfect 1.0 Cohen's Kappa agreement score and eliminating manual QA bottlenecks."
+          ]
+        }
+      ],
+      "skills": {
+        "languages": "C, C++, Python, JavaScript, Java, SQL",
+        "frontend": "React.js, TypeScript, HTML, CSS, Tailwind CSS, Bootstrap",
+        "backend": "Node.js, Express.js, Spring Boot, Redis, Kafka, FastAPI",
+        "database": "MongoDB, MySQL, PostgreSQL",
+        "tools": "Docker, Git, Postman, Linux"
+      }
+    },
+    {
+      "id": "variant_ml_ai",
+      "title": "Machine Learning & AI Engineer",
+      "badge": "ML / AI / GenAI",
+      "targetRoles": [
+        "Machine Learning Engineer",
+        "AI Engineer",
+        "GenAI Engineer",
+        "Data Scientist",
+        "NLP Engineer",
+        "Deep Learning Engineer",
+        "Computer Vision Engineer",
+        "AI Research Intern"
+      ],
+      "primaryKeywords": ["machine learning", "deep learning", "pytorch", "xgboost", "transformers", "llm", "rag", "gnn", "graph neural networks", "mlops", "nlp", "ai", "faiss"],
+      "headline": "ML & Applied AI Engineer experienced in GNNs, Transformers, RAG pipelines, and high-throughput real-time inference",
+      "projects": [
+        {
+          "name": "Jagrit",
+          "stack": "Node.js, React.js, Tailwind CSS, FastAPI, MongoDB, Redis, Kafka, XGBoost, LLM Agents",
+          "points": [
+            "Engineered a bilingual news platform with live RSS/API ingestion, Gemini API for RAG Q&A and translations, and a 3-tier fallback architecture ensuring 100% feed uptime.",
+            "Trained an XGBoost ranker via a Kafka-Redis feature store; built a PyTorch NRMS model to benchmark offline accuracy (AUC, nDCG) and simulated CTR using the Replay Method."
+          ]
+        },
+        {
+          "name": "ThreatGraph",
+          "stack": "Python, PyTorch, FastAPI, Kafka, PostgreSQL, NetworkX, FAISS, RAG, GNNs",
+          "points": [
+            "Architected a spatial-temporal threat detection engine fusing Graph Neural Networks and Transformers, processing 3,000+ events/sec via Kafka, achieving 92% PR-AUC on imbalanced attacks.",
+            "Built a full-stack automated incident response platform integrating a RAG-powered LLM analyst to map attack paths to MITRE ATT&CK and trigger real-time endpoint quarantines via FastAPI."
+          ]
+        },
+        {
+          "name": "MediPulse AI Engine",
+          "stack": "FastAPI, Hugging Face Transformers, RAG, text-embedding-004, Gemini",
+          "points": [
+            "Developed an AI triage engine combining Gemini agents, Hugging Face transformer models, and custom RAG pipeline for clinical disease prediction and context-aware medical records retrieval."
+          ]
+        }
+      ],
+      "skills": {
+        "mlAi": "PyTorch, XGBoost, Scikit-learn, Transformers, MLOps (MLflow), LLMs, Agentic AI, Prompt Engineering, Graph Neural Networks (GNNs), FAISS",
+        "languages": "Python, C++, SQL, JavaScript",
+        "frameworks": "FastAPI, PyTorch Geometric, HuggingFace, NetworkX",
+        "backend": "Kafka, Redis, PostgreSQL, Docker"
+      }
+    },
+    {
+      "id": "variant_quant_cpp",
+      "title": "Quantitative Developer & C++ Systems",
+      "badge": "Quant / C++",
+      "targetRoles": [
+        "Quant Developer",
+        "Quantitative Researcher",
+        "C++ Developer",
+        "Low Latency Systems Engineer",
+        "High Frequency Trading Engineer",
+        "Systems Engineer",
+        "HFT Developer"
+      ],
+      "primaryKeywords": ["c++", "quant", "quantitative", "hft", "low latency", "order book", "matching engine", "trading", "multithreading", "stl", "cmake", "googletest", "market making"],
+      "headline": "Systems & Quant Engineer specializing in ultra-low latency C++ matching engines, order books, and algorithmic trading models",
+      "projects": [
+        {
+          "name": "QuantDesk",
+          "stack": "C++, Python, React, Quantitative Trading, CMake, GoogleTest",
+          "points": [
+            "Built a deterministic C++ order book & matching engine with price-time priority, partial fills, LIMIT/MARKET/IOC/FOK orders, and event-driven execution with GoogleTest coverage.",
+            "Implemented Avellaneda-Stoikov market making and cointegration-based statistical arbitrage in Python, with a React dashboard for strategy replay and visualization."
+          ]
+        },
+        {
+          "name": "ThreatGraph Real-time Engine",
+          "stack": "Python, C++ bindings, Kafka, Redis, Graph Networks",
+          "points": [
+            "Engineered high-throughput spatial-temporal event processor handling 3,000+ events/sec via Kafka with sub-millisecond dispatch and low-latency feature calculation.",
+            "Optimized data ingestion pipeline using lockless ring buffers and distributed locks in Redis."
+          ]
+        },
+        {
+          "name": "MediPulse Concurrency Subsystem",
+          "stack": "Redis, Kafka, Distributed Locks, Socket.IO",
+          "points": [
+            "Engineered real-time OPD queues and virtual wallets with atomic transactions, distributed locks, idempotent refunds, and asynchronous event processing for race-condition-free execution."
+          ]
+        }
+      ],
+      "skills": {
+        "languages": "C++, C, Python, SQL, Modern C++ (C++17/20)",
+        "systems": "Deterministic Order Books, Matching Engines, Multithreading, Lock-free structures, IPC, Linux, CMake, GoogleTest",
+        "quant": "Avellaneda-Stoikov Market Making, Statistical Arbitrage, Cointegration, Time-series modeling"
+      }
+    },
+    {
+      "id": "variant_hackathon_growth",
+      "title": "Hackathon Champion & Growth SDE",
+      "badge": "High Velocity",
+      "targetRoles": [
+        "Founding Engineer",
+        "Product Engineer",
+        "Early Stage SDE",
+        "Hackathon Hire",
+        "Fast-Paced Startup Engineer",
+        "Full Stack Generalist"
+      ],
+      "primaryKeywords": ["hackathon", "icpc", "codeforces", "competitive programming", "growth", "mvp", "rapid prototyping", "startup"],
+      "headline": "Fast-paced competitive programmer and builder with top ranks across Amazon ML Challenge, ICPC, and Meta Hacker Cup",
+      "projects": [
+        {
+          "name": "MediPulse SaaS",
+          "stack": "MERN, FastAPI, Transformers, Redis, Kafka, Socket.IO, WebRTC, RAG",
+          "points": [
+            "Delivered end-to-end fullstack healthcare suite with 125 REST APIs, 34 React pages, and real-time WebRTC consultations.",
+            "Engineered concurrent queues with Redis distributed locks and asynchronous Kafka message queues."
+          ]
+        },
+        {
+          "name": "Jagrit Platform",
+          "stack": "FastAPI, React, Redis, Kafka, XGBoost, LLM Agents",
+          "points": [
+            "Built live news recommendation system with XGBoost ranking and multi-tier failover."
+          ]
+        },
+        {
+          "name": "IIITLBachat",
+          "stack": "React, Node, MongoDB, Gemini AI, Sarvam AI, Chart.js",
+          "points": [
+            "AI expense tracking with multilingual voice input and receipt OCR extraction."
+          ]
+        }
+      ],
+      "achievements": [
+        "Ranked Under 50 in Amazon ML Challenge 2026 among 11,000+ teams",
+        "Rank 186 in Meta Hacker Cup Round 3 among 14,000+ participants",
+        "ICPC Amritapuri Regionalist 2024-25 with Team Overshadowed",
+        "Adobe Gensolve Hackathon Top 5% among 54,000+ candidates",
+        "1st Place in Freshers Cup 2024 by CP Wing among 250+ participants",
+        "Expert on Codeforces (1809), 5-Star CodeChef (2137), Guardian LeetCode (2137), 3000+ DSA problems solved"
+      ]
+    },
+    {
+      "id": "variant_security_fintech",
+      "title": "FinTech, Security & Big Tech Systems",
+      "badge": "FinTech / Enterprise",
+      "targetRoles": [
+        "Security Engineer",
+        "FinTech Engineer",
+        "Cloud Infrastructure Engineer",
+        "Enterprise Software Engineer",
+        "Systems Engineer"
+      ],
+      "primaryKeywords": ["security", "fintech", "banking", "goldman sachs", "threat detection", "mitre", "encryption", "enterprise", "distributed"],
+      "headline": "Systems engineer with proven problem-solving pedigree (Goldman Sachs Hackathon Rank 996, JEE Adv AIR 15,503) & automated threat response systems",
+      "projects": [
+        {
+          "name": "ThreatGraph",
+          "stack": "Python, PyTorch, FastAPI, Kafka, PostgreSQL, NetworkX, FAISS, GNNs",
+          "points": [
+            "Architected spatial-temporal threat detection engine fusing GNNs and Transformers, processing 3,000+ events/sec via Kafka.",
+            "Built automated incident response platform integrating RAG-powered LLM analyst to map attack paths to MITRE ATT&CK."
+          ]
+        },
+        {
+          "name": "TriageAgent",
+          "stack": "Python, LiteLLM, FAISS, RAG, Sentence-Transformers, LLMs",
+          "points": [
+            "Provider-agnostic AI agent with FAISS semantic retrieval and 6-signal risk escalation engine.",
+            "Automated LLM-as-a-Judge evaluation pipeline achieving 1.0 Cohen's Kappa score."
+          ]
+        },
+        {
+          "name": "MediPulse Virtual Wallets & RBAC",
+          "stack": "JWT, 7-role RBAC, MongoDB, Redis Atomic Locks",
+          "points": [
+            "Implemented strict 7-role RBAC security architecture with JWT validation and audit logging.",
+            "Engineered idempotent wallet transactions and refunds with distributed Redis locks."
+          ]
+        }
+      ],
+      "achievements": [
+        "Secured Rank 996 in Goldman Sachs Hackathon (username: midhakhushal5) in CS round",
+        "Secured Rank 186 in Facebook Meta Hacker Cup Round 3 among 14,000+ Participants",
+        "ICPC Amritapuri Regionalist 2024-25 (Team Overshadowed)",
+        "JEE Advanced AIR 15,503 and JEE Mains AIR 9,932"
+      ]
+    }
+  ]
+}
