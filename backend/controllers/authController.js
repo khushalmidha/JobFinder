@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const User = require('../models/User');
 const { GoogleGenAI } = require('@google/genai');
+const { generateContentWithFallback } = require('../utils/geminiHelper');
 
 exports.signup = async (req, res) => {
   try {
@@ -90,8 +91,7 @@ exports.convertTemplate = async (req, res) => {
     Here is the raw text to convert:
     ${rawText}`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const response = await generateContentWithFallback(ai, {
       contents: prompt,
     });
 

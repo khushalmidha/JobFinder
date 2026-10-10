@@ -1,4 +1,5 @@
 const { GoogleGenAI } = require('@google/genai');
+const { generateContentStreamWithFallback } = require('../utils/geminiHelper');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
@@ -12,8 +13,7 @@ const parseWithGeminiStream = async (text, user, companyOverride, res) => {
   Raw text:
   ${text}`;
 
-  const responseStream = await ai.models.generateContentStream({
-    model: 'gemini-2.5-flash',
+  const responseStream = await generateContentStreamWithFallback(ai, {
     contents: prompt,
     config: {
       responseMimeType: "application/json",

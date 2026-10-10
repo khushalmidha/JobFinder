@@ -1,4 +1,5 @@
 const { GoogleGenAI } = require('@google/genai');
+const { generateContentWithFallback } = require('../utils/geminiHelper');
 const Contact = require('../models/Contact');
 const User = require('../models/User');
 
@@ -44,8 +45,7 @@ exports.analyzeResponse = async (req, res) => {
     "${emailText}"
     `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const response = await generateContentWithFallback(ai, {
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -99,8 +99,7 @@ Instructions:
 - Return JSON: { "answer": "..." }
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const response = await generateContentWithFallback(ai, {
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
