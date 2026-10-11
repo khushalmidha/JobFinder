@@ -71,6 +71,12 @@ const JobHunter = () => {
   const [adminRequests, setAdminRequests] = useState([]);
   const [showAdminDrawer, setShowAdminDrawer] = useState(false);
 
+  // Ghost Scout OSINT state (Zero-Ban, Zero-Credit)
+  const [ghostCompany, setGhostCompany] = useState('');
+  const [ghostHrName, setGhostHrName] = useState('');
+  const [ghostScouting, setGhostScouting] = useState(false);
+  const [ghostScoutResult, setGhostScoutResult] = useState(null);
+
 
   // Scheduler state
   const [schedulerConfig, setSchedulerConfig] = useState(null);
@@ -239,6 +245,28 @@ const JobHunter = () => {
       setRecruiterMessage('Import failed: ' + (err.response?.data?.error || err.message));
     } finally {
       setImportingRecruiters(false);
+    }
+  };
+
+  const handleGhostScout = async (e, directCompany = null) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const comp = directCompany || ghostCompany;
+    if (!comp.trim() && !ghostHrName.trim()) return;
+    try {
+      setGhostScouting(true);
+      setGhostScoutResult(null);
+      const res = await axios.post(`${API_BASE}/recruiters/ghost-scout`, {
+        company: comp.trim(),
+        hrName: ghostHrName.trim(),
+        limit: 20
+      }, authHeaders);
+      setGhostScoutResult(res.data.result);
+      setRecruiterMessage(res.data.message);
+      fetchRecruiters();
+    } catch (err) {
+      setRecruiterMessage(err.response?.data?.error || 'Failed to scout recruiters.');
+    } finally {
+      setGhostScouting(false);
     }
   };
 
@@ -1247,9 +1275,101 @@ const JobHunter = () => {
           )}
 
           {accessStatus.hasAccess && (
+            <>
+              {/* GHOST SCOUT: ZERO-BAN ANONYMOUS LINKEDIN OSINT EMAIL HUNTER */}
+              <div className="bg-gradient-to-r from-zinc-900 via-zinc-900 to-indigo-950/40 border border-indigo-500/30 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-500/20 border border-indigo-400/40 text-indigo-300 flex items-center gap-1.5">
+                        <span>👻</span> Ghost Scout • Zero Account • Zero Ban • No Credits
+                      </span>
+                      <span className="text-[11px] text-emerald-400 font-bold">100% Free Forever</span>
+                    </div>
+                    <h4 className="text-lg font-black text-zinc-100 flex items-center gap-2">
+                      Anonymous LinkedIn OSINT &amp; Corporate Email Hunter
+                    </h4>
+                    <p className="text-xs text-zinc-400 max-w-2xl leading-relaxed">
+                      Safely discovers HR &amp; Recruiter leads across top companies without logging into your personal LinkedIn account (eliminating bot ban risk) and without paid Apollo/Hunter API keys. Validates deliverability via real-time DNS MX lookups.
+                    </p>
+                  </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-zinc-400">Total Leads Found:</span>
+                    <span className="px-3 py-1 bg-zinc-950 border border-indigo-500/40 rounded-lg font-mono font-bold text-indigo-300 text-sm">
+                      {ghostScoutResult?.totalFound || recruiters.length}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Search Form */}
+                <form onSubmit={handleGhostScout} className="flex flex-col md:flex-row gap-2 pt-1">
+                  <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 flex items-center gap-2 focus-within:border-indigo-500">
+                    <Building2 className="w-4 h-4 text-zinc-500 shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Enter Target Company (e.g. Swiggy, Cred, Razorpay, Zepto, Uber)..."
+                      value={ghostCompany}
+                      onChange={e => setGhostCompany(e.target.value)}
+                      className="w-full bg-transparent text-xs text-zinc-100 placeholder:text-zinc-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="md:w-64 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 flex items-center gap-2 focus-within:border-indigo-500">
+                    <Users className="w-4 h-4 text-zinc-500 shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Recruiter Name (Optional)..."
+                      value={ghostHrName}
+                      onChange={e => setGhostHrName(e.target.value)}
+                      className="w-full bg-transparent text-xs text-zinc-100 placeholder:text-zinc-500 outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={ghostScouting || (!ghostCompany.trim() && !ghostHrName.trim())}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-5 py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 cursor-pointer shrink-0"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {ghostScouting ? 'Scouting Leads...' : '⚡ Ghost Scout Now'}
+                  </button>
+                </form>
+
+                {/* 1-Click Company Preset Pills */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
+                  <span className="text-[11px] text-zinc-500 font-semibold mr-1">Quick Scout:</span>
+                  {['Razorpay', 'Swiggy', 'Zomato', 'CRED', 'Zepto', 'Blinkit', 'Groww', 'Postman', 'Uber', 'Stripe'].map(comp => (
+                    <button
+                      key={comp}
+                      type="button"
+                      onClick={() => {
+                        setGhostCompany(comp);
+                        handleGhostScout(null, comp);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-zinc-950/80 hover:bg-indigo-950/60 border border-zinc-800 hover:border-indigo-500/50 text-[11px] font-bold text-zinc-300 hover:text-indigo-300 transition cursor-pointer"
+                    >
+                      + {comp}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Ghost Scout Status Banner */}
+                {ghostScoutResult && (
+                  <div className="p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/40 text-xs text-indigo-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>
+                        Discovered <strong>{ghostScoutResult.totalFound} verified leads</strong>! Added <strong>{ghostScoutResult.addedCount} new recruiters</strong> straight to your ColdMail queue.
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-zinc-400 font-mono">MX Deliverability Verified</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-zinc-950/80 text-zinc-400 text-[11px] font-bold uppercase tracking-wider border-b border-zinc-800">
                   <tr>
@@ -1301,6 +1421,7 @@ const JobHunter = () => {
               </table>
             </div>
           </div>
+          </>
           )}
         </div>
       )}

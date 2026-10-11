@@ -18,6 +18,7 @@ router.get('/curated', auth, recruiterController.getCurated);
 router.post('/import-curated', auth, recruiterController.importCurated);
 router.post('/upload-sheet', auth, upload.single('file'), recruiterController.uploadSheet);
 router.post('/harvest-agencies', auth, recruiterController.harvestAgencies);
+router.post('/ghost-scout', auth, recruiterController.ghostScout);
 router.get('/export-sheet', auth, recruiterController.exportSheet);
 
 module.exports = router;

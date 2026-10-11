@@ -406,3 +406,32 @@ exports.harvestAgencies = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
+
+/**
+ * Zero-Ban, Zero-Credit Ghost Scout:
+ * Extracts recruiters and verifies emails without using user's LinkedIn account or Apollo/Hunter keys.
+ */
+exports.ghostScout = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { company, domain, hrName, limit = 20 } = req.body;
+    const { scoutRecruiters } = require('../services/ghostScoutService');
+
+    const result = await scoutRecruiters({
+      userId,
+      companyQuery: company,
+      domainQuery: domain,
+      hrName,
+      limit: Number(limit)
+    });
+
+    res.json({
+      message: `Ghost Scout executed successfully! Discovered ${result.totalFound} recruiters (${result.addedCount} newly added to ColdMail contacts).`,
+      result
+    });
+  } catch (err) {
+    console.error('Ghost Scout Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
