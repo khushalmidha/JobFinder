@@ -71,13 +71,6 @@ const JobHunter = () => {
   const [adminRequests, setAdminRequests] = useState([]);
   const [showAdminDrawer, setShowAdminDrawer] = useState(false);
 
-  // Lead Agency state (Apollo.io & Hunter.io)
-  const [showAgencyModal, setShowAgencyModal] = useState(false);
-  const [agencyTarget, setAgencyTarget] = useState('both');
-  const [agencyDomains, setAgencyDomains] = useState('swiggy.in, razorpay.com, zeptonow.com, uber.com, atlassian.com, cred.club, meesho.com, groww.in');
-  const [agencyLimit, setAgencyLimit] = useState(25);
-  const [harvestingAgencies, setHarvestingAgencies] = useState(false);
-  const [agencyResult, setAgencyResult] = useState(null);
 
   // Scheduler state
   const [schedulerConfig, setSchedulerConfig] = useState(null);
@@ -249,35 +242,6 @@ const JobHunter = () => {
     }
   };
 
-  const handleHarvestAgencies = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    try {
-      setHarvestingAgencies(true);
-      setAgencyResult(null);
-      const domainList = agencyDomains.split(',').map(d => d.trim()).filter(Boolean);
-      const res = await axios.post(`${API_BASE}/recruiters/harvest-agencies`, {
-        domains: domainList,
-        targetAgency: agencyTarget,
-        limit: Number(agencyLimit)
-      }, authHeaders);
-      setAgencyResult({
-        success: true,
-        message: res.data.message,
-        addedCount: res.data.result?.addedCount,
-        skippedCount: res.data.result?.skippedCount,
-        totalDiscovered: res.data.result?.totalDiscovered,
-        errors: res.data.result?.errors
-      });
-      fetchRecruiters();
-    } catch (err) {
-      setAgencyResult({
-        success: false,
-        error: err.response?.data?.error || err.message || 'Failed to harvest from agency APIs.'
-      });
-    } finally {
-      setHarvestingAgencies(false);
-    }
-  };
 
   const handleStatusChange = async (jobId, newStatus) => {
     try {
@@ -1137,13 +1101,6 @@ const JobHunter = () => {
 
               {accessStatus.hasAccess && (
                 <>
-                  <button
-                    onClick={() => setShowAgencyModal(true)}
-                    className="bg-gradient-to-r from-amber-500 to-yellow-500 hover:brightness-110 text-zinc-950 font-extrabold px-4 py-2.5 rounded-xl text-xs transition flex items-center gap-1.5 shadow-lg cursor-pointer"
-                  >
-                    <Sparkles className="w-4 h-4 fill-zinc-950" />
-                    Harvest via Apollo & Hunter.io
-                  </button>
 
                   <button
                     onClick={handleImportRecruiters}
@@ -1480,139 +1437,6 @@ const JobHunter = () => {
         </div>
       )}
 
-      {/* Apollo.io & Hunter.io Lead Harvester Modal */}
-      {showAgencyModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-yellow-400" />
-                <h3 className="text-lg font-bold text-zinc-100">Apollo.io & Hunter.io Lead Harvester</h3>
-              </div>
-              <button onClick={() => setShowAgencyModal(false)} className="text-zinc-500 hover:text-zinc-300 font-bold text-lg">×</button>
-            </div>
-
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              Import verified corporate email IDs of Technical Recruiters, Talent Acquisition Leads, and Campus Hiring managers across target company domains directly from Apollo and Hunter lead databases.
-            </p>
-
-            <form onSubmit={handleHarvestAgencies} className="space-y-4">
-              <div>
-                <label className="text-xs font-semibold text-zinc-300 block mb-1">Target Agency Service</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAgencyTarget('both')}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold border transition ${
-                      agencyTarget === 'both' ? 'bg-yellow-500/10 border-yellow-500 text-yellow-400' : 'bg-zinc-950 border-zinc-800 text-zinc-400'
-                    }`}
-                  >
-                    Both (Recommended)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAgencyTarget('apollo')}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold border transition ${
-                      agencyTarget === 'apollo' ? 'bg-purple-950/20 border-purple-500 text-purple-400' : 'bg-zinc-950 border-zinc-800 text-zinc-400'
-                    }`}
-                  >
-                    Apollo.io Only
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAgencyTarget('hunter')}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold border transition ${
-                      agencyTarget === 'hunter' ? 'bg-amber-950/20 border-amber-500 text-amber-400' : 'bg-zinc-950 border-zinc-800 text-zinc-400'
-                    }`}
-                  >
-                    Hunter.io Only
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-xs font-semibold text-zinc-300">Target Company Domains</label>
-                  <button
-                    type="button"
-                    onClick={() => setAgencyDomains('swiggy.in, razorpay.com, zeptonow.com, uber.com, atlassian.com, cred.club, meesho.com, groww.in, postman.com, browserstack.com')}
-                    className="text-[10px] text-yellow-400 hover:underline"
-                  >
-                    Reset Top Indian Unicorns
-                  </button>
-                </div>
-                <textarea
-                  rows={3}
-                  required
-                  value={agencyDomains}
-                  onChange={e => setAgencyDomains(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none resize-none placeholder:text-zinc-600"
-                  placeholder="swiggy.in, razorpay.com, zeptonow.com, uber.com..."
-                />
-                <span className="text-[10px] text-zinc-500">Comma-separated list of company domains to prospect.</span>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-zinc-300 block mb-1">Maximum Leads to Fetch</label>
-                <select
-                  value={agencyLimit}
-                  onChange={e => setAgencyLimit(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs font-semibold text-zinc-200"
-                >
-                  <option value={10}>10 Leads (Quick Test)</option>
-                  <option value={25}>25 Leads (Recommended)</option>
-                  <option value={50}>50 Leads (Deep Harvest)</option>
-                  <option value={100}>100 Leads (Bulk)</option>
-                </select>
-              </div>
-
-              <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl text-[11px] text-zinc-400">
-                💡 <strong className="text-zinc-200">API Keys Setup:</strong> Make sure you have entered your API keys in <a href="/settings" className="text-yellow-400 underline font-semibold">Settings</a>. Hunter.io offers 25 free queries/mo at hunter.io/api_keys and Apollo.io provides search credits at apollo.io.
-              </div>
-
-              {agencyResult && (
-                <div className={`p-3 rounded-xl border text-xs ${agencyResult.success ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300' : 'bg-red-950/40 border-red-800/60 text-red-300'}`}>
-                  {agencyResult.success ? (
-                    <div>
-                      <div className="font-bold mb-1">{agencyResult.message}</div>
-                      <div className="text-[11px] text-zinc-300">
-                        Total leads discovered: {agencyResult.totalDiscovered}. Added: {agencyResult.addedCount}, Skipped: {agencyResult.skippedCount}.
-                      </div>
-                      {agencyResult.errors && (
-                        <div className="mt-1 text-[10px] text-amber-400">
-                          Notes: {agencyResult.errors.join(' | ')}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="font-bold">Error: {agencyResult.error}</div>
-                      <div className="text-[10px] mt-1 text-zinc-400">Please verify your Apollo.io or Hunter.io API keys in Settings.</div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2 border-t border-zinc-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAgencyModal(false)}
-                  className="flex-1 bg-zinc-800 hover:bg-zinc-750 text-zinc-300 font-bold py-2.5 rounded-xl text-xs transition"
-                >
-                  Close
-                </button>
-                <button
-                  type="submit"
-                  disabled={harvestingAgencies}
-                  className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-extrabold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-lg"
-                >
-                  {harvestingAgencies ? 'Querying Lead Databases...' : '🚀 Start Harvesting Leads'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

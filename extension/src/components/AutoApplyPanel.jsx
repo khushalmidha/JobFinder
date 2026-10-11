@@ -89,27 +89,27 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       setActiveTabUrl(tab.url || '');
 
       // Try communicating with content script
-      chrome.tabs.sendMessage(tab.id, { action: 'ANALYZE_PAGE' }, (response) => {
+      chrome.tabs.sendMessage(tab.id, { action: 'ANALYZE_PAGE' }, async (response) => {
         if (chrome.runtime.lastError || !response) {
-          // Fallback parsing from tab title and url
-          fallbackParse(tab);
+          // If content script was not yet loaded into this tab, inject it now!
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: tab.id, allFrames: true },
+              files: ['content.bundle.js']
+            });
+            // Retry message
+            chrome.tabs.sendMessage(tab.id, { action: 'ANALYZE_PAGE' }, (retryRes) => {
+              if (retryRes && retryRes.company) {
+                applyAnalysisResponse(retryRes);
+              } else {
+                fallbackParse(tab);
+              }
+            });
+          } catch (e) {
+            fallbackParse(tab);
+          }
         } else {
-          setCompany(response.company || 'Company');
-          setRole(response.role || 'Software Development Engineer');
-          setHasForm(response.hasForm);
-          setFormFieldsCount(response.formFieldsCount || 0);
-          setSalaryInfo(response.salary);
-          setMatchInfo(response.match);
-          if (response.autoPilotRunning !== undefined) {
-            setAutoPilotActive(response.autoPilotRunning);
-          }
-          if (response.currentStep) {
-            setCurrentStepName(response.currentStep);
-          }
-          if (response.match?.bestResume?.id) {
-            setSelectedResumeId(response.match.bestResume.id);
-          }
-          setLoading(false);
+          applyAnalysisResponse(response);
         }
       });
     } catch (err) {
@@ -118,16 +118,47 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     }
   };
 
+  const applyAnalysisResponse = (response) => {
+    setCompany(response.company || 'Company');
+    setRole(response.role || 'Software Development Engineer');
+    setHasForm(response.hasForm);
+    setFormFieldsCount(response.formFieldsCount || 0);
+    setSalaryInfo(response.salary);
+    setMatchInfo(response.match);
+    if (response.autoPilotRunning !== undefined) {
+      setAutoPilotActive(response.autoPilotRunning);
+    }
+    if (response.currentStep) {
+      setCurrentStepName(response.currentStep);
+    }
+    if (response.match?.bestResume?.id) {
+      setSelectedResumeId(response.match.bestResume.id);
+    }
+    setLoading(false);
+  };
+
   const handleToggleAutoPilot = async () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab) return;
+      if (!tab || !tab.id) return;
       
       const newAction = autoPilotActive ? 'STOP_AUTOPILOT' : 'START_AUTOPILOT';
-      chrome.tabs.sendMessage(tab.id, { action: newAction, resumeId: selectedResumeId }, (res) => {
-        if (res && res.running !== undefined) {
+      chrome.tabs.sendMessage(tab.id, { action: newAction, resumeId: selectedResumeId }, async (res) => {
+        if (!chrome.runtime.lastError && res && res.running !== undefined) {
           setAutoPilotActive(res.running);
-        } else {
+          return;
+        }
+
+        // Fallback: inject content script if not yet loaded
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id, allFrames: true },
+            files: ['content.bundle.js']
+          });
+          chrome.tabs.sendMessage(tab.id, { action: newAction, resumeId: selectedResumeId }, (retryRes) => {
+            setAutoPilotActive(retryRes?.running ?? !autoPilotActive);
+          });
+        } catch (e) {
           setAutoPilotActive(!autoPilotActive);
         }
       });
@@ -166,18 +197,54 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
 
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      chrome.tabs.sendMessage(tab.id, { action: 'AUTO_FILL_FORM', resumeId: selectedResumeId }, (response) => {
+      if (!tab || !tab.id) {
         setIsApplying(false);
-        if (chrome.runtime.lastError || !response) {
-          setApplyResult({
-            success: false,
-            message: 'Unable to communicate with the page. Please ensure you are on an active application page.'
-          });
-        } else {
+        setApplyResult({ success: false, message: 'No active browser tab found.' });
+        return;
+      }
+
+      // 1. Try standard message communication with content script
+      chrome.tabs.sendMessage(tab.id, { action: 'AUTO_FILL_FORM', resumeId: selectedResumeId }, async (response) => {
+        if (!chrome.runtime.lastError && response && response.filledCount !== undefined) {
+          setIsApplying(false);
           setApplyResult({
             success: true,
             filledCount: response.filledCount,
             summary: response.filledSummary || []
+          });
+          return;
+        }
+
+        // 2. BULLETPROOF FALLBACK: Execute directly into page & ALL iframes via chrome.scripting
+        try {
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: tab.id, allFrames: true },
+            func: inPageDirectAutoFill,
+            args: [resumeData.profile, selectedResumeId]
+          });
+
+          let totalFilled = 0;
+          let combinedSummary = [];
+          if (results && results.length) {
+            results.forEach(r => {
+              if (r.result) {
+                totalFilled += (r.result.filledCount || 0);
+                if (r.result.filledSummary) combinedSummary.push(...r.result.filledSummary);
+              }
+            });
+          }
+
+          setIsApplying(false);
+          setApplyResult({
+            success: true,
+            filledCount: totalFilled,
+            summary: [...new Set(combinedSummary)]
+          });
+        } catch (injectionErr) {
+          setIsApplying(false);
+          setApplyResult({
+            success: false,
+            message: `Could not auto-fill: ${injectionErr.message}. Make sure you are on a webpage (not a protected browser tab).`
           });
         }
       });
@@ -488,3 +555,387 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     </div>
   );
 };
+
+// Standalone self-contained function executed directly in web pages across all frames
+function inPageDirectAutoFill(profile, chosenResumeId) {
+  function setVal(el, val) {
+    if (!el || val === undefined || val === null) return;
+    const valueSetter = Object.getOwnPropertyDescriptor(el, 'value')?.set;
+    const prototype = Object.getPrototypeOf(el);
+    const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
+      prototypeValueSetter.call(el, val);
+    } else if (valueSetter) {
+      valueSetter.call(el, val);
+    } else {
+      el.value = val;
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+
+  function getDesc(el) {
+    const name = (el.getAttribute('name') || '').toLowerCase();
+    const id = (el.getAttribute('id') || '').toLowerCase();
+    const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+    const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+    const ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+    const dataAuto = (el.getAttribute('data-automation-id') || '').toLowerCase();
+    const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+    let lblText = '';
+    if (el.id) {
+      const l = document.querySelector(`label[for="${el.id}"]`);
+      if (l) lblText = l.innerText.toLowerCase();
+    }
+    if (!lblText && el.closest('label')) {
+      lblText = el.closest('label').innerText.toLowerCase();
+    }
+    if (!lblText && el.parentElement) {
+      const prev = el.previousElementSibling;
+      if (prev && (prev.tagName === 'LABEL' || prev.tagName === 'SPAN' || prev.tagName === 'P')) {
+        lblText = prev.innerText.toLowerCase();
+      }
+    }
+    if (!lblText) {
+      const c = el.closest('[data-automation-id*="formField"], [data-automation-id*="Section"], .css-1, [data-automation-id*="input"], .field, .form-group');
+      if (c) {
+        const l = c.querySelector('label, [data-automation-id*="label"]');
+        if (l) lblText = l.innerText.toLowerCase();
+      }
+    }
+    return { combined: `${name} ${id} ${ph} ${aria} ${ac} ${dataAuto} ${testId} ${lblText}`.trim(), labelText: lblText || ph || name };
+  }
+
+  function matchSelect(selectEl, keywords) {
+    if (!selectEl || !selectEl.options) return false;
+    for (let i = 0; i < selectEl.options.length; i++) {
+      const opt = selectEl.options[i];
+      const optText = (opt.text || opt.value || '').toLowerCase();
+      if (keywords.some(kw => optText.includes(kw.toLowerCase()))) {
+        selectEl.selectedIndex = i;
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  let filledCount = 0;
+  const filledSummary = [];
+  const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), textarea, select'));
+
+  inputs.forEach(el => {
+    if (el.disabled || el.readOnly) return;
+    const { combined, labelText } = getDesc(el);
+
+    // First Name
+    if ((combined.includes('first') && combined.includes('name')) || combined.includes('fname') || combined.includes('legalnamesection_firstname') || combined === 'first_name') {
+      if (el.value !== profile.firstName) {
+        setVal(el, profile.firstName);
+        filledCount++;
+        filledSummary.push('First Name');
+      }
+      return;
+    }
+
+    // Last Name
+    if ((combined.includes('last') && combined.includes('name')) || combined.includes('lname') || combined.includes('legalnamesection_lastname') || combined === 'last_name') {
+      if (el.value !== profile.lastName) {
+        setVal(el, profile.lastName);
+        filledCount++;
+        filledSummary.push('Last Name');
+      }
+      return;
+    }
+
+    // Full Name
+    if ((combined.includes('full name') || combined.includes('candidate name') || (combined.includes('name') && !combined.includes('company') && !combined.includes('user') && !combined.includes('first') && !combined.includes('last') && !combined.includes('school'))) && el.type === 'text') {
+      if (el.value !== profile.name) {
+        setVal(el, profile.name);
+        filledCount++;
+        filledSummary.push('Full Name');
+      }
+      return;
+    }
+
+    // Email
+    if (combined.includes('email') || el.type === 'email' || combined.includes('addresssection_email')) {
+      if (el.value !== profile.email) {
+        setVal(el, profile.email);
+        filledCount++;
+        filledSummary.push('Email');
+      }
+      return;
+    }
+
+    // Phone
+    if (combined.includes('phone') || combined.includes('mobile') || combined.includes('cell') || el.type === 'tel' || combined.includes('contact number')) {
+      const pVal = (combined.includes('raw') || combined.includes('addresssection')) ? profile.phoneRaw : profile.phone;
+      if (el.value !== pVal) {
+        setVal(el, pVal);
+        filledCount++;
+        filledSummary.push('Phone');
+      }
+      return;
+    }
+
+    // Address
+    if (combined.includes('address line 1') || combined.includes('addressline1') || combined.includes('street address')) {
+      if (!el.value) {
+        setVal(el, profile.addressLine1 || profile.location);
+        filledCount++;
+        filledSummary.push('Address');
+      }
+      return;
+    }
+
+    // City
+    if (combined.includes('city') || combined.includes('addresssection_city') || combined.includes('town')) {
+      if (!el.value) {
+        setVal(el, profile.currentCity);
+        filledCount++;
+        filledSummary.push('City');
+      }
+      return;
+    }
+
+    // Postal / Zip Code
+    if (combined.includes('postal') || combined.includes('zip') || combined.includes('postalcode') || combined.includes('pincode')) {
+      if (!el.value) {
+        setVal(el, profile.postalCode);
+        filledCount++;
+        filledSummary.push('Postal Code');
+      }
+      return;
+    }
+
+    // State
+    if (combined.includes('state') || combined.includes('province') || combined.includes('countryregion')) {
+      if (el.tagName === 'SELECT') {
+        matchSelect(el, ['uttar pradesh', 'delhi', 'haryana']);
+      } else if (!el.value) {
+        setVal(el, profile.state || 'Uttar Pradesh');
+      }
+      filledCount++;
+      return;
+    }
+
+    // LinkedIn
+    if (combined.includes('linkedin')) {
+      if (el.value !== profile.linkedin) {
+        setVal(el, profile.linkedin);
+        filledCount++;
+        filledSummary.push('LinkedIn');
+      }
+      return;
+    }
+
+    // GitHub
+    if (combined.includes('github') || combined.includes('git')) {
+      if (el.value !== profile.github) {
+        setVal(el, profile.github);
+        filledCount++;
+        filledSummary.push('GitHub');
+      }
+      return;
+    }
+
+    // Portfolio
+    if (combined.includes('portfolio') || combined.includes('website') || combined.includes('personal site') || combined.includes('blog') || combined.includes('other website')) {
+      if (el.value !== profile.portfolio) {
+        setVal(el, profile.portfolio);
+        filledCount++;
+        filledSummary.push('Portfolio');
+      }
+      return;
+    }
+
+    // LeetCode
+    if (combined.includes('leetcode') || combined.includes('competitive') || combined.includes('coding profile')) {
+      if (el.value !== profile.leetcode) {
+        setVal(el, profile.leetcode);
+        filledCount++;
+        filledSummary.push('LeetCode');
+      }
+      return;
+    }
+
+    // University
+    if (combined.includes('university') || combined.includes('college') || combined.includes('institution') || combined.includes('school')) {
+      if (!el.value) {
+        setVal(el, profile.education?.institution || 'Indian Institute of Information Technology, Lucknow');
+        filledCount++;
+        filledSummary.push('University');
+      }
+      return;
+    }
+
+    // Degree
+    if (combined.includes('degree') || combined.includes('qualification')) {
+      if (el.tagName === 'SELECT') {
+        matchSelect(el, ['bachelor', 'b.tech', 'undergraduate', 'btech']);
+      } else if (!el.value) {
+        setVal(el, profile.education?.degree || 'B.Tech');
+      }
+      filledCount++;
+      filledSummary.push('Degree');
+      return;
+    }
+
+    // Major
+    if (combined.includes('major') || combined.includes('discipline') || combined.includes('field of study') || combined.includes('branch')) {
+      if (!el.value) {
+        setVal(el, profile.education?.major || 'Computer Science and Artificial Intelligence');
+        filledCount++;
+        filledSummary.push('Major');
+      }
+      return;
+    }
+
+    // CGPA
+    if (combined.includes('cgpa') || combined.includes('gpa') || combined.includes('grade') || combined.includes('marks')) {
+      if (!el.value) {
+        setVal(el, profile.education?.cgpa || '8.72');
+        filledCount++;
+        filledSummary.push('CGPA');
+      }
+      return;
+    }
+
+    // Graduation Year
+    if (combined.includes('graduat') || combined.includes('end year') || combined.includes('passout') || combined.includes('batch')) {
+      if (el.tagName === 'SELECT') {
+        matchSelect(el, ['2027', '27']);
+      } else if (!el.value) {
+        setVal(el, profile.education?.endYear || '2027');
+      }
+      filledCount++;
+      filledSummary.push('Graduation Year');
+      return;
+    }
+
+    // Current Employer
+    if (combined.includes('current company') || combined.includes('employer') || combined.includes('most recent company') || combined.includes('organization')) {
+      if (!el.value) {
+        setVal(el, profile.currentExperience?.company || 'Coffeee.io');
+        filledCount++;
+        filledSummary.push('Current Employer');
+      }
+      return;
+    }
+
+    // Current Title
+    if (combined.includes('current title') || combined.includes('current role') || combined.includes('designation') || combined.includes('jobtitle')) {
+      if (!el.value) {
+        setVal(el, profile.currentExperience?.role || 'SDE Intern');
+        filledCount++;
+        filledSummary.push('Current Title');
+      }
+      return;
+    }
+
+    // Location
+    if (combined.includes('location') || combined.includes('current location')) {
+      if (!el.value) {
+        setVal(el, profile.location);
+        filledCount++;
+        filledSummary.push('Location');
+      }
+      return;
+    }
+
+    // Work Authorization
+    if (combined.includes('authorized to work') || combined.includes('legally authorized') || combined.includes('work permit') || combined.includes('eligible to work')) {
+      if (el.type === 'checkbox') {
+        el.checked = true;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      } else if (el.type === 'radio') {
+        if (!combined.includes('not') && !combined.includes('no')) {
+          el.checked = true;
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      } else if (el.tagName === 'SELECT') {
+        matchSelect(el, ['yes', 'authorized']);
+      }
+      filledCount++;
+      return;
+    }
+
+    // Sponsorship Requirement
+    if (combined.includes('sponsorship') || combined.includes('require visa') || combined.includes('require sponsorship')) {
+      if (el.type === 'radio') {
+        if (combined.includes('no') || labelText.includes('no')) {
+          el.checked = true;
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      } else if (el.tagName === 'SELECT') {
+        matchSelect(el, ['no']);
+      }
+      filledCount++;
+      return;
+    }
+
+    // Notice Period
+    if (combined.includes('notice period') || combined.includes('notice')) {
+      if (el.tagName === 'SELECT') {
+        matchSelect(el, ['immediate', '0', 'less than 15', '1 month']);
+      } else if (!el.value) {
+        setVal(el, profile.workAuthorization?.noticePeriodText || 'Immediate (0 days)');
+      }
+      filledCount++;
+      filledSummary.push('Notice Period');
+      return;
+    }
+
+    // Gender
+    if (combined.includes('gender')) {
+      if (el.tagName === 'SELECT') {
+        matchSelect(el, ['male', 'prefer not to say', 'man']);
+      }
+      return;
+    }
+
+    // Signature
+    if (combined.includes('signature') || combined.includes('sign here') || combined.includes('type your name')) {
+      if (!el.value) {
+        setVal(el, profile.name);
+        filledCount++;
+        filledSummary.push('Signature');
+      }
+      return;
+    }
+
+    // Terms / Consent
+    if (el.type === 'checkbox' && (combined.includes('agree') || combined.includes('certif') || combined.includes('consent') || combined.includes('terms') || combined.includes('statement'))) {
+      if (!el.checked) {
+        el.checked = true;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        filledCount++;
+        filledSummary.push('Agreed to Terms');
+      }
+      return;
+    }
+
+    // Essays / Textareas / Open Questions
+    if (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type === 'text' && combined.length > 25)) {
+      if (!el.value || el.value.length < 5) {
+        let answer = `I am an ambitious Computer Science & AI student at IIIT Lucknow with production fullstack experience, proven problem-solving track record (LeetCode Guardian 2137), and a strong passion for writing high-performance, clean code.`;
+        if (combined.includes('why') && (combined.includes('company') || combined.includes('join') || combined.includes('role'))) {
+          answer = `I am drawn to your team because of the exceptional engineering standard and the high scale of your products. At IIIT Lucknow, I have architected resilient systems like MediPulse (125 REST APIs, Kafka, Redis) with strict concurrency guarantees. Contributing as a software engineer would be a thrilling opportunity to deliver high impact from day one.`;
+        } else if (combined.includes('challenge') || combined.includes('difficult') || combined.includes('bug')) {
+          answer = `While building MediPulse, concurrent OPD appointments caused race conditions and booking conflicts during load tests. I introduced Redis distributed locks with idempotent tokens and transactional rollbacks, backed by Kafka event streams, completely eliminating data anomalies under heavy concurrency.`;
+        }
+        setVal(el, answer);
+        filledCount++;
+        filledSummary.push('Humanoid Answer');
+      }
+    }
+  });
+
+  return {
+    success: true,
+    filledCount,
+    filledSummary: [...new Set(filledSummary)]
+  };
+}

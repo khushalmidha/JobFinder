@@ -20,8 +20,6 @@ const Settings = () => {
     defaultJobLink: '',
     geminiApiKey: '',
     brevoApiKey: '',
-    hunterApiKey: '',
-    apolloApiKey: '',
     smtpConfig: {
       host: 'smtp.gmail.com',
       port: 465,
@@ -195,17 +193,6 @@ const Settings = () => {
               <input type="password" name="brevoApiKey" value={settings.brevoApiKey} onChange={handleChange} placeholder="xkeysib-..." className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
             </div>
 
-            <div className="pt-4 border-t border-zinc-800/60">
-              <label className="block text-sm font-medium text-zinc-300 mb-1">Hunter.io API Key</label>
-              <p className="text-xs text-zinc-500 mb-2">Get free key at <a href="https://hunter.io/api_keys" target="_blank" rel="noreferrer" className="text-yellow-400 underline">hunter.io/api_keys</a> — used for automated recruiter domain discovery & verification.</p>
-              <input type="password" name="hunterApiKey" value={settings.hunterApiKey || ''} onChange={handleChange} placeholder="e.g. 5a1b2c3d..." className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
-            </div>
-
-            <div className="pt-4 border-t border-zinc-800/60">
-              <label className="block text-sm font-medium text-zinc-300 mb-1">Apollo.io API Key</label>
-              <p className="text-xs text-zinc-500 mb-2">Get free key at <a href="https://app.apollo.io/#/settings/integrations/api_keys" target="_blank" rel="noreferrer" className="text-yellow-400 underline">apollo.io API settings</a> — used for large-scale talent acquisition and recruiter lead extraction.</p>
-              <input type="password" name="apolloApiKey" value={settings.apolloApiKey || ''} onChange={handleChange} placeholder="e.g. apollo_api_key_..." className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-yellow-500 outline-none" />
-            </div>
             
             <div className="pt-4 border-t border-zinc-800">
               <h3 className="font-semibold text-zinc-100 mb-4">SMTP Configuration (e.g. Gmail)</h3>
