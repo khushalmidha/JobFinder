@@ -819,145 +819,20 @@
     return { success: false, error: 'Could not find an OTP input field on the page.' };
   }
 
-  // Floating Companion Widget
-  function injectCompanionWidget() {
-    // Only inject in top window to avoid multiple widgets in iframes
-    if (window.top !== window.self) return;
-    if (document.getElementById('jobfinder-companion-widget')) return;
-
-    const data = analyzePage();
-    const host = window.location.hostname.toLowerCase();
-    const isJobPage = host.includes('workday') || host.includes('lever') || host.includes('greenhouse') || host.includes('ashby') || host.includes('job') || host.includes('career') || data.hasForm;
-    if (!isJobPage) return;
-
-    const container = document.createElement('div');
-    container.id = 'jobfinder-companion-widget';
-    container.style.cssText = `
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      z-index: 2147483647;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    `;
-
-    const shadow = container.attachShadow({ mode: 'open' });
-    const pill = document.createElement('div');
-    pill.id = 'jf-pill';
-    pill.style.cssText = `
-      background: #09090b;
-      color: #f4f4f5;
-      border: 1px solid rgba(234, 179, 8, 0.6);
-      box-shadow: 0 20px 30px -5px rgba(0, 0, 0, 0.7), 0 0 20px rgba(234, 179, 8, 0.2);
-      border-radius: 16px;
-      padding: 14px 16px;
-      width: 320px;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      backdrop-filter: blur(14px);
-    `;
-
-    shadow.appendChild(pill);
-    document.body.appendChild(container);
-    renderWidgetHtml(shadow, data);
+  // Cleanup any in-page companion widget from previous versions (overlay popup disabled per user request)
+  function removeAnyExistingWidget() {
+    try {
+      const existing = document.getElementById('jobfinder-companion-widget');
+      if (existing) existing.remove();
+      const pill = document.getElementById('jf-pill');
+      if (pill) pill.remove();
+      const mini = document.getElementById('jf-mini-pill');
+      if (mini) mini.remove();
+    } catch (e) {}
   }
 
   function updateCompanionWidget() {
-    const container = document.getElementById('jobfinder-companion-widget');
-    if (!container || !container.shadowRoot) return;
-    renderWidgetHtml(container.shadowRoot, analyzePage());
-  }
-
-  function renderWidgetHtml(shadow, data) {
-    const pill = shadow.getElementById('jf-pill');
-    if (!pill) return;
-    const isRunning = autoPilotState.running;
-
-    pill.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, #eab308, #ca8a04); color: #09090b; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 13px; box-shadow: 0 2px 5px rgba(234,179,8,0.3);">
-            ⚡
-          </div>
-          <div>
-            <div style="font-weight: 800; font-size: 13px; color: #fafafa; line-height: 1.2;">
-              ${escapeHtml(data.company)}
-            </div>
-            <div style="font-size: 11px; color: #a1a1aa; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              ${escapeHtml(data.role)}
-            </div>
-          </div>
-        </div>
-        <button id="jf-close" style="background: none; border: none; color: #71717a; font-size: 16px; cursor: pointer; padding: 2px;">✕</button>
-      </div>
-
-      <div style="background: rgba(24, 24, 27, 0.7); border: 1px solid #27272a; border-radius: 10px; padding: 8px 10px; margin-bottom: 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
-          <span style="font-size: 10px; color: #71717a; font-weight: 700; text-transform: uppercase;">Expected Comp</span>
-          <span style="font-size: 12px; font-weight: 800; color: #eab308;">${data.salary.ctc}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 11px;">
-          <span style="color: #a1a1aa;">Best Resume:</span>
-          <span style="color: #60a5fa; font-weight: 700;">${data.match.bestResume.badge} (${data.match.score}%)</span>
-        </div>
-      </div>
-
-      <div style="margin-bottom: 8px;">
-        <button id="jf-fill-btn" style="width: 100%; background: #eab308; color: #09090b; border: none; border-radius: 10px; padding: 10px 14px; font-weight: 800; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(234,179,8,0.35);">
-          ⚡ Auto-Fill Form Now
-        </button>
-      </div>
-
-      <div style="display: flex; gap: 6px;">
-        <button id="jf-autopilot-btn" style="flex: 1; background: ${isRunning ? '#dc2626' : '#18181b'}; color: ${isRunning ? '#ffffff' : '#f4f4f5'}; border: 1px solid #3f3f46; border-radius: 8px; padding: 7px 10px; font-weight: 600; font-size: 11px; cursor: pointer;">
-          ${isRunning ? '⏸️ Stop Pilot' : '🚀 Auto-Pilot'}
-        </button>
-        <button id="jf-otp-btn" style="flex: 1; background: #18181b; color: #eab308; border: 1px solid #3f3f46; border-radius: 8px; padding: 7px 10px; font-weight: 600; font-size: 11px; cursor: pointer;">
-          🔑 Fetch OTP
-        </button>
-      </div>
-
-      <div id="jf-status" style="margin-top: 8px; font-size: 10px; color: #a1a1aa; text-align: center;">
-        ${escapeHtml(autoPilotState.statusMessage)}
-      </div>
-    `;
-
-    const closeBtn = shadow.getElementById('jf-close');
-    if (closeBtn) closeBtn.onclick = () => pill.style.display = 'none';
-
-    const fillBtn = shadow.getElementById('jf-fill-btn');
-    if (fillBtn) {
-      fillBtn.onclick = () => {
-        fillBtn.disabled = true;
-        fillBtn.innerText = 'Filling...';
-        const res = autoFillForm(data.match.bestResume.id);
-        fillBtn.disabled = false;
-        fillBtn.innerText = '⚡ Auto-Fill Form Now';
-        autoPilotState.statusMessage = `✅ Filled ${res.filledCount} fields!`;
-        updateCompanionWidget();
-      };
-    }
-
-    const pilotBtn = shadow.getElementById('jf-autopilot-btn');
-    if (pilotBtn) {
-      pilotBtn.onclick = () => {
-        if (autoPilotState.running) stopAutoPilot();
-        else startAutoPilot(data.match.bestResume.id);
-      };
-    }
-
-    const otpBtn = shadow.getElementById('jf-otp-btn');
-    if (otpBtn) {
-      otpBtn.onclick = () => {
-        chrome.runtime.sendMessage({ action: 'FETCH_OTP' }, (res) => {
-          if (res && res.success && res.otp) {
-            fillOtpIntoPage(res.otp);
-            autoPilotState.statusMessage = `✅ Injected OTP: ${res.otp}!`;
-          } else {
-            autoPilotState.statusMessage = `⚠️ ${res?.error || 'No recent OTP found'}`;
-          }
-          updateCompanionWidget();
-        });
-      };
-    }
+    // No-op: in-page overlay popup is completely disabled
   }
 
   function escapeHtml(str) {
@@ -1002,15 +877,16 @@
     }
   });
 
-  // Self Initialization
+  // Self Initialization - DO NOT inject any popups into pages!
+  // Extension works silently in background; popup ONLY opens when user clicks the extension button in the toolbar.
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
+      removeAnyExistingWidget();
       analyzePage();
-      setTimeout(injectCompanionWidget, 1000);
     });
   } else {
+    removeAnyExistingWidget();
     analyzePage();
-    setTimeout(injectCompanionWidget, 1000);
   }
 
 })();
