@@ -54,6 +54,9 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   const [previewAnswer, setPreviewAnswer] = useState('');
   const [showPreview, setShowPreview] = useState(false);
 
+  const [customJobLink, setCustomJobLink] = useState('');
+  const [isOpeningCustomLink, setIsOpeningCustomLink] = useState(false);
+
   // Initial page inspection
   useEffect(() => {
     analyzeCurrentTab();
@@ -91,23 +94,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       // Try communicating with content script
       chrome.tabs.sendMessage(tab.id, { action: 'ANALYZE_PAGE' }, async (response) => {
         if (chrome.runtime.lastError || !response) {
-          // If content script was not yet loaded into this tab, inject it now!
-          try {
-            await chrome.scripting.executeScript({
-              target: { tabId: tab.id, allFrames: true },
-              files: ['content.bundle.js']
-            });
-            // Retry message
-            chrome.tabs.sendMessage(tab.id, { action: 'ANALYZE_PAGE' }, (retryRes) => {
-              if (retryRes && retryRes.company) {
-                applyAnalysisResponse(retryRes);
-              } else {
-                fallbackParse(tab);
-              }
-            });
-          } catch (e) {
-            fallbackParse(tab);
-          }
+          fallbackParse(tab);
         } else {
           applyAnalysisResponse(response);
         }
@@ -149,21 +136,105 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
           return;
         }
 
-        // Fallback: inject content script if not yet loaded
+        // Direct in-page autofill fallback
         try {
-          await chrome.scripting.executeScript({
+          const results = await chrome.scripting.executeScript({
             target: { tabId: tab.id, allFrames: true },
-            files: ['content.bundle.js']
+            func: inPageDirectAutoFill,
+            args: [resumeData.profile, selectedResumeId]
           });
-          chrome.tabs.sendMessage(tab.id, { action: newAction, resumeId: selectedResumeId }, (retryRes) => {
-            setAutoPilotActive(retryRes?.running ?? !autoPilotActive);
+          setAutoPilotActive(true);
+          setTimeout(() => setAutoPilotActive(false), 2500);
+          let totalFilled = 0;
+          let summary = [];
+          if (results) {
+            results.forEach(r => {
+              if (r.result?.filledCount) totalFilled += r.result.filledCount;
+              if (r.result?.filledSummary) summary.push(...r.result.filledSummary);
+            });
+          }
+          setApplyResult({
+            success: true,
+            filledCount: totalFilled,
+            summary: [...new Set(summary)],
+            message: `Auto-pilot executed! Filled ${totalFilled} fields.`
           });
         } catch (e) {
-          setAutoPilotActive(!autoPilotActive);
+          console.error(e);
         }
       });
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleApplyViaCustomLink = async () => {
+    if (!customJobLink.trim()) return;
+    setIsOpeningCustomLink(true);
+    setApplyResult(null);
+
+    let targetUrl = customJobLink.trim();
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      targetUrl = 'https://' + targetUrl;
+    }
+
+    try {
+      // 1. If user is already on the target URL in the active tab, directly fill current tab
+      const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (currentTab && currentTab.url && (currentTab.url.includes(targetUrl) || targetUrl.includes(currentTab.url.split('?')[0]))) {
+        await handleAutoApply();
+        setIsOpeningCustomLink(false);
+        return;
+      }
+
+      // 2. Otherwise open in new tab with #jf-autoapply=true tag
+      const urlObj = new URL(targetUrl);
+      urlObj.hash = 'jf-autoapply=true';
+      const finalUrl = urlObj.toString();
+
+      const newTab = await chrome.tabs.create({ url: finalUrl, active: true });
+      setApplyResult({
+        success: true,
+        message: `Opening application on ${urlObj.hostname}... Form will automatically fill with your profile once loaded!`
+      });
+
+      // Listen for tab completion and trigger inPageDirectAutoFill directly
+      const listener = (tabId, changeInfo) => {
+        if (tabId === newTab.id && changeInfo.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          setTimeout(async () => {
+            try {
+              const results = await chrome.scripting.executeScript({
+                target: { tabId: newTab.id, allFrames: true },
+                func: inPageDirectAutoFill,
+                args: [resumeData.profile, selectedResumeId]
+              });
+              let totalFilled = 0;
+              let fields = [];
+              if (results) {
+                results.forEach(r => {
+                  if (r.result?.filledCount) totalFilled += r.result.filledCount;
+                  if (r.result?.filledSummary) fields.push(...r.result.filledSummary);
+                });
+              }
+              setApplyResult({
+                success: true,
+                filledCount: totalFilled,
+                summary: [...new Set(fields)],
+                message: `Auto-filled ${totalFilled} fields on ${urlObj.hostname}! Review details and submit.`
+              });
+            } catch (err) {
+              console.error('Autofill error:', err);
+            }
+          }, 1500);
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); }, 35000);
+    } catch (err) {
+      setApplyResult({ success: false, message: 'Invalid URL: ' + err.message });
+    } finally {
+      setIsOpeningCustomLink(false);
     }
   };
 
@@ -356,7 +427,33 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         )}
       </div>
 
-      {/* 2. Expected SDE1 CTC & Base Card */}
+      {/* 2. Direct Job Link Auto-Apply (Paste URL & Auto-Fill) */}
+      <div className="bg-zinc-900 border border-yellow-500/40 rounded-xl p-3 shadow-lg space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold text-yellow-400 flex items-center gap-1.5 uppercase tracking-wide">
+            <ExternalLink className="w-3.5 h-3.5 text-yellow-400" /> Apply via Job Link
+          </span>
+          <span className="text-[10px] text-zinc-400 font-semibold">Greenhouse • Lever • Ashby • Workday</span>
+        </div>
+        <div className="flex gap-1.5">
+          <input 
+            type="url"
+            value={customJobLink}
+            onChange={e => setCustomJobLink(e.target.value)}
+            placeholder="Paste Job URL (e.g. https://jobs.lever.co/...)"
+            className="flex-1 bg-zinc-950 border border-zinc-750 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-yellow-500"
+          />
+          <button
+            onClick={handleApplyViaCustomLink}
+            disabled={!customJobLink.trim() || isOpeningCustomLink}
+            className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-extrabold px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1 shadow disabled:opacity-50 cursor-pointer"
+          >
+            {isOpeningCustomLink ? 'Opening...' : '🚀 Auto-Fill'}
+          </button>
+        </div>
+      </div>
+
+      {/* 3. Expected SDE1 CTC & Base Card */}
       {salaryInfo && (
         <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-yellow-500/30 rounded-xl p-3 shadow-lg relative overflow-hidden">
           <div className="absolute top-0 right-0 w-24 h-24 bg-yellow-500/5 rounded-full blur-2xl pointer-events-none"></div>
@@ -560,16 +657,24 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
 function inPageDirectAutoFill(profile, chosenResumeId) {
   function setVal(el, val) {
     if (!el || val === undefined || val === null) return;
-    const valueSetter = Object.getOwnPropertyDescriptor(el, 'value')?.set;
-    const prototype = Object.getPrototypeOf(el);
-    const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-    if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
-      prototypeValueSetter.call(el, val);
-    } else if (valueSetter) {
-      valueSetter.call(el, val);
+    try { el.focus(); } catch (e) {}
+
+    const isTextArea = el.tagName === 'TEXTAREA';
+    const standardProto = isTextArea ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const standardSetter = Object.getOwnPropertyDescriptor(standardProto, 'value')?.set;
+    const ownSetter = Object.getOwnPropertyDescriptor(el, 'value')?.set;
+    const protoSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
+
+    if (standardSetter) {
+      standardSetter.call(el, val);
+    } else if (protoSetter && ownSetter !== protoSetter) {
+      protoSetter.call(el, val);
+    } else if (ownSetter) {
+      ownSetter.call(el, val);
     } else {
       el.value = val;
     }
+
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
     el.dispatchEvent(new Event('blur', { bubbles: true }));

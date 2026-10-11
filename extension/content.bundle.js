@@ -279,18 +279,27 @@
     return pageState;
   }
 
-  // Native Value Setter for React / Angular / Vue / Workday
+  // Native Value Setter for React / Angular / Vue / Workday / Greenhouse / Lever
   function setNativeValue(element, value) {
     if (!element || value === undefined || value === null) return;
 
-    const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
-    const prototype = Object.getPrototypeOf(element);
-    const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    try {
+      element.focus();
+    } catch (e) {}
 
-    if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
-      prototypeValueSetter.call(element, value);
-    } else if (valueSetter) {
-      valueSetter.call(element, value);
+    const isTextArea = element.tagName === 'TEXTAREA';
+    const standardProto = isTextArea ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const standardSetter = Object.getOwnPropertyDescriptor(standardProto, 'value')?.set;
+
+    const ownSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
+    const protoSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value')?.set;
+
+    if (standardSetter) {
+      standardSetter.call(element, value);
+    } else if (protoSetter && ownSetter !== protoSetter) {
+      protoSetter.call(element, value);
+    } else if (ownSetter) {
+      ownSetter.call(element, value);
     } else {
       element.value = value;
     }
@@ -299,6 +308,7 @@
     element.dispatchEvent(new Event('change', { bubbles: true }));
     element.dispatchEvent(new Event('blur', { bubbles: true }));
   }
+
 
   // Field Descriptor Inspector
   function getFieldDescriptor(element) {
@@ -877,16 +887,115 @@
     }
   });
 
+  // URL Auto-Apply Trigger Detector (Triggers when tab opened via link with #jf-autoapply)
+  function showAutoApplyToast(count, summary) {
+    if (document.getElementById('jobfinder-autoapply-toast')) {
+      const existing = document.getElementById('jobfinder-autoapply-toast');
+      existing.remove();
+    }
+    const toast = document.createElement('div');
+    toast.id = 'jobfinder-autoapply-toast';
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 2147483647;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(24, 24, 27, 0.98));
+      border: 1px solid rgba(16, 185, 129, 0.6);
+      box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.8), 0 0 20px rgba(16, 185, 129, 0.25);
+      backdrop-filter: blur(12px);
+      color: #f8fafc;
+      padding: 14px 18px;
+      border-radius: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 340px;
+      box-sizing: border-box;
+      pointer-events: auto;
+    `;
+    const summaryText = summary && summary.length > 0 
+      ? summary.slice(0, 4).join(', ') + (summary.length > 4 ? ` +${summary.length - 4} more` : '') 
+      : 'Form inputs completed';
+
+    toast.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; color: #34d399; font-size: 13px;">
+          <span style="font-size: 16px;">⚡</span>
+          <span>JobFinder Auto-Applied!</span>
+        </div>
+        <button id="jf-toast-close" style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1;">&times;</button>
+      </div>
+      <div style="color: #e2e8f0; font-size: 12px; font-weight: 500;">
+        Auto-filled <strong>${count} fields</strong> for Khushal Midha.
+      </div>
+      <div style="color: #94a3b8; font-size: 11px; line-height: 1.4;">
+        ${summaryText}
+      </div>
+      <div style="margin-top: 4px; font-size: 10px; color: #10b981; font-weight: 600;">
+        ✓ Review details & submit application
+      </div>
+    `;
+    document.body.appendChild(toast);
+    const closeBtn = toast.querySelector('#jf-toast-close');
+    if (closeBtn) {
+      closeBtn.onclick = () => toast.remove();
+    }
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-10px)';
+        toast.style.transition = 'all 0.5s ease';
+        setTimeout(() => toast.remove(), 500);
+      }
+    }, 7000);
+  }
+
+  function initAutoApplyFromUrl() {
+    const href = window.location.href;
+    const hash = window.location.hash;
+    const search = window.location.search;
+
+    const isAutoApply = href.includes('jf-autoapply') || hash.includes('jf-autoapply') || search.includes('jf-autoapply');
+    if (!isAutoApply) return;
+
+    console.log('[JobFinder Pilot] ⚡ Auto-apply detected in URL:', href);
+
+    let attempts = 0;
+    const maxAttempts = 6;
+
+    const tryFilling = () => {
+      attempts++;
+      analyzePage();
+      const res = autoFillForm();
+      if (res && res.filledCount > 0) {
+        showAutoApplyToast(res.filledCount, res.filledSummary);
+        console.log(`[JobFinder Pilot] ✅ Auto-fill successful on attempt ${attempts}: ${res.filledCount} fields filled.`);
+      } else if (attempts < maxAttempts) {
+        // Form may still be mounting in Single Page App (Workday, Lever, Greenhouse, etc.)
+        setTimeout(tryFilling, 1500);
+      }
+    };
+
+    // Staggered execution
+    setTimeout(tryFilling, 1200);
+  }
+
   // Self Initialization - DO NOT inject any popups into pages!
   // Extension works silently in background; popup ONLY opens when user clicks the extension button in the toolbar.
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       removeAnyExistingWidget();
       analyzePage();
+      initAutoApplyFromUrl();
     });
   } else {
     removeAnyExistingWidget();
     analyzePage();
+    initAutoApplyFromUrl();
   }
 
 })();
+

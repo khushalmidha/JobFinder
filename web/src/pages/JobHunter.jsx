@@ -24,7 +24,7 @@ import {
   Globe
 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '80' && window.location.port !== '' ? 'http://localhost:5000/api' : '/api');
 
 const JobHunter = () => {
   const [activeTab, setActiveTab] = useState('jobs'); // 'jobs', 'international_remote', 'companies', 'recruiters', 'scheduler'
@@ -773,10 +773,19 @@ const JobHunter = () => {
                           {/* Actions */}
                           <td className="py-3.5 px-4 text-right space-x-2 whitespace-nowrap">
                             <a
+                              href={`${job.applyUrl || job.url || ''}${(job.applyUrl || job.url || '').includes('#') ? '&' : '#'}jf-autoapply=true`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-xs bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-zinc-950 font-black px-2.5 py-1.5 rounded-lg transition shadow-sm"
+                              title="Opens career page & auto-fills all fields with Khushal's profile"
+                            >
+                              ⚡ Auto-Apply
+                            </a>
+                            <a
                               href={job.applyUrl || job.url}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-xs bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-bold px-2.5 py-1.5 rounded-lg transition"
+                              className="inline-flex items-center gap-1 text-xs bg-zinc-800 hover:bg-zinc-750 text-zinc-200 font-bold px-2.5 py-1.5 rounded-lg transition border border-zinc-700"
                             >
                               Apply Link <ArrowUpRight className="w-3 h-3" />
                             </a>
@@ -997,7 +1006,16 @@ const JobHunter = () => {
                             <option value="ignored">Ignored</option>
                           </select>
                         </td>
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right space-x-2 whitespace-nowrap">
+                          <a
+                            href={`${job.applyUrl || job.url || ''}${(job.applyUrl || job.url || '').includes('#') ? '&' : '#'}jf-autoapply=true`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-xs bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-zinc-950 font-black px-2.5 py-1.5 rounded-lg transition shadow-sm"
+                            title="Opens career page & auto-fills all fields with Khushal's profile"
+                          >
+                            ⚡ Auto-Apply
+                          </a>
                           <a
                             href={job.applyUrl || job.url}
                             target="_blank"

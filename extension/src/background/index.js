@@ -6,6 +6,19 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log('JobFinder AI Auto-Apply extension installed.');
 });
 
+// Tab navigation listener for 1-click & custom link auto-apply triggers
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url && (tab.url.includes('jf-autoapply=true') || tab.url.includes('jf-autoapply'))) {
+    setTimeout(() => {
+      chrome.tabs.sendMessage(tabId, { action: 'AUTO_FILL_FORM' }, (res) => {
+        if (chrome.runtime.lastError) {
+          // Handled by content script's self-initialization
+        }
+      });
+    }, 1200);
+  }
+});
+
 // Message listener for coordinating content script, popup, and backend
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'FETCH_OTP') {
