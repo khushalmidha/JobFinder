@@ -124,7 +124,7 @@
         if (!el) break;
         visited.add(el);
         const d=descriptor(el), type=kind(el), question=d.label || d.hint;
-        if (!question || unsafe.test(d.combined) || ['file','password','date','hidden','submit','button','reset'].includes(type)) {
+        if (!question || unsafe.test(d.combined.replace(/\b(?:e-?mail|email) address\b/gi,'email')) || ['file','password','date','hidden','submit','button','reset'].includes(type)) {
           report.skipped.push({question,reason:'Sensitive, unsupported, or unlabeled'});continue;
         }
         if (type==='radio'||type==='checkbox') {
