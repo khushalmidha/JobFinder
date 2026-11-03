@@ -553,6 +553,26 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
     }
   }
 
+  // 19. TERMS, CONSENT, DECLARATIONS, SIGNATURES (STRICT MANUAL REVIEW)
+  if (
+    combined.includes('terms') ||
+    combined.includes('agree') ||
+    combined.includes('consent') ||
+    combined.includes('declaration') ||
+    combined.includes('background check') ||
+    combined.includes('signature') ||
+    combined.includes('sign here') ||
+    combined.includes('attest')
+  ) {
+    return {
+      type: 'LEGAL_CONSENT_OR_TERMS',
+      requiresManualReview: true,
+      reason: 'Terms agreement, legal consent, or signature requires explicit applicant action and is never automatically completed.',
+      confidence: 0,
+      verified: false
+    };
+  }
+
   // If unclassified and required, flag for manual review! Never silently skip.
   if (isRequired) {
     return {
@@ -624,3 +644,4 @@ export function generateCompletionSummary(filledList = [], manualReviewList = []
     strictNoSubmitEnforced: true
   };
 }
+

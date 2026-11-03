@@ -778,19 +778,7 @@ Profiles: LeetCode Guardian (2137), Codeforces Expert (1809)`;
       } catch (e) {}
     }
 
-    const nextBtn = document.querySelector('button[data-automation-id="bottom-navigation-next-button"], button[data-automation-id="page-footer-next-button"], button[data-automation-id="next-button"], button[data-automation-id="continueButton"], button[data-automation-id="saveAndContinueButton"]') ||
-      Array.from(document.querySelectorAll('button, a')).find(b => {
-        const t = (b.innerText || '').toLowerCase().trim();
-        const isSubmit = t.includes('submit') || t.includes('finish') || t.includes('send application');
-        return !isSubmit && (t === 'continue' || t === 'next' || t.includes('save and continue') || t.includes('apply manually')) && !t.includes('back');
-      });
-
-    if (nextBtn && !(nextBtn.innerText || '').toLowerCase().includes('submit')) {
-      setTimeout(() => {
-        try { nextBtn.click(); } catch (e) {}
-      }, 800);
-      filledSummary.push('Advancing to Step 2: My Information');
-    }
+    // STRICT SAFETY: Do NOT automatically click Next or advance steps. Applicant must review and proceed manually.
   }
 
   const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), textarea, select'));
@@ -1056,24 +1044,13 @@ Profiles: LeetCode Guardian (2137), Codeforces Expert (1809)`;
       return;
     }
 
-    // Signature
+    // Signature: Never automatically sign legal agreements without explicit applicant action
     if (combined.includes('signature') || combined.includes('sign here') || combined.includes('type your name')) {
-      if (!el.value) {
-        setVal(el, profile.name);
-        filledCount++;
-        filledSummary.push('Signature');
-      }
       return;
     }
 
-    // Terms / Consent
-    if (el.type === 'checkbox' && (combined.includes('agree') || combined.includes('certif') || combined.includes('consent') || combined.includes('terms') || combined.includes('statement'))) {
-      if (!el.checked) {
-        el.checked = true;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        filledCount++;
-        filledSummary.push('Agreed to Terms');
-      }
+    // Terms / Consent: Never automatically check consent / declaration boxes
+    if (el.type === 'checkbox' && (combined.includes('agree') || combined.includes('certif') || combined.includes('consent') || combined.includes('terms') || combined.includes('statement') || combined.includes('declaration'))) {
       return;
     }
 

@@ -71,15 +71,15 @@ async function runSuite() {
     assert.strictEqual(isDomainConsistent('scammer@randomspamsite.org', 'google.com', 'Google'), false);
   });
 
-  // 3. CANDIDATE PERMUTATIONS & CONFIDENCE
-  console.log('\n🎯 Group 3: Algorithmic Email Permutations & Confidence Grading');
+  // 3. CANDIDATE PERMUTATIONS & SPECULATIVE GRADING
+  console.log('\n🎯 Group 3: Algorithmic Email Permutations & Speculative Grading');
 
-  runTest('Generates corporate email candidates with inferred confidence', () => {
+  runTest('Generates corporate email candidates with speculative disclosure (never overpromising MX proof)', () => {
     const candidates = generateEmailCandidates('Rohan', 'Mathur', 'gs.com');
     assert.strictEqual(candidates.length > 0, true);
     assert.strictEqual(candidates[0].email, 'rohan.mathur@gs.com');
-    assert.strictEqual(candidates[0].confidenceLevel, 'inferred');
-    assert.strictEqual(candidates[0].confidence >= 70, true);
+    assert.strictEqual(candidates[0].confidenceLevel, 'speculative_pattern');
+    assert.strictEqual(candidates[0].confidence <= 50, true); // Honest confidence grade
   });
 
   // 4. OUTPUT FORMATTING
@@ -91,20 +91,20 @@ async function runSuite() {
       hrName: 'Vikas Aggarwal',
       designation: 'Engineering Hiring Lead',
       email: 'vikas.aggarwal@razorpay.com',
-      source: 'Curated Registry (Verified)',
-      confidence: 96,
-      confidenceLevel: 'verified'
+      source: 'Curated Registry (Directory Listing)',
+      confidence: 85,
+      confidenceLevel: 'directory_listing'
     };
 
     const formatted = formatRecruiterOutput(mockRecruiter);
-    const expected = 'Razorpay | Vikas Aggarwal | Engineering Hiring Lead | vikas.aggarwal@razorpay.com | Curated Registry (Verified) | 96% (verified)';
+    const expected = 'Razorpay | Vikas Aggarwal | Engineering Hiring Lead | vikas.aggarwal@razorpay.com | Curated Registry (Directory Listing) | 85% (directory_listing)';
     assert.strictEqual(formatted, expected);
   });
 
   // 5. SCOUT RECRUITERS & DEDUPLICATION
   console.log('\n🔍 Group 5: Recruiter Discovery & Deduplication');
 
-  await runAsyncTest('Discovers verified recruiters and deduplicates by email', async () => {
+  await runAsyncTest('Discovers directory recruiters and deduplicates by email', async () => {
     const res = await scoutRecruiters({
       companyQuery: 'Razorpay',
       limit: 10
@@ -114,7 +114,7 @@ async function runSuite() {
     const emails = res.recruiters.map(r => r.email);
     const uniqueEmails = new Set(emails);
     assert.strictEqual(emails.length, uniqueEmails.size); // Zero duplicates
-    assert.strictEqual(res.recruiters[0].confidenceLevel, 'verified');
+    assert.strictEqual(res.recruiters[0].confidenceLevel, 'directory_listing');
     assert.strictEqual(res.recruiters[0].formattedOutput.includes('Razorpay |'), true);
   });
 
@@ -141,3 +141,4 @@ runSuite().catch(err => {
   console.error('Test suite failed:', err);
   process.exit(1);
 });
+

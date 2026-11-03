@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "node tests/runAutofillTests.js && node tests/runRecruiterTests.js",
+    "test": "node tests/runAutofillTests.js && node tests/runRecruiterTests.js && node --test tests/publicEmailDiscovery.test.js",
     "test:autofill": "node tests/runAutofillTests.js",
-    "test:recruiter": "node tests/runRecruiterTests.js"
+    "test:recruiter": "node tests/runRecruiterTests.js",
+    "test:discovery": "node --test tests/publicEmailDiscovery.test.js"
   },
   "keywords": [],
   "author": "",

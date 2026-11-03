@@ -731,10 +731,9 @@ COMPETITIVE PROGRAMMING & ACHIEVEMENTS:
         const isAlreadyChecked = checkboxes.some(c => c.getAttribute('aria-checked') === 'true');
         if (isAlreadyChecked) return;
 
-        if (context.combined.includes('terms') || context.combined.includes('agree') || context.combined.includes('consent')) {
-          checkboxes[0].click();
-          gCount++;
-          filledList.push({ field: labelText, value: 'Agreed' });
+        if (context.combined.includes('terms') || context.combined.includes('agree') || context.combined.includes('consent') || context.combined.includes('declaration')) {
+          // STRICT SAFETY: Never automatically agree to legal terms, consent, or declarations
+          manualReviewList.push({ field: labelText, reason: 'Legal consent / terms agreement requires explicit manual user review and confirmation' });
         } else if (isRequired) {
           unansweredRequiredList.push({ field: labelText, reason: 'Checkbox question requires user confirmation' });
         }
@@ -795,13 +794,7 @@ COMPETITIVE PROGRAMMING & ACHIEVEMENTS:
         filledList.push({ field: 'Resume File', value: 'Khushal_Midha_Resume.txt' });
       }
 
-      // Safe multi-step navigation: advance to Step 2
-      const nextBtn = findNextButton();
-      if (nextBtn) {
-        setTimeout(() => {
-          try { nextBtn.click(); } catch (e) {}
-        }, 800);
-      }
+      // STRICT NO AUTO-NAVIGATION: Stop at current step. User must review and click Next manually.
     }
 
     // Step 2: Handle Google Forms questions if present
@@ -857,12 +850,9 @@ COMPETITIVE PROGRAMMING & ACHIEVEMENTS:
           filledList.push({ field: context.labelText, value: label });
         }
       } else if (el.type === 'checkbox') {
-        if (context.combined.includes('terms') || context.combined.includes('agree') || context.combined.includes('consent')) {
-          if (!el.checked) {
-            el.checked = true;
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            filledList.push({ field: context.labelText, value: 'Agreed' });
-          }
+        if (context.combined.includes('terms') || context.combined.includes('agree') || context.combined.includes('consent') || context.combined.includes('declaration') || context.combined.includes('signature') || context.combined.includes('attest')) {
+          // STRICT SAFETY: Never automatically check consent, terms, or legal declaration checkboxes
+          manualReviewList.push({ field: context.labelText, reason: 'Legal consent / terms checkbox requires explicit manual user review' });
         }
       } else {
         // Text / Textarea / Number / Tel

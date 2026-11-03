@@ -1,6 +1,7 @@
 const dns = require('dns').promises;
 const Contact = require('../models/Contact');
 const Company = require('../models/Company');
+const { normalizeDomain, fetchCompanyEmails } = require('./publicEmailDiscovery');
 
 /**
  * Ghost LinkedIn OSINT & Zero-Ban Email Scout Engine
@@ -519,20 +520,20 @@ function generateEmailCandidates(firstName, lastName, domain) {
 
   const candidates = [];
   if (f && l) {
-    candidates.push({ email: `${f}.${l}@${dom}`, pattern: '{first}.{last}', confidence: 85, confidenceLevel: 'inferred' });
-    candidates.push({ email: `${f}@${dom}`, pattern: '{first}', confidence: 80, confidenceLevel: 'inferred' });
-    candidates.push({ email: `${f[0]}${l}@${dom}`, pattern: '{f}{last}', confidence: 80, confidenceLevel: 'inferred' });
-    candidates.push({ email: `${f}${l}@${dom}`, pattern: '{first}{last}', confidence: 75, confidenceLevel: 'inferred' });
-    candidates.push({ email: `${f}_${l}@${dom}`, pattern: '{first}_{last}', confidence: 70, confidenceLevel: 'inferred' });
+    candidates.push({ email: `${f}.${l}@${dom}`, pattern: '{first}.{last}', confidence: 45, confidenceLevel: 'speculative_pattern' });
+    candidates.push({ email: `${f}@${dom}`, pattern: '{first}', confidence: 40, confidenceLevel: 'speculative_pattern' });
+    candidates.push({ email: `${f[0]}${l}@${dom}`, pattern: '{f}{last}', confidence: 40, confidenceLevel: 'speculative_pattern' });
+    candidates.push({ email: `${f}${l}@${dom}`, pattern: '{first}{last}', confidence: 35, confidenceLevel: 'speculative_pattern' });
+    candidates.push({ email: `${f}_${l}@${dom}`, pattern: '{first}_{last}', confidence: 35, confidenceLevel: 'speculative_pattern' });
   } else if (f) {
-    candidates.push({ email: `${f}@${dom}`, pattern: '{first}', confidence: 80, confidenceLevel: 'inferred' });
-    candidates.push({ email: `talent.${f}@${dom}`, pattern: 'talent.{first}', confidence: 75, confidenceLevel: 'inferred' });
+    candidates.push({ email: `${f}@${dom}`, pattern: '{first}', confidence: 40, confidenceLevel: 'speculative_pattern' });
+    candidates.push({ email: `talent.${f}@${dom}`, pattern: 'talent.{first}', confidence: 35, confidenceLevel: 'speculative_pattern' });
   }
 
-  // Standard talent inboxes
-  candidates.push({ email: `careers@${dom}`, pattern: 'careers', confidence: 90, confidenceLevel: 'inferred' });
-  candidates.push({ email: `talent@${dom}`, pattern: 'talent', confidence: 85, confidenceLevel: 'inferred' });
-  candidates.push({ email: `hiring@${dom}`, pattern: 'hiring', confidence: 80, confidenceLevel: 'inferred' });
+  // Standard generic talent inboxes
+  candidates.push({ email: `careers@${dom}`, pattern: 'careers', confidence: 60, confidenceLevel: 'generic_inbox' });
+  candidates.push({ email: `talent@${dom}`, pattern: 'talent', confidence: 55, confidenceLevel: 'generic_inbox' });
+  candidates.push({ email: `hiring@${dom}`, pattern: 'hiring', confidence: 50, confidenceLevel: 'generic_inbox' });
 
   return candidates.filter(c => isValidEmailSyntax(c.email));
 }
@@ -548,7 +549,7 @@ async function scoutRecruiters({ userId, companyQuery = '', domainQuery = '', hr
   const rawResults = [];
   const seenEmails = new Set();
 
-  // 1. Check in curated master registry (Verified Tier)
+  // 1. Check in curated master registry (Directory Listing Tier)
   for (const rec of GHOST_RECRUITER_REGISTRY) {
     const cleanEmail = (rec.email || '').toLowerCase().trim();
     if (!isValidEmailSyntax(cleanEmail) || seenEmails.has(cleanEmail)) continue;
@@ -567,10 +568,11 @@ async function scoutRecruiters({ userId, companyQuery = '', domainQuery = '', hr
           email: cleanEmail,
           designation: rec.role || 'Talent Acquisition Partner',
           role: rec.role || 'Talent Acquisition Partner',
-          source: 'Curated Registry (Verified)',
-          confidence: 96,
-          confidenceLevel: 'verified',
-          notes: `Discovered via verified talent registry for ${rec.company}. Domain consistency verified.`
+          source: 'Curated Registry (Directory Listing)',
+          confidence: 85,
+          confidenceLevel: 'directory_listing',
+          verification: 'known_directory_not_mailbox_verified',
+          notes: `Discovered via curated talent directory for ${rec.company}. Individual mailbox deliverability is not SMTP verified.`
         };
         item.formattedOutput = formatRecruiterOutput(item);
         rawResults.push(item);
@@ -578,54 +580,91 @@ async function scoutRecruiters({ userId, companyQuery = '', domainQuery = '', hr
     }
   }
 
-  // 2. If user searched a custom company/domain not in seed, dynamically generate & MX-verify!
+  // 2. If user searched a custom company/domain, check live public company pages first!
   if (rawResults.length === 0 && (normalizedQuery || normalizedDomain)) {
-    const targetDomain = normalizedDomain || (COMPANY_DOMAIN_MAP[normalizedQuery]?.domain) || `${normalizedQuery.replace(/\s+/g, '')}.com`;
+    const targetDomain = normalizeDomain(normalizedDomain || (COMPANY_DOMAIN_MAP[normalizedQuery]?.domain) || `${normalizedQuery.replace(/\s+/g, '')}.com`);
     const companyDisplayName = companyQuery || targetDomain.split('.')[0].toUpperCase();
 
-    // Verify MX record
-    const mxInfo = await verifyMxRecord(targetDomain);
+    if (targetDomain) {
+      // Step A: Search for publicly listed emails on careers/jobs/contact pages
+      try {
+        const publicFound = await fetchCompanyEmails(targetDomain);
+        if (publicFound && publicFound.emails && publicFound.emails.length > 0) {
+          for (const pub of publicFound.emails) {
+            if (!seenEmails.has(pub.email) && isValidEmailSyntax(pub.email)) {
+              seenEmails.add(pub.email);
+              const item = {
+                hrName: 'Talent Acquisition Team',
+                email: pub.email,
+                company: companyDisplayName,
+                designation: 'Public Recruiting Contact',
+                role: 'Public Recruiting Contact',
+                package: 'Industry Standard (SDE)',
+                location: 'India / Remote',
+                linkedinUrl: `https://linkedin.com/search/results/people/?keywords=${encodeURIComponent(companyDisplayName + ' recruiter')}`,
+                domain: targetDomain,
+                source: 'Public Company Page (' + pub.sourceUrl + ')',
+                sourceUrl: pub.sourceUrl,
+                confidence: pub.score,
+                confidenceLevel: 'publicly_listed',
+                verification: 'publicly_listed_not_mailbox_verified',
+                notes: `Sourced from public page ${pub.sourceUrl}. Email was published on company website; individual mailbox deliverability is not verified.`
+              };
+              item.formattedOutput = formatRecruiterOutput(item);
+              rawResults.push(item);
+            }
+          }
+        }
+      } catch (e) {
+        // Fallback to pattern inspection if live crawling is blocked or page unreachable
+      }
 
-    const namesToTest = hrName ? [hrName] : [
-      'Talent Acquisition Lead',
-      'Campus Recruiter',
-      'Engineering Hiring Lead',
-      'Technical Recruiter',
-      'University Talent Partner'
-    ];
+      // Step B: If still no public emails, generate speculative pattern guesses with clear disclosure
+      if (rawResults.length === 0) {
+        const mxInfo = await verifyMxRecord(targetDomain);
+        const namesToTest = hrName ? [hrName] : [
+          'Talent Acquisition Lead',
+          'Campus Recruiter',
+          'Engineering Hiring Lead',
+          'Technical Recruiter',
+          'University Talent Partner'
+        ];
 
-    for (const name of namesToTest) {
-      const parts = name.trim().split(' ');
-      const fName = parts[0] || 'Talent';
-      const lName = parts.slice(1).join(' ') || 'Partner';
+        for (const name of namesToTest) {
+          const parts = name.trim().split(' ');
+          const fName = parts[0] || 'Talent';
+          const lName = parts.slice(1).join(' ') || 'Partner';
 
-      const candidates = generateEmailCandidates(fName, lName, targetDomain);
-      const topCandidate = candidates[0];
-      const topEmail = topCandidate?.email || `careers@${targetDomain}`;
-      const cleanTopEmail = topEmail.toLowerCase().trim();
+          const candidates = generateEmailCandidates(fName, lName, targetDomain);
+          const topCandidate = candidates[0];
+          const topEmail = topCandidate?.email || `careers@${targetDomain}`;
+          const cleanTopEmail = topEmail.toLowerCase().trim();
 
-      if (!seenEmails.has(cleanTopEmail) && isValidEmailSyntax(cleanTopEmail)) {
-        seenEmails.add(cleanTopEmail);
-        const confidence = mxInfo.isValid ? (topCandidate?.confidence || 85) : 60;
-        const confidenceLevel = mxInfo.isValid ? 'inferred' : 'unverified';
-        const item = {
-          hrName: name,
-          email: cleanTopEmail,
-          company: companyDisplayName,
-          designation: 'Talent Acquisition & Hiring Partner',
-          role: 'Talent Acquisition & Hiring Partner',
-          package: 'Industry Standard (SDE)',
-          location: 'India / Remote',
-          linkedinUrl: `https://linkedin.com/search/results/people/?keywords=${encodeURIComponent(companyDisplayName + ' recruiter')}`,
-          domain: targetDomain,
-          source: mxInfo.isValid ? 'Company Domain MX Verified' : 'Inferred Domain Candidate',
-          confidence,
-          confidenceLevel,
-          mxHost: mxInfo.exchange,
-          notes: `Algorithmic candidate (${topCandidate?.pattern || 'pattern'}). MX Deliverability: ${mxInfo.isValid ? 'Active (' + mxInfo.exchange + ')' : 'Unverified'}`
-        };
-        item.formattedOutput = formatRecruiterOutput(item);
-        rawResults.push(item);
+          if (!seenEmails.has(cleanTopEmail) && isValidEmailSyntax(cleanTopEmail)) {
+            seenEmails.add(cleanTopEmail);
+            const confidence = mxInfo.isValid ? (topCandidate?.confidence || 40) : 20;
+            const confidenceLevel = 'speculative_pattern';
+            const item = {
+              hrName: name,
+              email: cleanTopEmail,
+              company: companyDisplayName,
+              designation: 'Talent Acquisition & Hiring Partner',
+              role: 'Talent Acquisition & Hiring Partner',
+              package: 'Industry Standard (SDE)',
+              location: 'India / Remote',
+              linkedinUrl: `https://linkedin.com/search/results/people/?keywords=${encodeURIComponent(companyDisplayName + ' recruiter')}`,
+              domain: targetDomain,
+              source: 'Speculative Pattern Guess',
+              confidence,
+              confidenceLevel,
+              verification: 'unverified_pattern_guess',
+              mxHost: mxInfo.exchange,
+              notes: `Speculative pattern guess (${topCandidate?.pattern || 'pattern'}). Domain has MX (${mxInfo.exchange || 'none'}), but mailbox existence is NOT verified.`
+            };
+            item.formattedOutput = formatRecruiterOutput(item);
+            rawResults.push(item);
+          }
+        }
       }
     }
   }

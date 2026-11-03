@@ -236,7 +236,7 @@ const Settings = () => {
       _id: newId,
       name: `Template ${settings.emailTemplates.length + 1}`,
       subject: `Referral Request | 6-Month SWE Intern | ${settings.name || 'Khushal Midha'}`,
-      body: `Greetings,\n\nI'm ${settings.name || 'Khushal Midha'}, a B.Tech CSE/AI student at IIIT Lucknow with an 8.7 CGPA. I recently completed a Software Engineering Internship at Uber, where I worked on backend systems, ETL pipelines, microservices, and automation.\n\nI'm also an Expert on Codeforces (1809) and 5★ on CodeChef (2137), with 3000+ DSA problems solved. I've built projects including MediPulse, a multi-tenant healthcare platform, Jagrit, an AI-powered news platform, and IIITLBachat, an AI-driven finance platform.\n\nI'm currently looking for a 6-month Software Engineering Internship (SWE Intern) opportunity at {{companyName}} and would really appreciate a referral if there is a suitable opening.\n\nBest regards,\n${settings.name || 'Khushal Midha'}\nResume: {{resumeLink}}`,
+      body: `Greetings,\n\nI'm ${settings.name || 'Khushal Midha'}, a B.Tech CSE/AI student at IIIT Lucknow with an 8.7 CGPA. I completed a Software Development Engineer Internship at Coffeee.io, where I built assessment debugging modules in Java, Spring Boot, React, and PostgreSQL, and developed an evaluation AI assistant with Redis and Docker.\n\nI'm also an Expert on Codeforces (1809) and 5★ on CodeChef (2137), with 3000+ DSA problems solved. I've built projects including MediPulse, a multi-tenant healthcare platform, Jagrit, an AI-powered news platform, and IIITLBachat, an AI-driven finance platform.\n\nI'm currently looking for a 6-month Software Engineering Internship (SWE Intern) opportunity at {{companyName}} and would really appreciate a referral if there is a suitable opening.\n\nBest regards,\n${settings.name || 'Khushal Midha'}\nResume: {{resumeLink}}`,
       isDefault: settings.emailTemplates.length === 0
     };
 
@@ -527,11 +527,11 @@ const Settings = () => {
                 </div>
                 <h2 className="text-xl font-bold text-zinc-100">Candidate Profile & Compensation Standards</h2>
                 <span className="text-xs bg-emerald-950 text-emerald-400 font-bold px-2.5 py-1 rounded-full border border-emerald-800/80">
-                  Verified Resume Source
+                  Verified Resume & Preferences
                 </span>
               </div>
               <p className="text-xs text-zinc-400 mt-1.5">
-                Primary source of truth for personal, academic, and application form autofilling. Edit independently anytime.
+                Primary source of truth for verified academic/internship credentials and applicant-configured target compensation. Edit independently anytime.
               </p>
             </div>
           </div>
@@ -598,7 +598,7 @@ const Settings = () => {
 
           <div className="bg-zinc-950/80 border border-yellow-500/20 rounded-xl p-4 mb-4">
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-yellow-400 font-bold text-xs uppercase tracking-wide">💰 Compensation Rules (Strict Policy)</span>
+              <span className="text-yellow-400 font-bold text-xs uppercase tracking-wide">💰 Target Compensation Standards (Candidate Preference)</span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -627,7 +627,7 @@ const Settings = () => {
               </div>
             </div>
             <p className="text-[11px] text-zinc-400 mt-2.5 italic">
-              * Note: The automation never confuses annual compensation with monthly salary, fixed pay, or current compensation. Current salary is never fabricated.
+              * Note: Expected compensation is candidate-configured target preference, not an unverified past resume fact. The automation never confuses annual compensation with monthly salary, fixed pay, or current compensation. Current salary or notice period are never fabricated.
             </p>
           </div>
 

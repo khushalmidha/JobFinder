@@ -114,6 +114,22 @@ runTest('Allows safe multi-step navigation buttons ("Save and Continue", "Next S
   assert.strictEqual(isFinalSubmitButton('Save and Continue'), false);
 });
 
+runTest('Terms and legal consent checkboxes are NEVER auto-checked and require manual review', () => {
+  const dummyCheckbox = new JSDOM('<input type="checkbox" name="agree_terms" aria-label="I agree to the terms and privacy policy" />').window.document.querySelector('input');
+  const ctx = extractQuestionContext(dummyCheckbox);
+  const decision = classifyQuestion(ctx);
+  assert.strictEqual(decision.requiresManualReview, true);
+  assert.strictEqual(decision.verified, false);
+});
+
+runTest('Legal declarations and background checks require explicit applicant review', () => {
+  const dummyDeclaration = new JSDOM('<input type="checkbox" name="background_check" aria-label="I consent to background check and verification" />').window.document.querySelector('input');
+  const ctx = extractQuestionContext(dummyDeclaration);
+  const decision = classifyQuestion(ctx);
+  assert.strictEqual(decision.requiresManualReview, true);
+  assert.strictEqual(decision.verified, false);
+});
+
 // -------------------------------------------------------------------
 // 3. WORKDAY FORM FIXTURE VERIFICATION
 // -------------------------------------------------------------------
@@ -313,3 +329,4 @@ console.log('=====================================================\n');
 if (passedTests !== totalTests) {
   process.exit(1);
 }
+
