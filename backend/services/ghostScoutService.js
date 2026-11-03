@@ -430,39 +430,26 @@ async function scoutRecruiters({ userId, companyQuery = '', domainQuery = '', hr
     }
   }
 
-  // 2. If user searched a custom company/domain not in seed, dynamically generate & MX-verify!
+  // Do not invent addresses from name patterns and label them "verified".
+  // MX records prove domain mail infrastructure, not the existence of a mailbox.
+  // Unknown-company discovery should return no invented contacts.
   if (results.length === 0 && (normalizedQuery || normalizedDomain)) {
-    const targetDomain = normalizedDomain || (COMPANY_DOMAIN_MAP[normalizedQuery]?.domain) || `${normalizedQuery.replace(/\s+/g, '')}.com`;
-    const companyDisplayName = companyQuery || targetDomain.split('.')[0].toUpperCase();
+    return {
+      addedCount: 0,
+      skippedCount: 0,
+      totalFound: 0,
+      recruiters: [],
+      savedContacts: [],
+      message: 'No sourced recruiter email found. No guessed addresses were saved.'
+    };
+  }
 
-    // Verify MX record
-    const mxInfo = await verifyMxRecord(targetDomain);
-
-    const namesToTest = hrName ? [hrName] : ['Talent Acquisition', 'Campus Recruiter', 'Technical Hiring'];
-
-    for (const name of namesToTest) {
-      const parts = name.trim().split(' ');
-      const fName = parts[0] || 'Talent';
-      const lName = parts.slice(1).join(' ') || 'Partner';
-
-      const candidates = generateEmailCandidates(fName, lName, targetDomain);
-      const topEmail = candidates[0]?.email || `careers@${targetDomain}`;
-
-      results.push({
-        hrName: name,
-        email: topEmail,
-        company: companyDisplayName,
-        role: 'Talent Acquisition & Hiring Partner',
-        package: 'Industry Standard (SDE)',
-        location: 'India / Remote',
-        linkedinUrl: `https://linkedin.com/search/results/people/?keywords=${encodeURIComponent(companyDisplayName + ' recruiter')}`,
-        domain: targetDomain,
-        source: 'linkedin_scout',
-        confidence: mxInfo.isValid ? 92 : 75,
-        mxHost: mxInfo.exchange,
-        notes: `Algorithmic OSINT candidate (${candidates[0]?.pattern}). MX Deliverability: ${mxInfo.isValid ? 'Active (' + mxInfo.exchange + ')' : 'Unverified'}`
-      });
-    }
+  // Curated entries are unverified until a public source establishes a matching
+  // name+address. Do not claim deliverability or inflate confidence.
+  for (const item of results) {
+    item.source='curated_unverified';
+    item.confidence=20;
+    item.notes='Curated lead requiring independent source verification. MX does not verify mailbox ownership.';
   }
 
   // 3. Save discovered leads directly into user's Contact model
@@ -479,8 +466,7 @@ async function scoutRecruiters({ userId, companyQuery = '', domainQuery = '', hr
         hrName: item.hrName,
         company: item.company,
         role: item.role,
-        source: 'linkedin_scout',
-        linkedinUrl: item.linkedinUrl,
+        source: 'linkedin_scout',\n        linkedinUrl: item.linkedinUrl,
         notes: item.notes,
         status: 'pending'
       });
