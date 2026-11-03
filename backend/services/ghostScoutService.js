@@ -408,82 +408,34 @@ function generateEmailCandidates(firstName, lastName, domain) {
  * Main Ghost Scout Harvester:
  * Finds recruiters and verifies emails without using user's LinkedIn account or Apollo/Hunter API keys.
  */
-async function scoutRecruiters({ userId, companyQuery = '', domainQuery = '', hrName = '', limit = 15 }) {
-  const normalizedQuery = (companyQuery || '').toLowerCase().trim();
-  const normalizedDomain = (domainQuery || '').toLowerCase().replace(/https?:\/\//, '').replace(/\/.*$/, '').trim();
-
-  const results = [];
-
-  // 1. Check in curated master registry
-  for (const rec of GHOST_RECRUITER_REGISTRY) {
-    const matchCompany = !normalizedQuery || rec.company.toLowerCase().includes(normalizedQuery);
-    const matchDomain = !normalizedDomain || rec.domain.toLowerCase().includes(normalizedDomain);
-    const matchName = !hrName || rec.hrName.toLowerCase().includes(hrName.toLowerCase());
-
-    if ((matchCompany || matchDomain) && matchName) {
-      results.push({
-        ...rec,
-        source: 'linkedin_scout',
-        confidence: 96,
-        notes: `Discovered via Ghost Scout OSINT for ${rec.company}. Deliverable MX confirmed.`
-      });
-    }
+async function scoutRecruiters({userId,companyQuery='',domainQuery='',hrName='',limit=15}) {
+  const {normalizeDomain,fetchCompanyEmails}=require('./publicEmailDiscovery');
+  const company=String(companyQuery||'').trim();
+  const fromKnown=COMPANY_DOMAIN_MAP[company.toLowerCase()]?.domain;
+  const domain=normalizeDomain(domainQuery || fromKnown);
+  if(!domain) {
+    return {addedCount:0,skippedCount:0,totalFound:0,recruiters:[],savedContacts:[],
+      message:'Enter an official company domain. No email patterns were guessed.'};
   }
-
-  // Do not invent addresses from name patterns and label them "verified".
-  // MX records prove domain mail infrastructure, not the existence of a mailbox.
-  // Unknown-company discovery should return no invented contacts.
-  if (results.length === 0 && (normalizedQuery || normalizedDomain)) {
-    return {
-      addedCount: 0,
-      skippedCount: 0,
-      totalFound: 0,
-      recruiters: [],
-      savedContacts: [],
-      message: 'No sourced recruiter email found. No guessed addresses were saved.'
-    };
+  const discovery=await fetchCompanyEmails(domain);
+  const found=discovery.emails.slice(0,Math.max(1,Math.min(30,Number(limit)||15)));
+  const recruiters=found.map(({email,score,sourceUrl,verification})=>({
+    hrName:'',email,company:company||domain,role:'Publicly listed recruiting contact',
+    domain,source:'career_crawler',sourceUrl,confidence:score,
+    verification,notes:'Public company page: '+sourceUrl+'. Email was listed; mailbox deliverability is not verified.'
+  }));
+  const savedContacts=[];
+  let skippedCount=0;
+  for(const item of recruiters) {
+    const exists=await Contact.findOne({userId,email:item.email});
+    if(exists) {skippedCount++;continue;}
+    savedContacts.push(await Contact.create({
+      userId,email:item.email,company:item.company,hrName:'',
+      role:item.role,source:'career_crawler',notes:item.notes,status:'pending'
+    }));
   }
-
-  // Curated entries are unverified until a public source establishes a matching
-  // name+address. Do not claim deliverability or inflate confidence.
-  for (const item of results) {
-    item.source='curated_unverified';
-    item.confidence=20;
-    item.notes='Curated lead requiring independent source verification. MX does not verify mailbox ownership.';
-  }
-
-  // 3. Save discovered leads directly into user's Contact model
-  let addedCount = 0;
-  let skippedCount = 0;
-  const savedContacts = [];
-
-  for (const item of results.slice(0, limit)) {
-    const existing = await Contact.findOne({ userId, email: item.email.toLowerCase() });
-    if (!existing) {
-      const created = await Contact.create({
-        userId,
-        email: item.email.toLowerCase(),
-        hrName: item.hrName,
-        company: item.company,
-        role: item.role,
-        source: 'linkedin_scout',\n        linkedinUrl: item.linkedinUrl,
-        notes: item.notes,
-        status: 'pending'
-      });
-      savedContacts.push(created);
-      addedCount++;
-    } else {
-      skippedCount++;
-    }
-  }
-
-  return {
-    addedCount,
-    skippedCount,
-    totalFound: results.length,
-    recruiters: results.slice(0, limit),
-    savedContacts
-  };
+  return {addedCount:savedContacts.length,skippedCount,totalFound:recruiters.length,recruiters,savedContacts,
+    message:recruiters.length?'Sourced publicly listed emails. Review before contacting.':'No publicly listed recruiting email found for this domain.'};
 }
 
 module.exports = {
