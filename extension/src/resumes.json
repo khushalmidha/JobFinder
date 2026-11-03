@@ -8,16 +8,16 @@
     "phone": "+91 90507 40836",
     "phoneRaw": "9050740836",
     "countryCode": "+91",
-    "location": "Lucknow, Uttar Pradesh, India",
-    "currentCity": "Lucknow",
+    "location": null,
+    "currentCity": null,
     "country": "India",
-    "openToRelocate": true,
-    "linkedin": "https://www.linkedin.com/in/khushalmidha",
+    "openToRelocate": null,
+    "linkedin": "https://www.linkedin.com/in/khushal-midha-260bb3288/",
     "github": "https://github.com/khushalmidha",
-    "portfolio": "https://github.com/khushalmidha",
+    "portfolio": "https://www.khushalmidha.tech/",
     "leetcode": "https://leetcode.com/u/khushalmidha",
-    "codeforces": "https://codeforces.com/profile/khushalmidha",
-    "codechef": "https://www.codechef.com/users/khushalmidha",
+    "codeforces": "https://codeforces.com/profile/Khushal_Midha",
+    "codechef": "https://www.codechef.com/users/codebeast24",
     "education": {
       "institution": "Indian Institute of Information Technology, Lucknow",
       "shortInstitution": "IIIT Lucknow",
@@ -28,18 +28,16 @@
       "startYear": "2023",
       "endYear": "2027",
       "graduationDate": "July 2027",
-      "currentYearOfStudy": "3rd Year",
-      "coursework": ["Object Oriented Programming", "Database Management Systems", "Computer Networks", "Operating Systems", "Data Structures & Algorithms"]
+      "currentYearOfStudy": "4th Year",
+      "coursework": [
+        "Object Oriented Programming",
+        "Database Management Systems",
+        "Computer Networks",
+        "Operating Systems",
+        "Data Structures & Algorithms"
+      ]
     },
-    "workAuthorization": {
-      "authorizedInIndia": "Yes",
-      "requiresSponsorship": "No",
-      "noticePeriodDays": "0",
-      "noticePeriodText": "Immediate (0 days)",
-      "currentEmploymentStatus": "Student / Available for Internship & Full-time",
-      "gender": "Male",
-      "pronouns": "He/Him"
-    },
+    "workAuthorization": {},
     "currentExperience": {
       "company": "Coffeee.io",
       "role": "SDE Intern",
@@ -51,13 +49,10 @@
         "Developed a read-only AI assistant (LLMs, Redis, Docker) to provide contextual hints without edit access, preserving evaluation integrity; validated in staging."
       ]
     },
-    "salaryExpectations": {
-      "currency": "INR",
-      "expectedCtcLpa": "22 LPA",
-      "expectedBaseLpa": "18 LPA",
-      "formattedRange": "₹18 - ₹25 LPA",
-      "flexible": true
-    }
+    "salaryExpectations": {},
+    "state": null,
+    "postalCode": null,
+    "addressLine1": null
   },
   "resumes": [
     {
@@ -74,7 +69,22 @@
         "Web Developer",
         "Software Engineer Intern"
       ],
-      "primaryKeywords": ["react", "node", "express", "fastapi", "spring boot", "mongodb", "postgresql", "kafka", "redis", "javascript", "typescript", "rest api", "saas", "fullstack"],
+      "primaryKeywords": [
+        "react",
+        "node",
+        "express",
+        "fastapi",
+        "spring boot",
+        "mongodb",
+        "postgresql",
+        "kafka",
+        "redis",
+        "javascript",
+        "typescript",
+        "rest api",
+        "saas",
+        "fullstack"
+      ],
       "headline": "Full-Stack & Systems Engineer skilled in MERN, FastAPI, Kafka, Redis, and high-concurrency microservices",
       "projects": [
         {
@@ -125,7 +135,21 @@
         "Computer Vision Engineer",
         "AI Research Intern"
       ],
-      "primaryKeywords": ["machine learning", "deep learning", "pytorch", "xgboost", "transformers", "llm", "rag", "gnn", "graph neural networks", "mlops", "nlp", "ai", "faiss"],
+      "primaryKeywords": [
+        "machine learning",
+        "deep learning",
+        "pytorch",
+        "xgboost",
+        "transformers",
+        "llm",
+        "rag",
+        "gnn",
+        "graph neural networks",
+        "mlops",
+        "nlp",
+        "ai",
+        "faiss"
+      ],
       "headline": "ML & Applied AI Engineer experienced in GNNs, Transformers, RAG pipelines, and high-throughput real-time inference",
       "projects": [
         {
@@ -172,7 +196,21 @@
         "Systems Engineer",
         "HFT Developer"
       ],
-      "primaryKeywords": ["c++", "quant", "quantitative", "hft", "low latency", "order book", "matching engine", "trading", "multithreading", "stl", "cmake", "googletest", "market making"],
+      "primaryKeywords": [
+        "c++",
+        "quant",
+        "quantitative",
+        "hft",
+        "low latency",
+        "order book",
+        "matching engine",
+        "trading",
+        "multithreading",
+        "stl",
+        "cmake",
+        "googletest",
+        "market making"
+      ],
       "headline": "Systems & Quant Engineer specializing in ultra-low latency C++ matching engines, order books, and algorithmic trading models",
       "projects": [
         {
@@ -217,7 +255,16 @@
         "Fast-Paced Startup Engineer",
         "Full Stack Generalist"
       ],
-      "primaryKeywords": ["hackathon", "icpc", "codeforces", "competitive programming", "growth", "mvp", "rapid prototyping", "startup"],
+      "primaryKeywords": [
+        "hackathon",
+        "icpc",
+        "codeforces",
+        "competitive programming",
+        "growth",
+        "mvp",
+        "rapid prototyping",
+        "startup"
+      ],
       "headline": "Fast-paced competitive programmer and builder with top ranks across Amazon ML Challenge, ICPC, and Meta Hacker Cup",
       "projects": [
         {
@@ -263,7 +310,17 @@
         "Enterprise Software Engineer",
         "Systems Engineer"
       ],
-      "primaryKeywords": ["security", "fintech", "banking", "goldman sachs", "threat detection", "mitre", "encryption", "enterprise", "distributed"],
+      "primaryKeywords": [
+        "security",
+        "fintech",
+        "banking",
+        "goldman sachs",
+        "threat detection",
+        "mitre",
+        "encryption",
+        "enterprise",
+        "distributed"
+      ],
       "headline": "Systems engineer with proven problem-solving pedigree (Goldman Sachs Hackathon Rank 996, JEE Adv AIR 15,503) & automated threat response systems",
       "projects": [
         {
