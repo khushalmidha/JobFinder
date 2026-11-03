@@ -1,0 +1,50 @@
+name: Deploy JobFinder to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Auto Deploy to AWS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER || 'ubuntu' }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            echo "🚀 [CI/CD] Starting automated deployment on AWS EC2..."
+            
+            # Find and navigate to repository root
+            if [ -d "$HOME/JobFinder" ]; then
+              cd "$HOME/JobFinder"
+            elif [ -d "$HOME/jobfinder" ]; then
+              cd "$HOME/jobfinder"
+            elif [ -d "/home/ubuntu/JobFinder" ]; then
+              cd "/home/ubuntu/JobFinder"
+            else
+              echo "Error: JobFinder directory not found in $HOME"
+              exit 1
+            fi
+
+            echo "📥 Pulling latest code from origin/main..."
+            git reset --hard HEAD
+            git pull origin main
+
+            echo "🐳 Building and starting updated Docker containers..."
+            sudo docker compose up -d --build
+
+            echo "🧹 Pruning old Docker images..."
+            sudo docker image prune -f
+
+            echo "✅ [CI/CD] JobFinder deployed successfully!"
