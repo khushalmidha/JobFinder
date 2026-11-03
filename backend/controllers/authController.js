@@ -43,6 +43,41 @@ exports.getSettings = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('-passwordHash');
     if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    let changed = false;
+
+    // Auto-migrate legacy mailTemplate into emailTemplates array if empty
+    if (!user.emailTemplates || user.emailTemplates.length === 0) {
+      user.emailTemplates = [{
+        name: 'Default Template',
+        subject: user.mailTemplate?.subject || 'Application for Software Engineering Intern (6-Month Internship)',
+        body: user.mailTemplate?.body || `Greetings,\n\nI hope you're doing well.\n\nI am {{userName}}, a final-year B.Tech student in Computer Science & AI at {{college}} with a CGPA of {{cgpa}}. I am writing to express my interest in the Software Engineering Intern (6-Month Internship) opportunity at {{companyName}}.\n\nBest regards,\n{{userName}}\n{{college}}\n{{userEmail}} | {{userPhone}}\n\nResume: {{resumeLink}}`,
+        isDefault: true
+      }];
+      user.selectedTemplateId = user.emailTemplates[0]._id.toString();
+      changed = true;
+    }
+
+    // Auto-migrate legacy smtpConfig into smtpConfigs array if empty
+    if (!user.smtpConfigs || user.smtpConfigs.length === 0) {
+      if (user.smtpConfig && (user.smtpConfig.user || user.smtpConfig.host)) {
+        user.smtpConfigs = [{
+          name: user.smtpConfig.user ? `${user.smtpConfig.user}` : 'Primary Account',
+          host: user.smtpConfig.host || 'smtp.gmail.com',
+          port: user.smtpConfig.port || 465,
+          user: user.smtpConfig.user || '',
+          pass: user.smtpConfig.pass || '',
+          isDefault: true
+        }];
+        user.selectedSmtpId = user.smtpConfigs[0]._id.toString();
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      await user.save();
+    }
+
     res.json(user);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -51,10 +86,56 @@ exports.getSettings = async (req, res) => {
 
 exports.updateSettings = async (req, res) => {
   try {
-    const updates = req.body;
-    delete updates.passwordHash; // prevent password change here
-    const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true }).select('-passwordHash');
-    res.json(user);
+    const updates = { ...req.body };
+    delete updates.passwordHash;
+    delete updates._id;
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    // Apply fields
+    Object.keys(updates).forEach(key => {
+      user[key] = updates[key];
+    });
+
+    // Sync legacy mailTemplate with active/default emailTemplate
+    if (user.emailTemplates && user.emailTemplates.length > 0) {
+      const activeTemplate = user.emailTemplates.find(t => t._id?.toString() === user.selectedTemplateId?.toString())
+        || user.emailTemplates.find(t => t.isDefault)
+        || user.emailTemplates[0];
+
+      if (activeTemplate) {
+        user.selectedTemplateId = activeTemplate._id.toString();
+        user.mailTemplate = {
+          subject: activeTemplate.subject,
+          body: activeTemplate.body
+        };
+      }
+    }
+
+    // Sync legacy smtpConfig with active/default smtpConfig
+    if (user.smtpConfigs && user.smtpConfigs.length > 0) {
+      const activeSmtp = user.smtpConfigs.find(s => s._id?.toString() === user.selectedSmtpId?.toString())
+        || user.smtpConfigs.find(s => s.isDefault)
+        || user.smtpConfigs[0];
+
+      if (activeSmtp) {
+        user.selectedSmtpId = activeSmtp._id.toString();
+        user.smtpConfig = {
+          host: activeSmtp.host,
+          port: activeSmtp.port,
+          user: activeSmtp.user,
+          pass: activeSmtp.pass
+        };
+      }
+    } else {
+      user.selectedSmtpId = '';
+    }
+
+    await user.save();
+
+    const updatedUser = await User.findById(user._id).select('-passwordHash');
+    res.json(updatedUser);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -143,3 +224,59 @@ exports.unblockCompany = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.getAvailableSyncAccounts = async (req, res) => {
+  try {
+    const users = await User.find({ _id: { $ne: req.user._id } })
+      .select('name email')
+      .sort({ name: 1 })
+      .lean();
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.getProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    if (!user.candidateProfile || !user.candidateProfile.fullName) {
+      user.candidateProfile = {};
+      await user.save();
+    }
+    res.json(user.candidateProfile);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.updateProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    const currentProfile = user.candidateProfile ? user.candidateProfile.toObject() : {};
+    const updatedProfile = {
+      ...currentProfile,
+      ...req.body,
+      skills: {
+        ...(currentProfile.skills || {}),
+        ...(req.body.skills || {})
+      },
+      links: {
+        ...(currentProfile.links || {}),
+        ...(req.body.links || {})
+      }
+    };
+
+    user.candidateProfile = updatedProfile;
+    await user.save();
+    res.json({ message: 'Profile updated successfully', candidateProfile: user.candidateProfile });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+

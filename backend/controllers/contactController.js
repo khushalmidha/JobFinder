@@ -1,9 +1,33 @@
 const Contact = require('../models/Contact');
 const { GoogleGenAI } = require('@google/genai');
+const { syncContactsToTargetAccounts } = require('../services/contactSyncService');
+
+const contactCache = new Map();
+const CACHE_TTL_MS = 25000; // 25 seconds cache
+
+function invalidateContactCache(userId) {
+  if (userId) {
+    contactCache.delete(userId.toString());
+  } else {
+    contactCache.clear();
+  }
+}
+exports.invalidateContactCache = invalidateContactCache;
 
 exports.getContacts = async (req, res) => {
   try {
-    const { company, status, minPackage, maxPackage, search, isShared } = req.query;
+    const { company, status, minPackage, maxPackage, search, isShared, deliverabilityStatus } = req.query;
+    const isUnfiltered = !company && !status && !minPackage && !maxPackage && !search && isShared === undefined && !deliverabilityStatus;
+    const cacheKey = req.user._id.toString();
+
+    // Serve from in-memory cache instantly (< 5ms) if available
+    if (isUnfiltered) {
+      const cached = contactCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+        return res.json(cached.data);
+      }
+    }
+
     let query = { userId: req.user._id };
 
     if (company) query.company = { $regex: new RegExp(company, 'i') };
@@ -17,6 +41,15 @@ exports.getContacts = async (req, res) => {
     if (isShared !== undefined) {
       query.isShared = isShared === 'true';
     }
+    if (deliverabilityStatus) {
+      if (deliverabilityStatus === 'valid') {
+        query.deliverabilityStatus = { $ne: 'invalid' };
+      } else if (deliverabilityStatus === 'invalid') {
+        query.deliverabilityStatus = 'invalid';
+      } else {
+        query.deliverabilityStatus = deliverabilityStatus;
+      }
+    }
     if (search) query.$or = [
       { company: { $regex: new RegExp(search, 'i') } },
       { hrName: { $regex: new RegExp(search, 'i') } },
@@ -24,7 +57,15 @@ exports.getContacts = async (req, res) => {
       { role: { $regex: new RegExp(search, 'i') } }
     ];
 
-    const contacts = await Contact.find(query).sort({ createdAt: -1 });
+    const contacts = await Contact.find(query)
+      .select('company hrName email package role source linkedinUrl status isShared deliverabilityStatus validationReason replySnippet lastMailedAt repliedAt notes createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (isUnfiltered) {
+      contactCache.set(cacheKey, { data: contacts, timestamp: Date.now() });
+    }
+
     res.json(contacts);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -100,16 +141,92 @@ exports.bulkCreate = async (req, res) => {
       }
     }
 
-    // Simple deduplication against existing database based on email for this user
-    const existingEmails = (await Contact.find({ userId: req.user._id }).select('email')).map(c => c.email);
-    const newContacts = uniqueIncoming.filter(c => !existingEmails.includes(c.email));
+    // O(1) deduplication against existing database based on email for this user
+    const existingEmailDocs = await Contact.find({ userId: req.user._id }).select('email').lean();
+    const existingEmailSet = new Set(existingEmailDocs.map(c => (c.email || '').toLowerCase().trim()));
+    const newContacts = uniqueIncoming.filter(c => !existingEmailSet.has(c.email.toLowerCase().trim()));
 
     if (newContacts.length === 0) {
       return res.status(200).json({ message: 'No new contacts to add (all were duplicates)', added: 0 });
     }
 
-    const inserted = await Contact.insertMany(newContacts);
-    res.status(201).json({ message: `Successfully added ${inserted.length} contacts`, added: inserted.length, contacts: inserted });
+    // Fast syntax validation (instant 0ms check, no blocking network delays)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const c of newContacts) {
+      if (!emailRegex.test(c.email)) {
+        c.deliverabilityStatus = 'invalid';
+        c.validationReason = 'Invalid email syntax';
+        c.validatedAt = new Date();
+      } else {
+        c.deliverabilityStatus = 'unverified';
+      }
+    }
+
+    // Insert all contacts with ordered: false so individual errors don't abort the entire sheet
+    let inserted = [];
+    try {
+      inserted = await Contact.insertMany(newContacts, { ordered: false });
+    } catch (insertError) {
+      if (insertError.insertedDocs && insertError.insertedDocs.length > 0) {
+        inserted = insertError.insertedDocs;
+      } else {
+        throw insertError;
+      }
+    }
+
+    // Automatically one-way sync newly imported contacts to configured target accounts
+    syncContactsToTargetAccounts(req.user._id, inserted).catch(syncErr => {
+      console.error('Contact one-way sync error:', syncErr);
+    });
+
+    invalidateContactCache(req.user._id);
+
+    // Respond IMMEDIATELY so the client NEVER times out!
+    res.status(201).json({ 
+      message: `Successfully added ${inserted.length} contacts`, 
+      added: inserted.length, 
+      contacts: inserted 
+    });
+
+    // Run deep DNS MX & deliverability verification asynchronously in the background
+    setImmediate(async () => {
+      try {
+        const { validateEmail } = require('../services/emailDeliverabilityService');
+        const BATCH_SIZE = 10;
+        for (let i = 0; i < inserted.length; i += BATCH_SIZE) {
+          const slice = inserted.slice(i, i + BATCH_SIZE);
+          await Promise.all(slice.map(async (doc) => {
+            if (doc.deliverabilityStatus === 'unverified') {
+              try {
+                const val = await validateEmail(doc.email);
+                if (!val.isValid) {
+                  await Contact.updateOne(
+                    { _id: doc._id }, 
+                    { 
+                      deliverabilityStatus: 'invalid', 
+                      validationReason: val.reason || 'Failed DNS MX check', 
+                      validatedAt: new Date() 
+                    }
+                  );
+                } else {
+                  await Contact.updateOne(
+                    { _id: doc._id }, 
+                    { 
+                      deliverabilityStatus: 'valid', 
+                      validatedAt: new Date() 
+                    }
+                  );
+                }
+              } catch (e) {
+                // Ignore transient background error
+              }
+            }
+          }));
+        }
+      } catch (bgErr) {
+        console.error('Background deliverability verification error:', bgErr.message);
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -123,6 +240,7 @@ exports.updateContact = async (req, res) => {
       { new: true }
     );
     if (!contact) return res.status(404).json({ error: 'Contact not found.' });
+    invalidateContactCache(req.user._id);
     res.json(contact);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -133,6 +251,7 @@ exports.deleteContact = async (req, res) => {
   try {
     const contact = await Contact.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
     if (!contact) return res.status(404).json({ error: 'Contact not found.' });
+    invalidateContactCache(req.user._id);
     res.json({ message: 'Contact deleted successfully.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -149,6 +268,7 @@ exports.toggleShared = async (req, res) => {
     
     contact.isShared = !contact.isShared;
     await contact.save();
+    invalidateContactCache(req.user._id);
 
     res.json({ 
       message: contact.isShared ? 'Contact marked as Shared' : 'Contact removed from Shared', 
@@ -172,6 +292,7 @@ exports.markReplied = async (req, res) => {
     contact.repliedAt = new Date();
     if (replySnippet) contact.replySnippet = replySnippet;
     await contact.save();
+    invalidateContactCache(req.user._id);
 
     res.json({ message: 'Contact marked as Replied! 💬', contact });
   } catch (error) {
@@ -193,6 +314,8 @@ exports.bulkToggleShared = async (req, res) => {
       { _id: { $in: contactIds }, userId: req.user._id },
       { $set: { isShared: Boolean(setShared) } }
     );
+
+    invalidateContactCache(req.user._id);
 
     res.json({ 
       message: `Updated ${result.modifiedCount} contacts as ${setShared ? 'Shared' : 'Private'}`, 
@@ -218,11 +341,133 @@ exports.bulkMarkReplied = async (req, res) => {
       { $set: { status: 'replied', repliedAt: new Date() } }
     );
 
+    invalidateContactCache(req.user._id);
+
     res.json({ 
       message: `Marked ${result.modifiedCount} contacts as Replied! 💬`, 
       modifiedCount: result.modifiedCount 
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Bulk delete contacts
+ */
+exports.bulkDelete = async (req, res) => {
+  try {
+    const { contactIds } = req.body;
+    if (!contactIds || !Array.isArray(contactIds)) {
+      return res.status(400).json({ error: 'contactIds array required.' });
+    }
+
+    const result = await Contact.deleteMany({
+      _id: { $in: contactIds },
+      userId: req.user._id
+    });
+
+    res.json({
+      message: `Successfully removed ${result.deletedCount} contacts.`,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Validate deliverability of all contacts for the current user
+ * Flags invalid emails into deliverabilityStatus: 'invalid' without deleting!
+ */
+exports.validateDeliverability = async (req, res) => {
+  try {
+    const { validateEmail } = require('../services/emailDeliverabilityService');
+    const userId = req.user._id;
+    const contacts = await Contact.find({ userId });
+
+    let validCount = 0;
+    let invalidCount = 0;
+
+    for (const c of contacts) {
+      try {
+        const val = await validateEmail(c.email);
+        c.deliverabilityStatus = val.isValid ? 'valid' : 'invalid';
+        c.validationReason = val.reason || '';
+        c.validatedAt = new Date();
+        await c.save();
+
+        if (val.isValid) validCount++;
+        else invalidCount++;
+      } catch (err) {
+        c.deliverabilityStatus = 'valid';
+        await c.save();
+        validCount++;
+      }
+    }
+
+    res.json({
+      message: `Email check finished! Verified ${validCount} deliverable contacts. Separated ${invalidCount} invalid emails into the Invalid Emails tab (none deleted).`,
+      total: contacts.length,
+      validCount,
+      invalidCount
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * Manually update contact deliverability status (e.g. Move to Valid or Move to Invalid)
+ */
+exports.markDeliverability = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, reason } = req.body;
+    const contact = await Contact.findOne({ _id: id, userId: req.user._id });
+    if (!contact) return res.status(404).json({ error: 'Contact not found' });
+
+    contact.deliverabilityStatus = status || 'valid';
+    if (reason) contact.validationReason = reason;
+    contact.validatedAt = new Date();
+    await contact.save();
+
+    res.json({ message: `Contact marked as ${contact.deliverabilityStatus}`, contact });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * Batch update deliverability status for a list of contacts or all invalid contacts in a company
+ */
+exports.batchMarkDeliverability = async (req, res) => {
+  try {
+    const { contactIds, company, status = 'valid', reason = 'Manually verified as deliverable' } = req.body;
+    const query = { userId: req.user._id };
+
+    if (contactIds && Array.isArray(contactIds) && contactIds.length > 0) {
+      query._id = { $in: contactIds };
+    } else if (company) {
+      query.company = new RegExp(`^${company.trim()}$`, 'i');
+      query.deliverabilityStatus = 'invalid';
+    } else {
+      return res.status(400).json({ error: 'Provide contactIds or company name' });
+    }
+
+    const result = await Contact.updateMany(query, {
+      $set: {
+        deliverabilityStatus: status,
+        validationReason: reason,
+        validatedAt: new Date()
+      }
+    });
+
+    res.json({ 
+      message: `Successfully moved ${result.modifiedCount} contact(s) to ${status}`, 
+      modifiedCount: result.modifiedCount 
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };

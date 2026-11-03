@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node tests/runAutofillTests.js && node tests/runRecruiterTests.js",
+    "test:autofill": "node tests/runAutofillTests.js",
+    "test:recruiter": "node tests/runRecruiterTests.js"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +33,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "jsdom": "^30.1.3",
     "nodemon": "^3.1.14"
   }
 }

@@ -2,6 +2,48 @@ import React, { useState, useRef, useEffect } from 'react';
 import api from '../services/api';
 import { UploadCloud, FileType, CheckCircle, AlertCircle } from 'lucide-react';
 
+function formatErrorMessage(err, fallback = 'Failed to process request.') {
+  if (!err) return fallback;
+  let raw = err.response?.data?.error || err.response?.data?.message || err.message || err;
+
+  if (typeof raw === 'object') {
+    if (raw.message) raw = raw.message;
+    else {
+      try {
+        raw = JSON.stringify(raw);
+      } catch (e) {
+        return fallback;
+      }
+    }
+  }
+
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed.error?.message) {
+        raw = parsed.error.message;
+      } else if (parsed.message) {
+        raw = parsed.message;
+      }
+    } catch (e) {
+      // plain string
+    }
+
+    if (raw.includes('experiencing high demand') || raw.includes('503') || raw.includes('UNAVAILABLE')) {
+      return '⚠️ Google Gemini AI servers are currently experiencing high traffic. Please retry in a few moments or ensure your API key has quota.';
+    }
+    if (raw.includes('RESOURCE_EXHAUSTED') || raw.includes('429') || raw.includes('quota')) {
+      return '⚠️ Gemini API quota exceeded or rate limited. Please try again shortly or check your Gemini API key in Settings.';
+    }
+    if (raw.includes('API_KEY_INVALID') || raw.includes('API key not valid')) {
+      return '⚠️ Invalid Gemini API key. Please update your API key in Settings.';
+    }
+    return raw;
+  }
+
+  return fallback;
+}
+
 const Import = () => {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -12,6 +54,7 @@ const Import = () => {
   const [textLoading, setTextLoading] = useState(false);
   const [companyOverride, setCompanyOverride] = useState('');
   const [existingCompanies, setExistingCompanies] = useState([]);
+  const [syncedAccountEmails, setSyncedAccountEmails] = useState([]);
   const [progress, setProgress] = useState(0);
   const [liveCount, setLiveCount] = useState(0);
   const fileInputRef = useRef(null);
@@ -26,6 +69,15 @@ const Import = () => {
       }
     };
     fetchCompanies();
+
+    // Fetch user sync settings
+    api.get('/auth/settings')
+      .then(({ data }) => {
+        if (data && data.syncedAccountEmails) {
+          setSyncedAccountEmails(data.syncedAccountEmails);
+        }
+      })
+      .catch(console.error);
   }, []);
 
   const startProgressTimer = () => {
@@ -127,7 +179,7 @@ const Import = () => {
     } catch (err) {
       clearInterval(timer);
       setProgress(0);
-      setStatus(err.response?.data?.error || 'Failed to parse file. Make sure Gemini API Key is set in Settings.');
+      setStatus(formatErrorMessage(err, 'Failed to parse file. Make sure Gemini API Key is set in Settings.'));
     } finally {
       setTimeout(() => {
         setLoading(false);
@@ -212,7 +264,26 @@ const Import = () => {
     } catch (err) {
       clearInterval(timer);
       setProgress(0);
-      setStatus(err.response?.data?.error || err.message || 'Failed to parse text.');
+
+      // Instant client-side fallback in case of Network Error or server timeout!
+      const emailMatches = rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+      if (emailMatches && emailMatches.length > 0) {
+        const fallbackContacts = normalizeContacts(
+          emailMatches.map(em => ({
+            company: companyOverride || 'Unknown',
+            email: em,
+            hrName: '',
+            role: '',
+            package: ''
+          }))
+        );
+        setParsedContacts(fallbackContacts);
+        setRawText('');
+        setCompanyOverride('');
+        setStatus(`✨ Extracted ${fallbackContacts.length} contacts automatically via offline instant engine!`);
+      } else {
+        setStatus(formatErrorMessage(err, 'Failed to parse text. Please check your connection or settings.'));
+      }
     } finally {
       setTimeout(() => {
         setTextLoading(false);
@@ -227,16 +298,33 @@ const Import = () => {
     try {
       setSaving(true);
       setStatus('');
-      const { data } = await api.post('/contacts/bulk', { 
-        contacts: parsedContacts.map(c => ({...c, source: 'excel_upload'})) 
-      });
-      setStatus(`Success! Added ${data.added} new contacts.`);
+      const allToSave = parsedContacts.map(c => ({...c, source: 'excel_upload'}));
+      const CHUNK_SIZE = 500;
+      let totalAdded = 0;
+
+      for (let i = 0; i < allToSave.length; i += CHUNK_SIZE) {
+        const chunk = allToSave.slice(i, i + CHUNK_SIZE);
+        const currentProcessed = Math.min(i + chunk.length, allToSave.length);
+        const percent = Math.round((currentProcessed / allToSave.length) * 100);
+        
+        setStatus(`⏳ Importing contacts into database... ${currentProcessed} / ${allToSave.length} (${percent}%)`);
+        setProgress(percent);
+
+        const { data } = await api.post('/contacts/bulk', { contacts: chunk });
+        totalAdded += (data.added || 0);
+      }
+
+      const syncMsg = (syncedAccountEmails && syncedAccountEmails.length > 0)
+        ? ` and automatically one-way synced to ${syncedAccountEmails.join(', ')}`
+        : '';
+      setStatus(`🎉 Success! Added ${totalAdded} new contacts from your sheet (duplicates safely skipped${syncMsg}).`);
       setParsedContacts([]);
       setFile(null);
     } catch (err) {
-      setStatus(err.response?.data?.error || err.message || 'Failed to save contacts.');
+      setStatus(formatErrorMessage(err, 'Failed to save contacts.'));
     } finally {
       setSaving(false);
+      setProgress(0);
     }
   };
 
@@ -268,12 +356,35 @@ const Import = () => {
         <p className="text-zinc-400 text-sm mt-1">Upload a CSV, Excel, or PDF file. Gemini AI will automatically extract contact info.</p>
       </div>
 
+      {/* One-Way Contact Sync Banner */}
+      {syncedAccountEmails && syncedAccountEmails.length > 0 && (
+        <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-xs text-yellow-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <span className="text-lg leading-none">🔄</span>
+            <div>
+              <span className="font-bold text-yellow-400 uppercase tracking-wider text-[11px] block sm:inline mr-2">
+                One-Way Sync Active:
+              </span>
+              <span>
+                Imported contacts will automatically be duplicated into: <strong className="font-mono text-zinc-100">{syncedAccountEmails.join(', ')}</strong>
+              </span>
+            </div>
+          </div>
+          <a
+            href="/settings"
+            className="text-yellow-400 hover:text-yellow-200 underline font-bold shrink-0 text-xs"
+          >
+            Manage Sync in Settings →
+          </a>
+        </div>
+      )}
+
       {status && (
         <div className={`p-4 mb-6 rounded-lg border font-medium flex items-center ${
           status.includes('Success') ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
         }`}>
-          {status.includes('Success') ? <CheckCircle className="w-5 h-5 mr-3" /> : <AlertCircle className="w-5 h-5 mr-3" />}
-          {status}
+          {status.includes('Success') ? <CheckCircle className="w-5 h-5 mr-3 shrink-0" /> : <AlertCircle className="w-5 h-5 mr-3 shrink-0" />}
+          <span>{status}</span>
         </div>
       )}
 
@@ -357,24 +468,33 @@ const Import = () => {
         </div>
       ) : (
         <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 overflow-hidden">
-          <div className="p-6 border-b border-zinc-800 bg-zinc-900/50 flex justify-between items-center">
+          <div className="p-6 border-b border-zinc-800 bg-zinc-900/50 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
             <div>
-              <h2 className="text-lg font-bold text-zinc-100">Review Data</h2>
-              <p className="text-sm text-zinc-400">Please verify AI extracted data before saving.</p>
+              <h2 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+                <span>📋 Review Sheet Data</span>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                  {parsedContacts.length} contacts detected
+                </span>
+              </h2>
+              <p className="text-xs text-zinc-400 mt-1">
+                {parsedContacts.length > 100 
+                  ? `Showing preview of first 100 contacts for ultra-fast rendering. All ${parsedContacts.length} contacts will be imported safely!`
+                  : 'Please verify extracted data before saving.'}
+              </p>
             </div>
-            <div className="flex space-x-3">
+            <div className="flex items-center space-x-3">
               <button 
                 onClick={() => setParsedContacts([])}
-                className="px-4 py-2 text-zinc-400 font-medium hover:bg-zinc-800 hover:text-zinc-200 rounded-lg transition"
+                className="px-4 py-2 text-zinc-400 font-medium hover:bg-zinc-800 hover:text-zinc-200 rounded-lg transition text-xs cursor-pointer"
               >
-                Cancel
+                Clear / Cancel
               </button>
               <button 
                 onClick={handleSave}
                 disabled={saving}
-                className="px-4 py-2 bg-green-500 hover:bg-green-400 text-zinc-950 font-medium rounded-lg shadow-sm transition disabled:opacity-50"
+                className="px-5 py-2.5 bg-green-500 hover:bg-green-400 text-zinc-950 font-black rounded-lg shadow-lg transition disabled:opacity-50 text-xs cursor-pointer"
               >
-                {saving ? 'Saving...' : `Save ${parsedContacts.length} Contacts`}
+                {saving ? 'Importing...' : `Save All ${parsedContacts.length} Contacts`}
               </button>
             </div>
           </div>
@@ -392,7 +512,7 @@ const Import = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/50">
-                {parsedContacts.map((c, i) => (
+                {parsedContacts.slice(0, 100).map((c, i) => (
                   <tr key={i} className="hover:bg-zinc-800/50 transition">
                     <td className="p-2"><input type="text" value={c.company} onChange={(e) => updateContact(i, 'company', e.target.value)} className="w-full border-transparent bg-transparent hover:border-zinc-700 focus:border-yellow-500 focus:bg-zinc-800 rounded p-2 outline-none text-sm text-zinc-200" /></td>
                     <td className="p-2"><input type="text" value={c.email} onChange={(e) => updateContact(i, 'email', e.target.value)} className="w-full border-transparent bg-transparent hover:border-zinc-700 focus:border-yellow-500 focus:bg-zinc-800 rounded p-2 outline-none text-sm text-zinc-200" /></td>
@@ -407,6 +527,12 @@ const Import = () => {
               </tbody>
             </table>
           </div>
+
+          {parsedContacts.length > 100 && (
+            <div className="p-3.5 bg-zinc-950/80 border-t border-zinc-800 text-center text-xs text-zinc-400 font-semibold">
+              + <strong>{parsedContacts.length - 100} more contacts</strong> ready in memory. All <strong>{parsedContacts.length} contacts</strong> will be safely imported into your database when you hit "Save All"!
+            </div>
+          )}
         </div>
       )}
     </div>

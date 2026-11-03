@@ -12,6 +12,8 @@ router.get('/queue-status', auth, mailController.getQueueStatus);
 router.post('/test-connection', auth, mailController.testConnection);
 router.post('/pause-queue', auth, mailController.pauseQueue);
 router.post('/resume-queue', auth, mailController.resumeQueue);
+router.post('/restore-limit-failed', auth, mailController.restoreLimitFailed);
+router.post('/switch-queue-account', auth, mailController.switchQueueAccount);
 router.post('/scan-bounces', auth, bounceController.scanBounces);
 router.delete('/delete-bounced', auth, bounceController.deleteBounced);
 router.post('/analyze-response', auth, analyzeController.analyzeResponse);

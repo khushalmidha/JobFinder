@@ -3,8 +3,15 @@ const crypto = require('crypto');
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default_32_character_long_secret_key_for_aes';
 const IV_LENGTH = 16;
 
+function isEncrypted(text) {
+  if (!text || typeof text !== 'string') return false;
+  const parts = text.split(':');
+  return parts.length === 2 && parts[0].length === 32 && /^[0-9a-fA-F]+$/.test(parts[0]) && /^[0-9a-fA-F]+$/.test(parts[1]);
+}
+
 function encrypt(text) {
   if (!text) return text;
+  if (isEncrypted(text)) return text;
   let iv = crypto.randomBytes(IV_LENGTH);
   let cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)), iv);
   let encrypted = cipher.update(text);

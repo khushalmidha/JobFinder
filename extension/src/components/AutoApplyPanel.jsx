@@ -420,9 +420,63 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         {hasForm && (
           <div className="mt-2 flex items-center justify-between text-[11px] text-emerald-400/90 bg-emerald-950/30 border border-emerald-800/30 rounded-md px-2 py-1">
             <span className="flex items-center gap-1.5 font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Application Form Ready
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> {currentStepName || 'Application Form Ready'}
             </span>
             <span className="text-[10px] text-zinc-400">{formFieldsCount ? `${formFieldsCount} fields` : 'Active'}</span>
+          </div>
+        )}
+      </div>
+
+      {/* 2. PRIMARY ACTION CONTROLS (ALWAYS VISIBLE ABOVE THE FOLD) */}
+      <div className="bg-zinc-900 border border-yellow-500/50 rounded-xl p-3 shadow-xl space-y-2">
+        <button 
+          onClick={handleToggleAutoPilot}
+          className={`w-full py-2.5 px-3 rounded-lg shadow-md font-black text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            autoPilotActive 
+              ? 'bg-red-600 hover:bg-red-500 text-white animate-pulse'
+              : 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-zinc-950 hover:brightness-110 shadow-yellow-500/20'
+          }`}
+        >
+          <Sparkles className={`w-4 h-4 ${autoPilotActive ? 'fill-white' : 'fill-zinc-950'}`} />
+          {autoPilotActive 
+            ? `⏸️ Pause Auto-Pilot (${currentStepName || 'Active'})` 
+            : '🚀 Start Background Auto-Pilot (Hands-Free)'}
+        </button>
+
+        <button 
+          onClick={handleAutoApply}
+          disabled={isApplying || autoPilotActive}
+          className="w-full bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 text-zinc-100 font-bold py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+        >
+          <Briefcase className="w-3.5 h-3.5 text-yellow-400" />
+          {isApplying ? 'Processing & Filling...' : '⚡ Auto-Fill Application / Advance Step'}
+        </button>
+
+        {/* Dynamic Result / Completion Summary */}
+        {applyResult && (
+          <div className={`p-2.5 rounded-lg border text-xs space-y-1.5 ${applyResult.success ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' : 'bg-red-950/60 border-red-800 text-red-300'}`}>
+            <div className="font-extrabold flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                {applyResult.success ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : null}
+                {applyResult.success ? `Form Filled: ${applyResult.filledCount || 0} fields` : 'Notice'}
+              </span>
+              <span className="text-[10px] uppercase font-bold tracking-wide text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-800/80">
+                Audit Summary
+              </span>
+            </div>
+            {applyResult.summary && applyResult.summary.length > 0 && (
+              <div className="text-[11px] text-zinc-300 flex flex-wrap gap-1">
+                {applyResult.summary.map((f, i) => (
+                  <span key={i} className="bg-zinc-800/80 text-zinc-200 px-1.5 py-0.5 rounded text-[10px] border border-zinc-700">
+                    ✓ {f}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="text-[10px] text-emerald-400/90 font-medium pt-1 border-t border-emerald-800/50 flex items-center gap-1">
+              <span>🛡️</span>
+              <span><strong>Strict No-Submit:</strong> Form preserved for manual review & submission.</span>
+            </div>
           </div>
         )}
       </div>
@@ -530,42 +584,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         </div>
       </div>
 
-      {/* 4. Background Auto-Pilot (Hands-Free Mode) */}
-      <div className="space-y-2">
-        <button 
-          onClick={handleToggleAutoPilot}
-          className={`w-full py-3 px-4 rounded-xl shadow-xl font-black text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
-            autoPilotActive 
-              ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-900/40 animate-pulse'
-              : 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-zinc-950 hover:brightness-110 shadow-yellow-500/25'
-          }`}
-        >
-          <Sparkles className={`w-4 h-4 ${autoPilotActive ? 'fill-white' : 'fill-zinc-950'}`} />
-          {autoPilotActive 
-            ? `⏸️ Pause Background Auto-Pilot (${currentStepName || 'Running'})` 
-            : '🚀 Start Background Auto-Pilot (Hands-Free)'}
-        </button>
 
-        {/* Secondary: Fill current page button */}
-        <button 
-          onClick={handleAutoApply}
-          disabled={isApplying || autoPilotActive}
-          className="w-full bg-zinc-900 hover:bg-zinc-850 border border-zinc-750 text-zinc-200 font-bold py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-        >
-          {isApplying ? 'Filling details...' : '⚡ Fill Only Current Step'}
-        </button>
-      </div>
-
-      {/* Auto Apply Result Toast */}
-      {applyResult && (
-        <div className={`p-2.5 rounded-lg border text-xs ${applyResult.success ? 'bg-emerald-950/40 border-emerald-800/50 text-emerald-300' : 'bg-red-950/40 border-red-800/50 text-red-300'}`}>
-          <div className="font-bold flex items-center gap-1.5 mb-1">
-            {applyResult.success ? <CheckCircle2 className="w-3.5 h-3.5" /> : null}
-            {applyResult.success ? `Successfully filled ${applyResult.filledCount} fields!` : 'Notice'}
-          </div>
-          <p className="text-[11px] text-zinc-300">{applyResult.message || `Filled standard candidate details & injected authentic humanoid answers.`}</p>
-        </div>
-      )}
 
       {/* 5. Automated Email OTP Extractor */}
       <div className="bg-zinc-900/90 border border-zinc-800/80 rounded-xl p-3 shadow-md space-y-2">
@@ -728,6 +747,52 @@ function inPageDirectAutoFill(profile, chosenResumeId) {
 
   let filledCount = 0;
   const filledSummary = [];
+
+  // WORKDAY / ATS STEP 1: RESUME UPLOAD / DROPZONE HANDLER
+  const isWorkdayResume = (
+    document.body && (
+      document.body.innerText.includes('Autofill with Resume') ||
+      document.body.innerText.includes('attach your Resume') ||
+      document.body.innerText.includes('Drop file here')
+    )
+  ) || Boolean(document.querySelector('[data-automation-id="file-upload-dropzone"]'));
+
+  if (isWorkdayResume) {
+    const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
+    if (fileInputs.length > 0) {
+      try {
+        const resumeText = `KHUSHAL MIDHA - RESUME
+Email: midhakhushal5@gmail.com | Phone: +91 90507 40836
+Education: B.Tech in CS & AI, IIIT Lucknow (CGPA: 8.72, 2023-2027)
+Skills: C++, Python, JavaScript, React, Node.js, Spring Boot, Kafka, Redis, Docker
+Experience: Coffeee.io (SDE Intern)
+Profiles: LeetCode Guardian (2137), Codeforces Expert (1809)`;
+        const file = new File([new Blob([resumeText], { type: 'text/plain' })], 'Khushal_Midha_Resume.txt', { type: 'text/plain' });
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        fileInputs[0].files = dt.files;
+        fileInputs[0].dispatchEvent(new Event('change', { bubbles: true }));
+        fileInputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+        filledCount++;
+        filledSummary.push('Resume File Attached (Khushal_Midha_Resume.txt)');
+      } catch (e) {}
+    }
+
+    const nextBtn = document.querySelector('button[data-automation-id="bottom-navigation-next-button"], button[data-automation-id="page-footer-next-button"], button[data-automation-id="next-button"], button[data-automation-id="continueButton"], button[data-automation-id="saveAndContinueButton"]') ||
+      Array.from(document.querySelectorAll('button, a')).find(b => {
+        const t = (b.innerText || '').toLowerCase().trim();
+        const isSubmit = t.includes('submit') || t.includes('finish') || t.includes('send application');
+        return !isSubmit && (t === 'continue' || t === 'next' || t.includes('save and continue') || t.includes('apply manually')) && !t.includes('back');
+      });
+
+    if (nextBtn && !(nextBtn.innerText || '').toLowerCase().includes('submit')) {
+      setTimeout(() => {
+        try { nextBtn.click(); } catch (e) {}
+      }, 800);
+      filledSummary.push('Advancing to Step 2: My Information');
+    }
+  }
+
   const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), textarea, select'));
 
   inputs.forEach(el => {
@@ -950,8 +1015,24 @@ function inPageDirectAutoFill(profile, chosenResumeId) {
       return;
     }
 
+    const isSalaryQuery = combined.includes('salary') || combined.includes('ctc') || combined.includes('compensation') || combined.includes('remuneration') || combined.includes('expected pay');
+    const isCurrentSalary = combined.includes('current') && isSalaryQuery;
+    const isMonthlySalary = (combined.includes('month') || combined.includes('per month') || combined.includes('monthly')) && isSalaryQuery;
+
+    // Expected Salary & CTC (Enforce ₹30,00,000 INR / 30 LPA; never confuse with current or monthly pay)
+    if (isSalaryQuery && !isCurrentSalary && !isMonthlySalary) {
+      const isLpa = combined.includes('lpa') || combined.includes('lakh') || combined.includes('lacs') || combined.includes('in lpa');
+      const val = isLpa ? (el.type === 'number' ? '30' : '30 LPA') : (el.type === 'number' ? '3000000' : '₹30,00,000');
+      if (!el.value) {
+        setVal(el, val);
+        filledCount++;
+        filledSummary.push(isLpa ? 'Expected CTC (30 LPA)' : 'Expected Salary (₹30,00,000)');
+      }
+      return;
+    }
+
     // Work Authorization
-    if (combined.includes('authorized to work') || combined.includes('legally authorized') || combined.includes('work permit') || combined.includes('eligible to work')) {
+    if (combined.includes('authorized to work in india') || combined.includes('legally authorized') || combined.includes('eligible to work in india')) {
       if (el.type === 'checkbox') {
         el.checked = true;
         el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -964,32 +1045,6 @@ function inPageDirectAutoFill(profile, chosenResumeId) {
         matchSelect(el, ['yes', 'authorized']);
       }
       filledCount++;
-      return;
-    }
-
-    // Sponsorship Requirement
-    if (combined.includes('sponsorship') || combined.includes('require visa') || combined.includes('require sponsorship')) {
-      if (el.type === 'radio') {
-        if (combined.includes('no') || labelText.includes('no')) {
-          el.checked = true;
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      } else if (el.tagName === 'SELECT') {
-        matchSelect(el, ['no']);
-      }
-      filledCount++;
-      return;
-    }
-
-    // Notice Period
-    if (combined.includes('notice period') || combined.includes('notice')) {
-      if (el.tagName === 'SELECT') {
-        matchSelect(el, ['immediate', '0', 'less than 15', '1 month']);
-      } else if (!el.value) {
-        setVal(el, profile.workAuthorization?.noticePeriodText || 'Immediate (0 days)');
-      }
-      filledCount++;
-      filledSummary.push('Notice Period');
       return;
     }
 
@@ -1041,6 +1096,7 @@ function inPageDirectAutoFill(profile, chosenResumeId) {
   return {
     success: true,
     filledCount,
-    filledSummary: [...new Set(filledSummary)]
+    filledSummary: [...new Set(filledSummary)],
+    strictNoSubmitEnforced: true
   };
 }

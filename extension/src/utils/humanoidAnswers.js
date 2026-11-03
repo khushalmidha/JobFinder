@@ -50,13 +50,13 @@ export function generateHumanoidAnswer(question = '', company = '', role = '', s
   }
 
   // 6. "Notice period / Availability / Start date"
-  if (q.includes('notice') || q.includes('availability') || q.includes('start date') || q.includes('when can you start')) {
-    return `I am available to join immediately (0 days notice). For internships or full-time roles, I am flexible with start dates and open to both remote and in-office setups across India or globally.`;
+  if (q.includes('availability') || q.includes('start date') || q.includes('when can you start')) {
+    return `I am available for upcoming internships and full-time engineering roles (graduating July 2027 from IIIT Lucknow).`;
   }
 
   // 7. "Salary expectations / Expected CTC"
   if (q.includes('salary') || q.includes('ctc') || q.includes('compensation') || q.includes('expectations')) {
-    return `I am looking for a competitive package aligned with industry standards and ${c}'s standard compensation bands for freshers / SDE 1 (typically around ₹18 - ₹25 LPA CTC). However, learning velocity and engineering impact are my top priorities, and I am flexible for the right opportunity.`;
+    return `My expected annual compensation is ₹30,00,000 INR (30 LPA).`;
   }
 
   // 8. "Any other comments / Cover note"

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Workday Job Application - My Information</title>
+</head>
+<body>
+  <div data-automation-id="applicationComponent">
+    <h1>Software Development Engineer Application</h1>
+
+    <!-- Step Indicator -->
+    <div data-automation-id="step-navigation" aria-current="step">Step 2: My Information</div>
+
+    <!-- Legal Name Section -->
+    <div data-automation-id="legalNameSection">
+      <div data-automation-id="formField-firstName">
+        <label for="legalNameSection_firstName">First Name <span class="required">*</span></label>
+        <input id="legalNameSection_firstName" data-automation-id="legalNameSection_firstName" type="text" required aria-required="true" />
+      </div>
+      <div data-automation-id="formField-lastName">
+        <label for="legalNameSection_lastName">Last Name <span class="required">*</span></label>
+        <input id="legalNameSection_lastName" data-automation-id="legalNameSection_lastName" type="text" required aria-required="true" />
+      </div>
+    </div>
+
+    <!-- Contact Info Section -->
+    <div data-automation-id="contactInfoSection">
+      <div data-automation-id="formField-email">
+        <label for="addressSection_email">Email Address <span class="required">*</span></label>
+        <input id="addressSection_email" data-automation-id="addressSection_email" type="email" required aria-required="true" />
+      </div>
+      <div data-automation-id="formField-phone">
+        <label for="phone-number">Phone Number <span class="required">*</span></label>
+        <input id="phone-number" data-automation-id="phone-number" type="tel" required aria-required="true" />
+      </div>
+      <!-- Workday Device Type Custom Dropdown -->
+      <div data-automation-id="formField-deviceType">
+        <label>Phone Device Type</label>
+        <button type="button" data-automation-id="phone-device-type" aria-haspopup="listbox">Select Device Type</button>
+      </div>
+    </div>
+
+    <!-- Education Section -->
+    <div data-automation-id="educationSection">
+      <div data-automation-id="formField-school">
+        <label for="school-name">School or University <span class="required">*</span></label>
+        <input id="school-name" data-automation-id="school-name" type="text" required aria-required="true" />
+      </div>
+      <div data-automation-id="formField-degree">
+        <label for="degree-type">Degree <span class="required">*</span></label>
+        <select id="degree-type" data-automation-id="degree-type" required aria-required="true">
+          <option value="">Select Degree</option>
+          <option value="bachelor">Bachelor of Technology (B.Tech)</option>
+          <option value="master">Master of Technology (M.Tech)</option>
+          <option value="phd">PhD</option>
+        </select>
+      </div>
+      <div data-automation-id="formField-cgpa">
+        <label for="cumulative-gpa">Cumulative GPA / CGPA</label>
+        <input id="cumulative-gpa" data-automation-id="cumulative-gpa" type="text" />
+      </div>
+      <div data-automation-id="formField-gradYear">
+        <label for="grad-year">Expected Graduation Year <span class="required">*</span></label>
+        <select id="grad-year" data-automation-id="grad-year" required>
+          <option value="">Select Year</option>
+          <option value="2025">2025</option>
+          <option value="2026">2026</option>
+          <option value="2027">2027</option>
+          <option value="2028">2028</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Compensation Section -->
+    <div data-automation-id="compensationSection">
+      <div data-automation-id="formField-expectedSalary">
+        <label for="expected-annual-salary">Expected Annual Compensation (INR) <span class="required">*</span></label>
+        <input id="expected-annual-salary" data-automation-id="expected-annual-salary" type="text" required aria-required="true" />
+      </div>
+      <div data-automation-id="formField-currentSalary">
+        <label for="current-salary">Current Annual Salary</label>
+        <input id="current-salary" data-automation-id="current-salary" type="text" />
+      </div>
+    </div>
+
+    <!-- Work Authorization Section -->
+    <div data-automation-id="workAuthSection" role="radiogroup">
+      <p id="work-auth-label">Are you legally authorized to work in India? <span class="required">*</span></p>
+      <label>
+        <input type="radio" name="workAuthIndia" value="yes" aria-label="Yes, authorized in India" /> Yes
+      </label>
+      <label>
+        <input type="radio" name="workAuthIndia" value="no" aria-label="No, not authorized" /> No
+      </label>
+    </div>
+
+    <!-- Navigation Buttons -->
+    <div data-automation-id="navigationButtons">
+      <button type="button" data-automation-id="page-footer-back-button">Back</button>
+      <button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>
+      <!-- Final Submit button that must NEVER be clicked by automation! -->
+      <button type="submit" data-automation-id="bottom-navigation-submit-button" id="workday-submit-btn" disabled>Submit Application</button>
+    </div>
+  </div>
+</body>
+</html>

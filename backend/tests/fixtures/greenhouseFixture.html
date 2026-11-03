@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Greenhouse Application - Software Engineer</title>
+</head>
+<body>
+  <form id="application_form" action="/submit" method="post">
+    <h2>Apply for Software Engineer</h2>
+
+    <div class="field">
+      <label for="first_name">First Name <span class="asterisk">*</span></label>
+      <input type="text" id="first_name" name="job_application[first_name]" required aria-required="true" />
+    </div>
+
+    <div class="field">
+      <label for="last_name">Last Name <span class="asterisk">*</span></label>
+      <input type="text" id="last_name" name="job_application[last_name]" required aria-required="true" />
+    </div>
+
+    <div class="field">
+      <label for="email">Email <span class="asterisk">*</span></label>
+      <input type="email" id="email" name="job_application[email]" required aria-required="true" />
+    </div>
+
+    <div class="field">
+      <label for="phone">Phone <span class="asterisk">*</span></label>
+      <input type="tel" id="phone" name="job_application[phone]" required aria-required="true" />
+    </div>
+
+    <div class="field">
+      <label for="resume">Resume / CV <span class="asterisk">*</span></label>
+      <input type="file" id="resume" name="job_application[resume]" required aria-required="true" />
+    </div>
+
+    <div class="field">
+      <label for="linkedin_url">LinkedIn Profile</label>
+      <input type="url" id="linkedin_url" name="job_application[answers_attributes][0][text_value]" placeholder="https://linkedin.com/in/..." />
+    </div>
+
+    <div class="field">
+      <label for="github_url">GitHub URL</label>
+      <input type="url" id="github_url" name="job_application[answers_attributes][1][text_value]" placeholder="https://github.com/..." />
+    </div>
+
+    <div class="field">
+      <label for="expected_salary">Expected Annual Compensation (INR) <span class="asterisk">*</span></label>
+      <input type="text" id="expected_salary" name="job_application[answers_attributes][2][text_value]" required aria-required="true" />
+    </div>
+
+    <div class="field">
+      <label for="education_degree">Highest Degree Obtained / In Progress <span class="asterisk">*</span></label>
+      <select id="education_degree" name="job_application[answers_attributes][3][text_value]" required aria-required="true">
+        <option value="">Select an option</option>
+        <option value="B.Tech">Bachelor of Technology (B.Tech)</option>
+        <option value="M.Tech">Master of Technology (M.Tech)</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+
+    <!-- Final Submission Button - MUST NEVER BE CLICKED! -->
+    <div id="submit_app">
+      <input type="submit" id="submit_app_button" value="Submit Application" />
+    </div>
+  </form>
+</body>
+</html>

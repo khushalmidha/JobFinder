@@ -1,27 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Briefcase, 
-  Building2, 
-  Download, 
-  RotateCw, 
-  Sparkles, 
-  MapPin, 
-  TrendingUp, 
-  Users, 
-  Clock, 
-  ExternalLink, 
-  CheckCircle2, 
-  Search, 
-  Filter, 
-  Flame, 
-  Layers, 
-  Send, 
-  Plus, 
+import {
+  Briefcase,
+  Building2,
+  Download,
+  RotateCw,
+  Sparkles,
+  MapPin,
+  TrendingUp,
+  Users,
+  Clock,
+  ExternalLink,
+  CheckCircle2,
+  Search,
+  Filter,
+  Flame,
+  Layers,
+  Send,
+  Plus,
   Calendar,
   ShieldAlert,
   ArrowUpRight,
-  Globe
+  Globe,
+  Mail,
+  Copy
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '80' && window.location.port !== '' ? 'http://localhost:5000/api' : '/api');
@@ -34,16 +36,16 @@ const JobHunter = () => {
 
   // Jobs state
   const [jobs, setJobs] = useState([]);
-  const [jobStats, setJobStats] = useState({ 
-    totalJobs: 0, 
+  const [jobStats, setJobStats] = useState({
+    totalJobs: 0,
     internationalInternships: 0,
-    sixMonthInternships: 0, 
-    internships: 0, 
-    fullTimeJobs: 0, 
-    fresherJobs: 0, 
-    indiaJobs: 0, 
-    remoteJobs: 0, 
-    appliedJobs: 0 
+    sixMonthInternships: 0,
+    internships: 0,
+    fullTimeJobs: 0,
+    fresherJobs: 0,
+    indiaJobs: 0,
+    remoteJobs: 0,
+    appliedJobs: 0
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -57,6 +59,8 @@ const JobHunter = () => {
   const [companies, setCompanies] = useState([]);
   const [newCompany, setNewCompany] = useState({ name: '', domain: '', tier: 'Funded Tech Startup', careersUrl: '', atsType: 'greenhouse', atsToken: '' });
   const [showAddCompanyModal, setShowAddCompanyModal] = useState(false);
+  const [companyCtcFilter, setCompanyCtcFilter] = useState('all');
+  const [companySearch, setCompanySearch] = useState('');
 
   // Recruiters state
   const [recruiters, setRecruiters] = useState([]);
@@ -76,6 +80,8 @@ const JobHunter = () => {
   const [ghostHrName, setGhostHrName] = useState('');
   const [ghostScouting, setGhostScouting] = useState(false);
   const [ghostScoutResult, setGhostScoutResult] = useState(null);
+  const [scoutedLeads, setScoutedLeads] = useState(null);
+  const [activeScoutFilter, setActiveScoutFilter] = useState('');
 
 
   // Scheduler state
@@ -155,16 +161,16 @@ const JobHunter = () => {
 
       const res = await axios.get(`${API_BASE}/jobs?${params.toString()}`, authHeaders);
       setJobs(res.data.jobs || []);
-      setJobStats(res.data.stats || { 
-        totalJobs: 0, 
+      setJobStats(res.data.stats || {
+        totalJobs: 0,
         internationalInternships: 0,
-        sixMonthInternships: 0, 
-        internships: 0, 
-        fullTimeJobs: 0, 
-        fresherJobs: 0, 
-        indiaJobs: 0, 
-        remoteJobs: 0, 
-        appliedJobs: 0 
+        sixMonthInternships: 0,
+        internships: 0,
+        fullTimeJobs: 0,
+        fresherJobs: 0,
+        indiaJobs: 0,
+        remoteJobs: 0,
+        appliedJobs: 0
       });
     } catch (err) {
       console.error('Error fetching jobs:', err);
@@ -261,6 +267,10 @@ const JobHunter = () => {
         limit: 20
       }, authHeaders);
       setGhostScoutResult(res.data.result);
+      if (res.data.result && res.data.result.recruiters) {
+        setScoutedLeads(res.data.result.recruiters);
+        setActiveScoutFilter(comp.trim() || ghostHrName.trim());
+      }
       setRecruiterMessage(res.data.message);
       fetchRecruiters();
     } catch (err) {
@@ -346,11 +356,10 @@ const JobHunter = () => {
       {/* 5 Stat Metrics Cards (Interactive Filters) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
         {/* Card 1: 6-Month Internships (Top Priority) */}
-        <div 
+        <div
           onClick={() => { setSelectedJobType('6_months_internship'); setActiveTab('jobs'); }}
-          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-amber-400/80 ${
-            selectedJobType === '6_months_internship' && activeTab === 'jobs' ? 'border-amber-400 bg-amber-500/5 ring-1 ring-amber-400/40' : 'border-zinc-800'
-          }`}
+          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-amber-400/80 ${selectedJobType === '6_months_internship' && activeTab === 'jobs' ? 'border-amber-400 bg-amber-500/5 ring-1 ring-amber-400/40' : 'border-zinc-800'
+            }`}
         >
           <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold uppercase">
             <span className="flex items-center gap-1.5 text-amber-400 font-bold">
@@ -364,11 +373,10 @@ const JobHunter = () => {
         </div>
 
         {/* Card 2: 🌍 International Remote Internships (Global USD) */}
-        <div 
+        <div
           onClick={() => { setSelectedJobType('international_remote'); setActiveTab('international_remote'); }}
-          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-cyan-400/80 ${
-            activeTab === 'international_remote' || selectedJobType === 'international_remote' ? 'border-cyan-400 bg-cyan-500/5 ring-1 ring-cyan-400/40' : 'border-zinc-800'
-          }`}
+          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-cyan-400/80 ${activeTab === 'international_remote' || selectedJobType === 'international_remote' ? 'border-cyan-400 bg-cyan-500/5 ring-1 ring-cyan-400/40' : 'border-zinc-800'
+            }`}
         >
           <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold uppercase">
             <span className="flex items-center gap-1.5 text-cyan-400 font-bold">
@@ -382,11 +390,10 @@ const JobHunter = () => {
         </div>
 
         {/* Card 3: Full-Time (CTC > 12 LPA) */}
-        <div 
+        <div
           onClick={() => { setSelectedJobType('full_time'); setActiveTab('jobs'); }}
-          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-blue-400/80 ${
-            selectedJobType === 'full_time' && activeTab === 'jobs' ? 'border-blue-400 bg-blue-500/5 ring-1 ring-blue-400/40' : 'border-zinc-800'
-          }`}
+          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-blue-400/80 ${selectedJobType === 'full_time' && activeTab === 'jobs' ? 'border-blue-400 bg-blue-500/5 ring-1 ring-blue-400/40' : 'border-zinc-800'
+            }`}
         >
           <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold uppercase">
             <span className="text-blue-400 font-bold">Full-Time (&gt;12L)</span>
@@ -397,11 +404,10 @@ const JobHunter = () => {
         </div>
 
         {/* Card 4: All Internships */}
-        <div 
+        <div
           onClick={() => { setSelectedJobType('internship'); setActiveTab('jobs'); }}
-          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-emerald-400/80 ${
-            selectedJobType === 'internship' && activeTab === 'jobs' ? 'border-emerald-400 bg-emerald-500/5 ring-1 ring-emerald-400/40' : 'border-zinc-800'
-          }`}
+          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-emerald-400/80 ${selectedJobType === 'internship' && activeTab === 'jobs' ? 'border-emerald-400 bg-emerald-500/5 ring-1 ring-emerald-400/40' : 'border-zinc-800'
+            }`}
         >
           <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold uppercase">
             <span className="text-emerald-400 font-bold">All Internships</span>
@@ -412,11 +418,10 @@ const JobHunter = () => {
         </div>
 
         {/* Card 5: High-Paying Tech Companies */}
-        <div 
+        <div
           onClick={() => setActiveTab('companies')}
-          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-yellow-500/60 ${
-            activeTab === 'companies' ? 'border-yellow-500 bg-yellow-500/5 ring-1 ring-yellow-500/40' : 'border-zinc-800'
-          }`}
+          className={`bg-zinc-900 border rounded-xl p-3.5 shadow-sm cursor-pointer transition hover:border-yellow-500/60 ${activeTab === 'companies' ? 'border-yellow-500 bg-yellow-500/5 ring-1 ring-yellow-500/40' : 'border-zinc-800'
+            }`}
         >
           <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold uppercase">
             <span className="text-yellow-400 font-bold">Companies</span>
@@ -434,11 +439,10 @@ const JobHunter = () => {
             setActiveTab('jobs');
             if (selectedJobType === 'international_remote') setSelectedJobType('all');
           }}
-          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
-            activeTab === 'jobs'
+          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${activeTab === 'jobs'
               ? 'border-yellow-500 text-yellow-400'
               : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
+            }`}
         >
           <Briefcase className="w-4 h-4" /> Live Openings ({jobStats.totalJobs || jobs.length})
         </button>
@@ -448,44 +452,40 @@ const JobHunter = () => {
             setActiveTab('international_remote');
             setSelectedJobType('international_remote');
           }}
-          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
-            activeTab === 'international_remote'
+          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${activeTab === 'international_remote'
               ? 'border-cyan-400 text-cyan-300'
               : 'border-transparent text-zinc-400 hover:text-cyan-300'
-          }`}
+            }`}
         >
           <Globe className="w-4 h-4 text-cyan-400" /> 🌍 International Remote Internships ({jobStats.internationalInternships || 82})
         </button>
 
         <button
           onClick={() => setActiveTab('companies')}
-          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
-            activeTab === 'companies'
+          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${activeTab === 'companies'
               ? 'border-yellow-500 text-yellow-400'
               : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
+            }`}
         >
           <Building2 className="w-4 h-4" /> Company Directory ({companies.length})
         </button>
 
         <button
           onClick={() => setActiveTab('recruiters')}
-          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
-            activeTab === 'recruiters'
+          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${activeTab === 'recruiters'
               ? 'border-yellow-500 text-yellow-400'
               : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
+            }`}
         >
           <Users className="w-4 h-4" /> Indian HR & Recruiters ({recruiters.length})
         </button>
 
         <button
           onClick={() => setActiveTab('scheduler')}
-          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
-            activeTab === 'scheduler'
+          className={`pb-3 px-4 text-sm font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap ${activeTab === 'scheduler'
               ? 'border-yellow-500 text-yellow-400'
               : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
+            }`}
         >
           <Clock className="w-4 h-4" /> Scheduler & Timers
         </button>
@@ -497,25 +497,23 @@ const JobHunter = () => {
           {/* Quick Segregation Switcher Pills */}
           <div className="flex flex-wrap items-center gap-2 bg-zinc-900/60 border border-zinc-800/80 p-2.5 rounded-xl">
             <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider px-2">Type:</span>
-            
+
             <button
               onClick={() => setSelectedJobType('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                selectedJobType === 'all'
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${selectedJobType === 'all'
                   ? 'bg-zinc-100 text-zinc-950 shadow-sm'
                   : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
-              }`}
+                }`}
             >
               All Openings ({jobStats.totalJobs})
             </button>
 
             <button
               onClick={() => setSelectedJobType('6_months_internship')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center gap-1.5 shadow-sm ${
-                selectedJobType === '6_months_internship'
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center gap-1.5 shadow-sm ${selectedJobType === '6_months_internship'
                   ? 'bg-amber-400 text-zinc-950 shadow-amber-500/20'
                   : 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
-              }`}
+                }`}
             >
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
               ⭐ 6-Month Internships ({jobStats.sixMonthInternships || 0})
@@ -523,11 +521,10 @@ const JobHunter = () => {
 
             <button
               onClick={() => setSelectedJobType('international_remote')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center gap-1.5 shadow-sm ${
-                selectedJobType === 'international_remote'
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center gap-1.5 shadow-sm ${selectedJobType === 'international_remote'
                   ? 'bg-cyan-400 text-zinc-950 shadow-cyan-500/20'
                   : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20'
-              }`}
+                }`}
             >
               <Globe className="w-3.5 h-3.5 text-cyan-400" />
               🌍 International Remote ({jobStats.internationalInternships || 82})
@@ -535,33 +532,30 @@ const JobHunter = () => {
 
             <button
               onClick={() => setSelectedJobType('full_time')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                selectedJobType === 'full_time'
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${selectedJobType === 'full_time'
                   ? 'bg-blue-500 text-zinc-100 shadow-sm'
                   : 'bg-blue-500/10 text-blue-300 border border-blue-500/30 hover:bg-blue-500/20'
-              }`}
+                }`}
             >
               💼 Full-Time (CTC &gt; 12 LPA) ({jobStats.fullTimeJobs || 0})
             </button>
 
             <button
               onClick={() => setSelectedJobType('internship')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                selectedJobType === 'internship'
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${selectedJobType === 'internship'
                   ? 'bg-emerald-500 text-zinc-950 shadow-sm'
                   : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20'
-              }`}
+                }`}
             >
               🎓 All Internships ({jobStats.internships || 0})
             </button>
 
             <button
               onClick={() => setFresherOnly(!fresherOnly)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ml-auto ${
-                fresherOnly
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ml-auto ${fresherOnly
                   ? 'bg-emerald-400 text-zinc-950 font-black ring-2 ring-emerald-300 shadow-sm'
                   : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700'
-              }`}
+                }`}
             >
               🎯 Fresher (0-1 YOE) Only {fresherOnly ? '✓' : ''}
             </button>
@@ -677,15 +671,14 @@ const JobHunter = () => {
                       const isStandardIntern = job.jobType === 'internship';
 
                       return (
-                        <tr 
-                          key={job._id} 
-                          className={`hover:bg-zinc-850/50 transition ${
-                            isInternational 
-                              ? 'bg-cyan-500/[0.04]' 
-                              : is6M 
-                              ? 'bg-amber-500/[0.04]' 
-                              : ''
-                          }`}
+                        <tr
+                          key={job._id}
+                          className={`hover:bg-zinc-850/50 transition ${isInternational
+                              ? 'bg-cyan-500/[0.04]'
+                              : is6M
+                                ? 'bg-amber-500/[0.04]'
+                                : ''
+                            }`}
                         >
                           {/* Opening Type & Priority */}
                           <td className="py-3.5 px-4 whitespace-nowrap">
@@ -782,13 +775,12 @@ const JobHunter = () => {
                             <select
                               value={job.status}
                               onChange={e => handleStatusChange(job._id, e.target.value)}
-                              className={`text-[11px] font-bold rounded-lg px-2 py-1 border outline-none bg-zinc-950 ${
-                                job.status === 'applied' || job.status === 'auto_applied'
+                              className={`text-[11px] font-bold rounded-lg px-2 py-1 border outline-none bg-zinc-950 ${job.status === 'applied' || job.status === 'auto_applied'
                                   ? 'text-emerald-400 border-emerald-800/60'
                                   : job.status === 'ready_to_apply'
-                                  ? 'text-yellow-400 border-yellow-800/60'
-                                  : 'text-zinc-400 border-zinc-700'
-                              }`}
+                                    ? 'text-yellow-400 border-yellow-800/60'
+                                    : 'text-zinc-400 border-zinc-700'
+                                }`}
                             >
                               <option value="discovered">Discovered</option>
                               <option value="ready_to_apply">Ready to Apply</option>
@@ -1019,13 +1011,12 @@ const JobHunter = () => {
                           <select
                             value={job.status}
                             onChange={e => handleStatusChange(job._id, e.target.value)}
-                            className={`text-[11px] font-bold rounded-lg px-2 py-1 border outline-none bg-zinc-950 ${
-                              job.status === 'applied' || job.status === 'auto_applied'
+                            className={`text-[11px] font-bold rounded-lg px-2 py-1 border outline-none bg-zinc-950 ${job.status === 'applied' || job.status === 'auto_applied'
                                 ? 'text-emerald-400 border-emerald-800/60'
                                 : job.status === 'ready_to_apply'
-                                ? 'text-yellow-400 border-yellow-800/60'
-                                : 'text-zinc-400 border-zinc-700'
-                            }`}
+                                  ? 'text-yellow-400 border-yellow-800/60'
+                                  : 'text-zinc-400 border-zinc-700'
+                              }`}
                           >
                             <option value="discovered">Discovered</option>
                             <option value="ready_to_apply">Ready to Apply</option>
@@ -1064,58 +1055,242 @@ const JobHunter = () => {
       )}
 
       {/* TAB 2: COMPANY MASTER DIRECTORY */}
-      {activeTab === 'companies' && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center bg-zinc-900 border border-zinc-800 p-4 rounded-xl">
-            <div>
-              <h3 className="font-bold text-zinc-100 text-base">Tracked India & Remote Companies</h3>
-              <p className="text-xs text-zinc-400">Total {companies.length} companies continually monitored for job postings.</p>
-            </div>
-            <button
-              onClick={() => setShowAddCompanyModal(true)}
-              className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-bold px-3.5 py-2 rounded-lg text-xs flex items-center gap-1.5 transition"
-            >
-              <Plus className="w-4 h-4" /> Add Company to Crawl List
-            </button>
-          </div>
+      {activeTab === 'companies' && (() => {
+        const TIER_CTC_MAP = {
+          '1_cr_plus': '₹1 Cr - ₹2.5 Cr+ (Global Quant / HFT)',
+          '90_to_100': '₹90 LPA - ₹1 Cr (Optiver, IMC, HRT Mumbai)',
+          '80_to_90': '₹80 - ₹90 LPA (SIG, Top D.E. Shaw/Tower)',
+          '70_to_80': '₹70 - ₹80 LPA (Tower, Graviton, Quadeye, D.E. Shaw)',
+          '70_to_100': '₹70 LPA - ₹1 Cr (Quant & Prop Trading)',
+          '60_to_70': '₹60 - ₹70 LPA (Rubrik, Millennium, Top Tech)',
+          '50_to_60': '₹50 - ₹60 LPA (Uber, Databricks, Stripe, Coinbase)',
+          '50_to_70': '₹50 - ₹70 LPA (High-End Tech & Quant Funds)',
+          '40_to_50': '₹40 - ₹50 LPA (Amazon, Atlassian, Nvidia, Nutanix, CRED)',
+          '30_to_40': '₹30 - ₹40 LPA (Google, Microsoft, Adobe, Goldman Sachs)',
+          '20_to_30': '₹20 - ₹30 LPA (Visa, Cisco, Qualcomm, JPMC, Swiggy)',
+          '12_to_20': '₹12 - ₹20 LPA (Growth Tech & Startups)',
+          'under_12': '< ₹12 LPA (Startups)'
+        };
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {companies.map(c => (
-              <div key={c._id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 shadow-sm hover:border-zinc-700 transition flex flex-col justify-between">
-                <div>
-                  <div className="flex items-start justify-between mb-2">
-                    <h4 className="font-extrabold text-zinc-100 text-base">{c.name}</h4>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-800 text-yellow-400 border border-zinc-700">
-                      {c.tier}
-                    </span>
-                  </div>
-                  <p className="text-xs text-zinc-400 mb-3">{c.description || 'Technology enterprise.'}</p>
-                  
-                  <div className="text-[11px] text-zinc-400 space-y-1 mb-4">
-                    <div>Locations: <strong className="text-zinc-200">{c.locations?.join(', ') || 'India / Remote'}</strong></div>
-                    <div>ATS: <strong className="text-zinc-200 uppercase">{c.atsType}</strong> {c.atsToken ? `(${c.atsToken})` : ''}</div>
-                    <div>Active Openings: <strong className="text-emerald-400 font-bold">{c.activeJobsCount || 0}</strong></div>
-                  </div>
+        const getCompanyEstimatedCtc = (c) => {
+          if (c.entryLevelCtc) return c.entryLevelCtc;
+          if (c.fresherCtcTier && TIER_CTC_MAP[c.fresherCtcTier]) return TIER_CTC_MAP[c.fresherCtcTier];
+          const name = (c.name || '').toLowerCase();
+          const tier = c.tier || '';
+          if (name.includes('graviton') || name.includes('tower research') || name.includes('hudson river') || name.includes('jump trading') || name.includes('jane street') || name.includes('optiver') || name.includes('imc trading') || name.includes('citadel')) return '₹70 LPA - ₹1.5 Cr+';
+          if (name.includes('de shaw') || name.includes('sig ') || name.includes('susquehanna') || name.includes('quadeye')) return '₹60 - ₹90 LPA';
+          if (name.includes('rubrik') || name.includes('millennium') || name.includes('databricks')) return '₹50 - ₹70 LPA';
+          if (name.includes('uber') || name.includes('stripe') || name.includes('coinbase') || name.includes('squarepoint')) return '₹50 - ₹60 LPA';
+          if (name.includes('amazon') || name.includes('atlassian') || name.includes('nvidia') || name.includes('nutanix') || name.includes('cred') || name.includes('qube')) return '₹40 - ₹50 LPA';
+          if (name.includes('google') || name.includes('microsoft') || name.includes('adobe') || name.includes('salesforce') || name.includes('goldman') || name.includes('flipkart') || name.includes('phonepe') || name.includes('worldquant')) return '₹30 - ₹40 LPA';
+          if (name.includes('mastercard') || name.includes('visa') || name.includes('cisco') || name.includes('qualcomm') || name.includes('jpmorgan') || name.includes('barclays') || name.includes('walmart') || name.includes('swiggy') || name.includes('zomato') || name.includes('razorpay')) return '₹20 - ₹30 LPA';
+          if (tier.includes('Tier 0')) return '₹55 - ₹100 LPA';
+          if (tier.includes('Tier 1: Global')) return '₹30 - ₹52 LPA';
+          if (tier.includes('Tier 1.5')) return '₹20 - ₹36 LPA';
+          if (tier.includes('Remote-First')) return '₹28 - ₹55 LPA ($35k-$65k)';
+          if (tier.includes('Tier 2')) return '₹14 - ₹24 LPA';
+          return '₹12 - ₹20 LPA';
+        };
+
+        const getCompanyMinCtc = (c) => {
+          if (c.entryLevelCtcMin) return c.entryLevelCtcMin;
+          if (c.fresherCtcTier === '1_cr_plus') return 100;
+          if (c.fresherCtcTier === '90_to_100') return 90;
+          if (c.fresherCtcTier === '80_to_90') return 80;
+          if (c.fresherCtcTier === '70_to_80' || c.fresherCtcTier === '70_to_100') return 70;
+          if (c.fresherCtcTier === '60_to_70') return 60;
+          if (c.fresherCtcTier === '50_to_60' || c.fresherCtcTier === '50_to_70') return 50;
+          if (c.fresherCtcTier === '40_to_50') return 40;
+          if (c.fresherCtcTier === '30_to_40') return 30;
+          if (c.fresherCtcTier === '20_to_30') return 20;
+          if (c.fresherCtcTier === '12_to_20') return 12;
+          if (c.fresherCtcTier === 'under_12') return 8;
+          const est = getCompanyEstimatedCtc(c);
+          const m = est.match(/₹?\s*(\d+)/);
+          return m ? parseInt(m[1], 10) : 15;
+        };
+
+        const filteredCompanies = companies.filter(c => {
+          const q = companySearch.toLowerCase().trim();
+          const matchSearch = !q || 
+            (c.name || '').toLowerCase().includes(q) || 
+            (c.description || '').toLowerCase().includes(q) ||
+            (c.recruiterEmail || '').toLowerCase().includes(q) ||
+            (c.tags || []).some(t => (t || '').toLowerCase().includes(q)) ||
+            (c.locations || []).some(loc => (loc || '').toLowerCase().includes(q));
+
+          if (!matchSearch) return false;
+          if (companyCtcFilter === 'all') return true;
+
+          const tier = c.fresherCtcTier || '';
+          const minCtc = getCompanyMinCtc(c);
+
+          if (companyCtcFilter === '1_cr_plus') return tier === '1_cr_plus' || minCtc >= 100;
+          if (companyCtcFilter === '70_to_100') return ['70_to_100', '70_to_80', '80_to_90', '90_to_100'].includes(tier) || (minCtc >= 70 && minCtc < 100);
+          if (companyCtcFilter === '50_to_70') return ['50_to_70', '50_to_60', '60_to_70'].includes(tier) || (minCtc >= 50 && minCtc < 70);
+          if (companyCtcFilter === '40_to_50') return tier === '40_to_50' || (minCtc >= 40 && minCtc < 50);
+          if (companyCtcFilter === '30_to_40') return tier === '30_to_40' || (minCtc >= 30 && minCtc < 40);
+          if (companyCtcFilter === '20_to_30') return tier === '20_to_30' || (minCtc >= 20 && minCtc < 30);
+          if (companyCtcFilter === 'under_20') return ['12_to_20', 'under_12'].includes(tier) || minCtc < 20;
+          return true;
+        });
+
+        return (
+          <div className="space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-xl">
+              <div>
+                <h3 className="font-bold text-zinc-100 text-base flex items-center gap-2">
+                  <span>🏢</span> Tracked High-Paying Tech &amp; Quant Companies
+                </h3>
+                <p className="text-xs text-zinc-400">Total {companies.length} verified companies continually monitored for job postings &amp; campus hiring.</p>
+              </div>
+              <button
+                onClick={() => setShowAddCompanyModal(true)}
+                className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-bold px-3.5 py-2 rounded-lg text-xs flex items-center gap-1.5 transition self-start md:self-auto cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> Add Company to Crawl List
+              </button>
+            </div>
+
+            {/* CTC Range Filter Bar & Search */}
+            <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-yellow-400 uppercase tracking-wider">Fresher / SDE-1 CTC Filter:</span>
+                  <span className="text-xs text-zinc-400 font-semibold">({filteredCompanies.length} companies matching)</span>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-zinc-800 pt-3">
-                  <span className="text-[10px] text-zinc-500">
-                    Last crawl: {c.lastScannedAt ? new Date(c.lastScannedAt).toLocaleDateString('en-IN') : 'Pending'}
-                  </span>
-                  <a
-                    href={c.careersUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-yellow-400 hover:underline flex items-center gap-1 font-semibold"
-                  >
-                    Careers Portal <ArrowUpRight className="w-3 h-3" />
-                  </a>
+                <div className="relative max-w-xs w-full">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                  <input
+                    type="text"
+                    placeholder="Search company, tech, city or email..."
+                    value={companySearch}
+                    onChange={e => setCompanySearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 placeholder:text-zinc-500 outline-none focus:border-yellow-500"
+                  />
                 </div>
               </div>
-            ))}
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {[
+                  { id: 'all', label: `All Companies (${companies.length})` },
+                  { id: '1_cr_plus', label: '💎 1 Cr+ (Elite Global Quants)', color: 'border-yellow-500/50 text-yellow-300' },
+                  { id: '70_to_100', label: '⚡ 70 - 100 LPA (HFT & Prop Trading)', color: 'border-amber-500/50 text-amber-300' },
+                  { id: '50_to_70', label: '🚀 50 - 70 LPA (High-End Tech & Quant Funds)', color: 'border-purple-500/50 text-purple-300' },
+                  { id: '40_to_50', label: '🔥 40 - 50 LPA (FAANG & Product Titans)', color: 'border-blue-500/50 text-blue-300' },
+                  { id: '30_to_40', label: '🦄 30 - 40 LPA (Tier-1 Tech & Fintech)', color: 'border-emerald-500/50 text-emerald-300' },
+                  { id: '20_to_30', label: '🌟 20 - 30 LPA (High-Paying Tech & Banks)', color: 'border-teal-500/50 text-teal-300' },
+                  { id: 'under_20', label: '🌱 < 20 LPA (Growth Tech)', color: 'border-zinc-700 text-zinc-400' },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setCompanyCtcFilter(tab.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                      companyCtcFilter === tab.id
+                        ? 'bg-yellow-500 text-zinc-950 border-yellow-400 shadow-sm'
+                        : `bg-zinc-950/80 hover:bg-zinc-800 ${tab.color || 'border-zinc-800 text-zinc-300'}`
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Company Cards Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredCompanies.map(c => {
+                const estCtc = getCompanyEstimatedCtc(c);
+                const isTopTier = c.fresherCtcTier === '1_cr_plus' || c.fresherCtcTier === '70_to_100' || c.fresherCtcTier === '50_to_70';
+                return (
+                  <div key={c._id} className={`bg-zinc-900 border rounded-xl p-4 shadow-sm transition flex flex-col justify-between hover:border-yellow-500/60 ${isTopTier ? 'border-yellow-500/30' : 'border-zinc-800'}`}>
+                    <div>
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-zinc-100 text-base">{c.name}</h4>
+                          {isTopTier && <span className="text-xs">🔥</span>}
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-800 text-yellow-400 border border-zinc-700">
+                          {c.tier || 'Tech Leader'}
+                        </span>
+                      </div>
+
+                      {/* Entry Level CTC Badge */}
+                      <div className={`mb-2.5 p-2 rounded-lg border flex items-center justify-between ${
+                        c.fresherCtcTier === '1_cr_plus'
+                          ? 'bg-yellow-950/40 border-yellow-500/50 text-yellow-300'
+                          : isTopTier
+                            ? 'bg-amber-950/30 border-amber-500/40 text-amber-300'
+                            : 'bg-zinc-950/80 border-yellow-500/20 text-yellow-400'
+                      }`}>
+                        <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Fresher CTC:</span>
+                        <span className="text-xs font-black font-mono">{estCtc}</span>
+                      </div>
+
+                      {/* Recruiter Outreach Email Badge */}
+                      {c.recruiterEmail && (
+                        <div className="mb-2.5 p-2 rounded-lg bg-blue-950/30 border border-blue-500/30 flex items-center justify-between">
+                          <div className="truncate mr-2">
+                            <span className="text-[9px] text-blue-300 font-bold uppercase tracking-wider block">Recruiter / Outreach:</span>
+                            <span className="text-xs font-mono text-zinc-100 font-bold select-all">{c.recruiterEmail}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(c.recruiterEmail);
+                              alert(`Copied ${c.recruiterEmail} to clipboard!`);
+                            }}
+                            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold shrink-0 transition cursor-pointer flex items-center gap-1"
+                            title="Copy email address"
+                          >
+                            <Copy className="w-2.5 h-2.5" /> Copy
+                          </button>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-zinc-400 mb-2.5 line-clamp-2">{c.description || 'Technology enterprise.'}</p>
+
+                      {/* Tags */}
+                      {c.tags && c.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-3">
+                          {c.tags.slice(0, 3).map((tag, tIdx) => (
+                            <span key={tIdx} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700/60">
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="text-[11px] text-zinc-400 space-y-1 mb-3">
+                        <div>Locations: <strong className="text-zinc-200">{c.locations?.join(', ') || 'India / Remote'}</strong></div>
+                        {c.hiringSeason && (
+                          <div>Hiring Cycle: <strong className="text-emerald-400">{c.hiringSeason}</strong></div>
+                        )}
+                        <div>Active Openings: <strong className="text-emerald-400 font-bold">{c.activeJobsCount || 0}</strong></div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-zinc-800 pt-3">
+                      <span className="text-[10px] text-zinc-500">
+                        {c.hiringMode || 'On-Campus & Off-Campus'}
+                      </span>
+                      <a
+                        href={c.careersUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-yellow-400 hover:underline flex items-center gap-1 font-semibold"
+                      >
+                        Careers Portal <ArrowUpRight className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB 3: INDIAN RECRUITER & HR DATABASE */}
       {activeTab === 'recruiters' && (
@@ -1241,18 +1416,18 @@ const JobHunter = () => {
                 <form onSubmit={handleRequestAccess} className="space-y-3 text-left max-w-lg mx-auto pt-2">
                   <div>
                     <label className="block text-xs font-bold text-zinc-300 mb-1">Reason for Requesting Access</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       required
-                      placeholder="e.g. SDE 1 job applications / tech outreach" 
-                      value={accessReason} 
-                      onChange={(e) => setAccessReason(e.target.value)} 
-                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl p-3 text-xs text-zinc-200 outline-none focus:border-yellow-500" 
+                      placeholder="e.g. SDE 1 job applications / tech outreach"
+                      value={accessReason}
+                      onChange={(e) => setAccessReason(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl p-3 text-xs text-zinc-200 outline-none focus:border-yellow-500"
                     />
                   </div>
-                  <button 
-                    type="submit" 
-                    disabled={requestingAccess} 
+                  <button
+                    type="submit"
+                    disabled={requestingAccess}
                     className="w-full bg-gradient-to-r from-amber-500 to-yellow-500 text-zinc-950 font-black py-3 rounded-xl text-xs hover:brightness-110 transition shadow-lg disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
                   >
                     {requestingAccess ? 'Sending Request Email...' : '📩 Request Access from Khushal Midha'}
@@ -1368,60 +1543,119 @@ const JobHunter = () => {
                 )}
               </div>
 
+              {/* Active Filter Banner when Ghost Scout is applied */}
+              {scoutedLeads !== null && (
+                <div className="flex items-center justify-between p-3.5 bg-indigo-950/70 border border-indigo-500/50 rounded-xl text-xs">
+                  <div className="flex items-center gap-2 text-indigo-200 font-bold">
+                    <Sparkles className="w-4 h-4 text-indigo-400" />
+                    <span>Showing {scoutedLeads.length} Verified Leads for "{activeScoutFilter}"</span>
+                  </div>
+                  <button
+                    onClick={() => { setScoutedLeads(null); setActiveScoutFilter(''); }}
+                    className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-bold rounded-lg text-xs transition cursor-pointer border border-zinc-700 flex items-center gap-1.5"
+                  >
+                    ↺ View Full Master Directory ({recruiters.length})
+                  </button>
+                </div>
+              )}
+
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-950/80 text-zinc-400 text-[11px] font-bold uppercase tracking-wider border-b border-zinc-800">
-                  <tr>
-                    <th className="py-3 px-4">Company</th>
-                    <th className="py-3 px-4">Recruiter / HR Name</th>
-                    <th className="py-3 px-4">Verified Email</th>
-                    <th className="py-3 px-4">Designation</th>
-                    <th className="py-3 px-4">Source</th>
-                    <th className="py-3 px-4">Location</th>
-                    <th className="py-3 px-4 text-right">LinkedIn</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/60">
-                  {recruiters.map((r, idx) => (
-                    <tr key={idx} className="hover:bg-zinc-850/50 transition">
-                      <td className="py-3.5 px-4 font-bold text-zinc-100">{r.company}</td>
-                      <td className="py-3.5 px-4 font-medium text-zinc-200">{r.hrName}</td>
-                      <td className="py-3.5 px-4 font-mono text-xs text-yellow-400">{r.email}</td>
-                      <td className="py-3.5 px-4 text-xs text-zinc-300">{r.role}</td>
-                      <td className="py-3.5 px-4">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          r.source === 'hunter.io'
-                            ? 'bg-amber-950/40 border-amber-800 text-amber-400'
-                            : r.source === 'apollo.io'
-                            ? 'bg-purple-950/40 border-purple-800 text-purple-400'
-                            : 'bg-zinc-800 border-zinc-700 text-zinc-400'
-                        }`}>
-                          {r.source || 'Curated'}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-xs text-zinc-400">{r.location || 'India'}</td>
-                      <td className="py-3.5 px-4 text-right">
-                        {r.linkedinUrl ? (
-                          <a
-                            href={r.linkedinUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline"
-                          >
-                            Profile <ArrowUpRight className="w-3 h-3" />
-                          </a>
-                        ) : (
-                          <span className="text-zinc-600 text-xs">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          </>
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-zinc-950/80 text-zinc-400 text-[11px] font-bold uppercase tracking-wider border-b border-zinc-800">
+                      <tr>
+                        <th className="py-3 px-4">Company</th>
+                        <th className="py-3 px-4">Fresher CTC</th>
+                        <th className="py-3 px-4">Recruiter / HR Name</th>
+                        <th className="py-3 px-4">Verified Email</th>
+                        <th className="py-3 px-4">Designation</th>
+                        <th className="py-3 px-4">Source</th>
+                        <th className="py-3 px-4">Confidence</th>
+                        <th className="py-3 px-4">Location</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/60">
+                      {(scoutedLeads !== null ? scoutedLeads : recruiters).map((r, idx) => (
+                        <tr key={idx} className="hover:bg-zinc-850/50 transition">
+                          <td className="py-3.5 px-4 font-bold text-zinc-100">{r.company}</td>
+                          <td className="py-3.5 px-4">
+                            <span className="font-mono text-xs font-black px-2 py-0.5 rounded border bg-yellow-950/40 border-yellow-500/40 text-yellow-300 whitespace-nowrap">
+                              {r.package || '30-50 LPA'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-medium text-zinc-200">{r.hrName}</td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-xs text-zinc-100 font-semibold">{r.email}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(r.email);
+                                  alert(`Copied ${r.email} to clipboard!`);
+                                }}
+                                className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white transition"
+                                title="Copy Email"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                            {r.mxHost && (
+                              <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
+                                ✓ MX: {r.mxHost.length > 22 ? r.mxHost.substring(0, 22) + '...' : r.mxHost}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-zinc-300">{r.role}</td>
+                          <td className="py-3.5 px-4">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              r.source === 'hunter.io'
+                                ? 'bg-amber-950/40 border-amber-800 text-amber-400'
+                                : r.source === 'apollo.io'
+                                  ? 'bg-purple-950/40 border-purple-800 text-purple-400'
+                                  : (r.source === 'linkedin_scout' || r.source === 'ghost_scout' || (r.source && r.source.includes('Verified')))
+                                    ? 'bg-indigo-950/60 border-indigo-700 text-indigo-300'
+                                    : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+                            }`}>
+                              {r.source === 'linkedin_scout' ? 'Ghost Scout' : (r.source || 'Curated')}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              (r.confidenceLevel === 'verified' || !r.confidenceLevel || r.confidence >= 90)
+                                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-400'
+                                : 'bg-yellow-950/40 border-yellow-800 text-yellow-400'
+                            }`}>
+                              {r.confidence ? `${r.confidence}% (${r.confidenceLevel || 'verified'})` : '96% (verified)'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-zinc-400">{r.location || 'India'}</td>
+                          <td className="py-3.5 px-4 text-right space-x-2 whitespace-nowrap">
+                            <a
+                              href={`mailto:${r.email}?subject=${encodeURIComponent('Application for Software Engineer / Campus Hiring 2026-27 - Khushal Midha')}`}
+                              className="inline-flex items-center gap-1 text-xs bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-bold px-2 py-1 rounded transition"
+                              title="Send Mail via Default Mail Client"
+                            >
+                              <Mail className="w-3 h-3" /> Mail
+                            </a>
+                            {r.linkedinUrl ? (
+                              <a
+                                href={r.linkedinUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline"
+                              >
+                                Profile <ArrowUpRight className="w-3 h-3" />
+                              </a>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}

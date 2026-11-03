@@ -14,5 +14,11 @@ router.put('/:id/toggle-shared', auth, contactController.toggleShared);
 router.put('/:id/mark-replied', auth, contactController.markReplied);
 router.post('/bulk-toggle-shared', auth, contactController.bulkToggleShared);
 router.post('/bulk-mark-replied', auth, contactController.bulkMarkReplied);
+router.post('/bulk-delete', auth, contactController.bulkDelete);
+
+// Email Deliverability & Verification endpoints
+router.post('/validate-deliverability', auth, contactController.validateDeliverability);
+router.post('/bulk-deliverability', auth, contactController.batchMarkDeliverability);
+router.put('/:id/deliverability', auth, contactController.markDeliverability);
 
 module.exports = router;

@@ -33,19 +33,13 @@
     },
     "workAuthorization": {
       "authorizedInIndia": "Yes",
-      "requiresSponsorship": "No",
-      "noticePeriodDays": "0",
-      "noticePeriodText": "Immediate (0 days)",
-      "currentEmploymentStatus": "Student / Available for Internship & Full-time",
-      "gender": "Male",
-      "pronouns": "He/Him"
+      "gender": "Male"
     },
     "currentExperience": {
       "company": "Coffeee.io",
-      "role": "SDE Intern",
+      "role": "Software Development Engineer Intern",
       "location": "Remote",
-      "duration": "Jun 2025 – Aug 2025",
-      "years": "0.3",
+      "duration": "June 2025 to August 2025",
       "highlights": [
         "Built a project-based assessment module (Java, Spring Boot, React, PostgreSQL) where candidates debug live codebases via error logs, graded automatically against hidden test cases.",
         "Developed a read-only AI assistant (LLMs, Redis, Docker) to provide contextual hints without edit access, preserving evaluation integrity; validated in staging."
@@ -53,9 +47,11 @@
     },
     "salaryExpectations": {
       "currency": "INR",
-      "expectedCtcLpa": "22 LPA",
-      "expectedBaseLpa": "18 LPA",
-      "formattedRange": "₹18 - ₹25 LPA",
+      "expectedAnnualSalaryInr": "₹30,00,000",
+      "expectedAnnualSalaryInrNumber": 3000000,
+      "expectedCtcLpa": "30 LPA",
+      "expectedCtcLpaNumber": 30,
+      "formattedRange": "₹30 LPA (₹30,00,000 INR)",
       "flexible": true
     }
   },

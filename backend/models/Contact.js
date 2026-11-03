@@ -15,6 +15,13 @@ const contactSchema = new mongoose.Schema({
     default: 'pending' 
   },
   isShared: { type: Boolean, default: false }, // Only manually marked shared contacts
+  deliverabilityStatus: { 
+    type: String, 
+    enum: ['valid', 'invalid', 'unverified'], 
+    default: 'valid' 
+  },
+  validationReason: { type: String, default: '' },
+  validatedAt: { type: Date },
   repliedAt: { type: Date },
   replySnippet: { type: String, default: '' },
   notes: { type: String, default: '' },
@@ -22,6 +29,12 @@ const contactSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+contactSchema.index({ userId: 1, createdAt: -1 });
+contactSchema.index({ userId: 1, status: 1 });
+contactSchema.index({ userId: 1, deliverabilityStatus: 1 });
+contactSchema.index({ userId: 1, company: 1 });
+contactSchema.index({ email: 1 });
 
 module.exports = mongoose.model('Contact', contactSchema);
 
