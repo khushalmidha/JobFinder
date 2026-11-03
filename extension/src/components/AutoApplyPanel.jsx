@@ -124,118 +124,38 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     setLoading(false);
   };
 
-  const handleToggleAutoPilot = async () => {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab || !tab.id) return;
-      
-      const newAction = autoPilotActive ? 'STOP_AUTOPILOT' : 'START_AUTOPILOT';
-      chrome.tabs.sendMessage(tab.id, { action: newAction, resumeId: selectedResumeId }, async (res) => {
-        if (!chrome.runtime.lastError && res && res.running !== undefined) {
-          setAutoPilotActive(res.running);
-          return;
-        }
+  const runSafeFill = async (tabId) => {
+    await chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['form-engine.js']});
+    const frames = await chrome.scripting.executeScript({
+      target:{tabId,allFrames:true},
+      func: async (payload) => {
+        if (!globalThis.JobFinderSafeEngine?.fillForm) return {success:false,filledCount:0,skipped:[],error:'Form engine unavailable'};
+        return globalThis.JobFinderSafeEngine.fillForm(payload);
+      },
+      args:[{profile:resumeData.profile,company,role,resumeId:selectedResumeId,resumes:resumeData.resumes}]
+    });
+    const filled=frames.reduce((n,r)=>n+(r.result?.filledCount||0),0);
+    const review=frames.flatMap(r=>r.result?.needsReview||[]);
+    const skipped=frames.flatMap(r=>r.result?.skipped||[]);
+    const errors=frames.filter(r=>!r.result?.success).map(r=>r.result?.error).filter(Boolean);
+    return {success:errors.length===0,filledCount:filled,needsReview:review,skipped,
+      message:`Filled ${filled} fields. ${review.length} AI drafts need review; ${skipped.length} fields left untouched. No form was submitted.`};
+  };
 
-        // Direct in-page autofill fallback
-        try {
-          const results = await chrome.scripting.executeScript({
-            target: { tabId: tab.id, allFrames: true },
-            func: inPageDirectAutoFill,
-            args: [resumeData.profile, selectedResumeId]
-          });
-          setAutoPilotActive(true);
-          setTimeout(() => setAutoPilotActive(false), 2500);
-          let totalFilled = 0;
-          let summary = [];
-          if (results) {
-            results.forEach(r => {
-              if (r.result?.filledCount) totalFilled += r.result.filledCount;
-              if (r.result?.filledSummary) summary.push(...r.result.filledSummary);
-            });
-          }
-          setApplyResult({
-            success: true,
-            filledCount: totalFilled,
-            summary: [...new Set(summary)],
-            message: `Auto-pilot executed! Filled ${totalFilled} fields.`
-          });
-        } catch (e) {
-          console.error(e);
-        }
-      });
-    } catch (err) {
-      console.error(err);
-    }
+  const handleToggleAutoPilot = async () => {
+    // Retained UI control performs a single explicit, safe fill pass.
+    await handleAutoApply();
+    setAutoPilotActive(false);
   };
 
   const handleApplyViaCustomLink = async () => {
     if (!customJobLink.trim()) return;
-    setIsOpeningCustomLink(true);
-    setApplyResult(null);
-
-    let targetUrl = customJobLink.trim();
-    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-      targetUrl = 'https://' + targetUrl;
-    }
-
     try {
-      // 1. If user is already on the target URL in the active tab, directly fill current tab
-      const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (currentTab && currentTab.url && (currentTab.url.includes(targetUrl) || targetUrl.includes(currentTab.url.split('?')[0]))) {
-        await handleAutoApply();
-        setIsOpeningCustomLink(false);
-        return;
-      }
-
-      // 2. Otherwise open in new tab with #jf-autoapply=true tag
-      const urlObj = new URL(targetUrl);
-      urlObj.hash = 'jf-autoapply=true';
-      const finalUrl = urlObj.toString();
-
-      const newTab = await chrome.tabs.create({ url: finalUrl, active: true });
-      setApplyResult({
-        success: true,
-        message: `Opening application on ${urlObj.hostname}... Form will automatically fill with your profile once loaded!`
-      });
-
-      // Listen for tab completion and trigger inPageDirectAutoFill directly
-      const listener = (tabId, changeInfo) => {
-        if (tabId === newTab.id && changeInfo.status === 'complete') {
-          chrome.tabs.onUpdated.removeListener(listener);
-          setTimeout(async () => {
-            try {
-              const results = await chrome.scripting.executeScript({
-                target: { tabId: newTab.id, allFrames: true },
-                func: inPageDirectAutoFill,
-                args: [resumeData.profile, selectedResumeId]
-              });
-              let totalFilled = 0;
-              let fields = [];
-              if (results) {
-                results.forEach(r => {
-                  if (r.result?.filledCount) totalFilled += r.result.filledCount;
-                  if (r.result?.filledSummary) fields.push(...r.result.filledSummary);
-                });
-              }
-              setApplyResult({
-                success: true,
-                filledCount: totalFilled,
-                summary: [...new Set(fields)],
-                message: `Auto-filled ${totalFilled} fields on ${urlObj.hostname}! Review details and submit.`
-              });
-            } catch (err) {
-              console.error('Autofill error:', err);
-            }
-          }, 1500);
-        }
-      };
-      chrome.tabs.onUpdated.addListener(listener);
-      setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); }, 35000);
-    } catch (err) {
-      setApplyResult({ success: false, message: 'Invalid URL: ' + err.message });
-    } finally {
-      setIsOpeningCustomLink(false);
-    }
+      const url=new URL(/^https?:\/\//i.test(customJobLink.trim()) ? customJobLink.trim() : 'https://'+customJobLink.trim());
+      if (!['http:','https:'].includes(url.protocol)) throw new Error('Only HTTP(S) applications supported');
+      await chrome.tabs.create({url:url.toString(),active:true});
+      setApplyResult({success:true,filledCount:0,message:'Application opened. Use Fill Only Current Step after the form loads. Nothing was submitted.'});
+    } catch(e) {setApplyResult({success:false,message:'Invalid application URL: '+e.message});}
   };
 
   const fallbackParse = (tab) => {
@@ -265,64 +185,13 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   const handleAutoApply = async () => {
     setIsApplying(true);
     setApplyResult(null);
-
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab || !tab.id) {
-        setIsApplying(false);
-        setApplyResult({ success: false, message: 'No active browser tab found.' });
-        return;
-      }
-
-      // 1. Try standard message communication with content script
-      chrome.tabs.sendMessage(tab.id, { action: 'AUTO_FILL_FORM', resumeId: selectedResumeId }, async (response) => {
-        if (!chrome.runtime.lastError && response && response.filledCount !== undefined) {
-          setIsApplying(false);
-          setApplyResult({
-            success: true,
-            filledCount: response.filledCount,
-            summary: response.filledSummary || []
-          });
-          return;
-        }
-
-        // 2. BULLETPROOF FALLBACK: Execute directly into page & ALL iframes via chrome.scripting
-        try {
-          const results = await chrome.scripting.executeScript({
-            target: { tabId: tab.id, allFrames: true },
-            func: inPageDirectAutoFill,
-            args: [resumeData.profile, selectedResumeId]
-          });
-
-          let totalFilled = 0;
-          let combinedSummary = [];
-          if (results && results.length) {
-            results.forEach(r => {
-              if (r.result) {
-                totalFilled += (r.result.filledCount || 0);
-                if (r.result.filledSummary) combinedSummary.push(...r.result.filledSummary);
-              }
-            });
-          }
-
-          setIsApplying(false);
-          setApplyResult({
-            success: true,
-            filledCount: totalFilled,
-            summary: [...new Set(combinedSummary)]
-          });
-        } catch (injectionErr) {
-          setIsApplying(false);
-          setApplyResult({
-            success: false,
-            message: `Could not auto-fill: ${injectionErr.message}. Make sure you are on a webpage (not a protected browser tab).`
-          });
-        }
-      });
-    } catch (err) {
-      setIsApplying(false);
-      setApplyResult({ success: false, message: err.message });
-    }
+      const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
+      if (!tab?.id || !/^https?:\/\//i.test(tab.url||'')) throw new Error('Open an application form in a web tab first');
+      setApplyResult(await runSafeFill(tab.id));
+    } catch(e) {
+      setApplyResult({success:false,message:'Could not fill: '+e.message});
+    } finally {setIsApplying(false);}
   };
 
   const handleFetchOtp = () => {
@@ -530,7 +399,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         </div>
       </div>
 
-      {/* 4. Background Auto-Pilot (Hands-Free Mode) */}
+      {/* 4. Review-Based Form Filling */}
       <div className="space-y-2">
         <button 
           onClick={handleToggleAutoPilot}
@@ -542,8 +411,8 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         >
           <Sparkles className={`w-4 h-4 ${autoPilotActive ? 'fill-white' : 'fill-zinc-950'}`} />
           {autoPilotActive 
-            ? `⏸️ Pause Background Auto-Pilot (${currentStepName || 'Running'})` 
-            : '🚀 Start Background Auto-Pilot (Hands-Free)'}
+            ? `📝 Fill Current Page` 
+            : '📝 Fill Current Page (Review Required)'}
         </button>
 
         {/* Secondary: Fill current page button */}
@@ -561,9 +430,9 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         <div className={`p-2.5 rounded-lg border text-xs ${applyResult.success ? 'bg-emerald-950/40 border-emerald-800/50 text-emerald-300' : 'bg-red-950/40 border-red-800/50 text-red-300'}`}>
           <div className="font-bold flex items-center gap-1.5 mb-1">
             {applyResult.success ? <CheckCircle2 className="w-3.5 h-3.5" /> : null}
-            {applyResult.success ? `Successfully filled ${applyResult.filledCount} fields!` : 'Notice'}
+            {applyResult.success ? `${applyResult.filledCount || 0} fields filled. Review before submitting.` : 'Notice'}
           </div>
-          <p className="text-[11px] text-zinc-300">{applyResult.message || `Filled standard candidate details & injected authentic humanoid answers.`}</p>
+          <p className="text-[11px] text-zinc-300">{applyResult.message || `No application was submitted.`}</p>
         </div>
       )}
 
@@ -653,394 +522,3 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   );
 };
 
-// Standalone self-contained function executed directly in web pages across all frames
-function inPageDirectAutoFill(profile, chosenResumeId) {
-  function setVal(el, val) {
-    if (!el || val === undefined || val === null) return;
-    try { el.focus(); } catch (e) {}
-
-    const isTextArea = el.tagName === 'TEXTAREA';
-    const standardProto = isTextArea ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-    const standardSetter = Object.getOwnPropertyDescriptor(standardProto, 'value')?.set;
-    const ownSetter = Object.getOwnPropertyDescriptor(el, 'value')?.set;
-    const protoSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
-
-    if (standardSetter) {
-      standardSetter.call(el, val);
-    } else if (protoSetter && ownSetter !== protoSetter) {
-      protoSetter.call(el, val);
-    } else if (ownSetter) {
-      ownSetter.call(el, val);
-    } else {
-      el.value = val;
-    }
-
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new Event('blur', { bubbles: true }));
-  }
-
-  function getDesc(el) {
-    const name = (el.getAttribute('name') || '').toLowerCase();
-    const id = (el.getAttribute('id') || '').toLowerCase();
-    const ph = (el.getAttribute('placeholder') || '').toLowerCase();
-    const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-    const ac = (el.getAttribute('autocomplete') || '').toLowerCase();
-    const dataAuto = (el.getAttribute('data-automation-id') || '').toLowerCase();
-    const testId = (el.getAttribute('data-testid') || '').toLowerCase();
-    let lblText = '';
-    if (el.id) {
-      const l = document.querySelector(`label[for="${el.id}"]`);
-      if (l) lblText = l.innerText.toLowerCase();
-    }
-    if (!lblText && el.closest('label')) {
-      lblText = el.closest('label').innerText.toLowerCase();
-    }
-    if (!lblText && el.parentElement) {
-      const prev = el.previousElementSibling;
-      if (prev && (prev.tagName === 'LABEL' || prev.tagName === 'SPAN' || prev.tagName === 'P')) {
-        lblText = prev.innerText.toLowerCase();
-      }
-    }
-    if (!lblText) {
-      const c = el.closest('[data-automation-id*="formField"], [data-automation-id*="Section"], .css-1, [data-automation-id*="input"], .field, .form-group');
-      if (c) {
-        const l = c.querySelector('label, [data-automation-id*="label"]');
-        if (l) lblText = l.innerText.toLowerCase();
-      }
-    }
-    return { combined: `${name} ${id} ${ph} ${aria} ${ac} ${dataAuto} ${testId} ${lblText}`.trim(), labelText: lblText || ph || name };
-  }
-
-  function matchSelect(selectEl, keywords) {
-    if (!selectEl || !selectEl.options) return false;
-    for (let i = 0; i < selectEl.options.length; i++) {
-      const opt = selectEl.options[i];
-      const optText = (opt.text || opt.value || '').toLowerCase();
-      if (keywords.some(kw => optText.includes(kw.toLowerCase()))) {
-        selectEl.selectedIndex = i;
-        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
-      }
-    }
-    return false;
-  }
-
-  let filledCount = 0;
-  const filledSummary = [];
-  const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), textarea, select'));
-
-  inputs.forEach(el => {
-    if (el.disabled || el.readOnly) return;
-    const { combined, labelText } = getDesc(el);
-
-    // First Name
-    if ((combined.includes('first') && combined.includes('name')) || combined.includes('fname') || combined.includes('legalnamesection_firstname') || combined === 'first_name') {
-      if (el.value !== profile.firstName) {
-        setVal(el, profile.firstName);
-        filledCount++;
-        filledSummary.push('First Name');
-      }
-      return;
-    }
-
-    // Last Name
-    if ((combined.includes('last') && combined.includes('name')) || combined.includes('lname') || combined.includes('legalnamesection_lastname') || combined === 'last_name') {
-      if (el.value !== profile.lastName) {
-        setVal(el, profile.lastName);
-        filledCount++;
-        filledSummary.push('Last Name');
-      }
-      return;
-    }
-
-    // Full Name
-    if ((combined.includes('full name') || combined.includes('candidate name') || (combined.includes('name') && !combined.includes('company') && !combined.includes('user') && !combined.includes('first') && !combined.includes('last') && !combined.includes('school'))) && el.type === 'text') {
-      if (el.value !== profile.name) {
-        setVal(el, profile.name);
-        filledCount++;
-        filledSummary.push('Full Name');
-      }
-      return;
-    }
-
-    // Email
-    if (combined.includes('email') || el.type === 'email' || combined.includes('addresssection_email')) {
-      if (el.value !== profile.email) {
-        setVal(el, profile.email);
-        filledCount++;
-        filledSummary.push('Email');
-      }
-      return;
-    }
-
-    // Phone
-    if (combined.includes('phone') || combined.includes('mobile') || combined.includes('cell') || el.type === 'tel' || combined.includes('contact number')) {
-      const pVal = (combined.includes('raw') || combined.includes('addresssection')) ? profile.phoneRaw : profile.phone;
-      if (el.value !== pVal) {
-        setVal(el, pVal);
-        filledCount++;
-        filledSummary.push('Phone');
-      }
-      return;
-    }
-
-    // Address
-    if (combined.includes('address line 1') || combined.includes('addressline1') || combined.includes('street address')) {
-      if (!el.value) {
-        setVal(el, profile.addressLine1 || profile.location);
-        filledCount++;
-        filledSummary.push('Address');
-      }
-      return;
-    }
-
-    // City
-    if (combined.includes('city') || combined.includes('addresssection_city') || combined.includes('town')) {
-      if (!el.value) {
-        setVal(el, profile.currentCity);
-        filledCount++;
-        filledSummary.push('City');
-      }
-      return;
-    }
-
-    // Postal / Zip Code
-    if (combined.includes('postal') || combined.includes('zip') || combined.includes('postalcode') || combined.includes('pincode')) {
-      if (!el.value) {
-        setVal(el, profile.postalCode);
-        filledCount++;
-        filledSummary.push('Postal Code');
-      }
-      return;
-    }
-
-    // State
-    if (combined.includes('state') || combined.includes('province') || combined.includes('countryregion')) {
-      if (el.tagName === 'SELECT') {
-        matchSelect(el, ['uttar pradesh', 'delhi', 'haryana']);
-      } else if (!el.value) {
-        setVal(el, profile.state || 'Uttar Pradesh');
-      }
-      filledCount++;
-      return;
-    }
-
-    // LinkedIn
-    if (combined.includes('linkedin')) {
-      if (el.value !== profile.linkedin) {
-        setVal(el, profile.linkedin);
-        filledCount++;
-        filledSummary.push('LinkedIn');
-      }
-      return;
-    }
-
-    // GitHub
-    if (combined.includes('github') || combined.includes('git')) {
-      if (el.value !== profile.github) {
-        setVal(el, profile.github);
-        filledCount++;
-        filledSummary.push('GitHub');
-      }
-      return;
-    }
-
-    // Portfolio
-    if (combined.includes('portfolio') || combined.includes('website') || combined.includes('personal site') || combined.includes('blog') || combined.includes('other website')) {
-      if (el.value !== profile.portfolio) {
-        setVal(el, profile.portfolio);
-        filledCount++;
-        filledSummary.push('Portfolio');
-      }
-      return;
-    }
-
-    // LeetCode
-    if (combined.includes('leetcode') || combined.includes('competitive') || combined.includes('coding profile')) {
-      if (el.value !== profile.leetcode) {
-        setVal(el, profile.leetcode);
-        filledCount++;
-        filledSummary.push('LeetCode');
-      }
-      return;
-    }
-
-    // University
-    if (combined.includes('university') || combined.includes('college') || combined.includes('institution') || combined.includes('school')) {
-      if (!el.value) {
-        setVal(el, profile.education?.institution || 'Indian Institute of Information Technology, Lucknow');
-        filledCount++;
-        filledSummary.push('University');
-      }
-      return;
-    }
-
-    // Degree
-    if (combined.includes('degree') || combined.includes('qualification')) {
-      if (el.tagName === 'SELECT') {
-        matchSelect(el, ['bachelor', 'b.tech', 'undergraduate', 'btech']);
-      } else if (!el.value) {
-        setVal(el, profile.education?.degree || 'B.Tech');
-      }
-      filledCount++;
-      filledSummary.push('Degree');
-      return;
-    }
-
-    // Major
-    if (combined.includes('major') || combined.includes('discipline') || combined.includes('field of study') || combined.includes('branch')) {
-      if (!el.value) {
-        setVal(el, profile.education?.major || 'Computer Science and Artificial Intelligence');
-        filledCount++;
-        filledSummary.push('Major');
-      }
-      return;
-    }
-
-    // CGPA
-    if (combined.includes('cgpa') || combined.includes('gpa') || combined.includes('grade') || combined.includes('marks')) {
-      if (!el.value) {
-        setVal(el, profile.education?.cgpa || '8.72');
-        filledCount++;
-        filledSummary.push('CGPA');
-      }
-      return;
-    }
-
-    // Graduation Year
-    if (combined.includes('graduat') || combined.includes('end year') || combined.includes('passout') || combined.includes('batch')) {
-      if (el.tagName === 'SELECT') {
-        matchSelect(el, ['2027', '27']);
-      } else if (!el.value) {
-        setVal(el, profile.education?.endYear || '2027');
-      }
-      filledCount++;
-      filledSummary.push('Graduation Year');
-      return;
-    }
-
-    // Current Employer
-    if (combined.includes('current company') || combined.includes('employer') || combined.includes('most recent company') || combined.includes('organization')) {
-      if (!el.value) {
-        setVal(el, profile.currentExperience?.company || 'Coffeee.io');
-        filledCount++;
-        filledSummary.push('Current Employer');
-      }
-      return;
-    }
-
-    // Current Title
-    if (combined.includes('current title') || combined.includes('current role') || combined.includes('designation') || combined.includes('jobtitle')) {
-      if (!el.value) {
-        setVal(el, profile.currentExperience?.role || 'SDE Intern');
-        filledCount++;
-        filledSummary.push('Current Title');
-      }
-      return;
-    }
-
-    // Location
-    if (combined.includes('location') || combined.includes('current location')) {
-      if (!el.value) {
-        setVal(el, profile.location);
-        filledCount++;
-        filledSummary.push('Location');
-      }
-      return;
-    }
-
-    // Work Authorization
-    if (combined.includes('authorized to work') || combined.includes('legally authorized') || combined.includes('work permit') || combined.includes('eligible to work')) {
-      if (el.type === 'checkbox') {
-        el.checked = true;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      } else if (el.type === 'radio') {
-        if (!combined.includes('not') && !combined.includes('no')) {
-          el.checked = true;
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      } else if (el.tagName === 'SELECT') {
-        matchSelect(el, ['yes', 'authorized']);
-      }
-      filledCount++;
-      return;
-    }
-
-    // Sponsorship Requirement
-    if (combined.includes('sponsorship') || combined.includes('require visa') || combined.includes('require sponsorship')) {
-      if (el.type === 'radio') {
-        if (combined.includes('no') || labelText.includes('no')) {
-          el.checked = true;
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      } else if (el.tagName === 'SELECT') {
-        matchSelect(el, ['no']);
-      }
-      filledCount++;
-      return;
-    }
-
-    // Notice Period
-    if (combined.includes('notice period') || combined.includes('notice')) {
-      if (el.tagName === 'SELECT') {
-        matchSelect(el, ['immediate', '0', 'less than 15', '1 month']);
-      } else if (!el.value) {
-        setVal(el, profile.workAuthorization?.noticePeriodText || 'Immediate (0 days)');
-      }
-      filledCount++;
-      filledSummary.push('Notice Period');
-      return;
-    }
-
-    // Gender
-    if (combined.includes('gender')) {
-      if (el.tagName === 'SELECT') {
-        matchSelect(el, ['male', 'prefer not to say', 'man']);
-      }
-      return;
-    }
-
-    // Signature
-    if (combined.includes('signature') || combined.includes('sign here') || combined.includes('type your name')) {
-      if (!el.value) {
-        setVal(el, profile.name);
-        filledCount++;
-        filledSummary.push('Signature');
-      }
-      return;
-    }
-
-    // Terms / Consent
-    if (el.type === 'checkbox' && (combined.includes('agree') || combined.includes('certif') || combined.includes('consent') || combined.includes('terms') || combined.includes('statement'))) {
-      if (!el.checked) {
-        el.checked = true;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        filledCount++;
-        filledSummary.push('Agreed to Terms');
-      }
-      return;
-    }
-
-    // Essays / Textareas / Open Questions
-    if (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type === 'text' && combined.length > 25)) {
-      if (!el.value || el.value.length < 5) {
-        let answer = `I am an ambitious Computer Science & AI student at IIIT Lucknow with production fullstack experience, proven problem-solving track record (LeetCode Guardian 2137), and a strong passion for writing high-performance, clean code.`;
-        if (combined.includes('why') && (combined.includes('company') || combined.includes('join') || combined.includes('role'))) {
-          answer = `I am drawn to your team because of the exceptional engineering standard and the high scale of your products. At IIIT Lucknow, I have architected resilient systems like MediPulse (125 REST APIs, Kafka, Redis) with strict concurrency guarantees. Contributing as a software engineer would be a thrilling opportunity to deliver high impact from day one.`;
-        } else if (combined.includes('challenge') || combined.includes('difficult') || combined.includes('bug')) {
-          answer = `While building MediPulse, concurrent OPD appointments caused race conditions and booking conflicts during load tests. I introduced Redis distributed locks with idempotent tokens and transactional rollbacks, backed by Kafka event streams, completely eliminating data anomalies under heavy concurrency.`;
-        }
-        setVal(el, answer);
-        filledCount++;
-        filledSummary.push('Humanoid Answer');
-      }
-    }
-  });
-
-  return {
-    success: true,
-    filledCount,
-    filledSummary: [...new Set(filledSummary)]
-  };
-}
