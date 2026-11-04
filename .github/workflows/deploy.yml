@@ -48,3 +48,4 @@ jobs:
             sudo docker image prune -f
 
             echo "✅ [CI/CD] JobFinder deployed successfully!"
+

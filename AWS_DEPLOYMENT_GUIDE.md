@@ -152,3 +152,4 @@ JobFinder Chrome extension ko AWS production backend se connect karne ke liye:
    *(ya http://<YOUR_EC2_IP>:5000 agar testing ke liye direct use kar rahe hain)*
 3. **Save** karein aur Login karein.
 4. Ab extension direct AWS cloud backend se sync karega, bina laptop par backend run kiye!
+

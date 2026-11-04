@@ -69,3 +69,4 @@ echo "🔌 Backend API:  http://$PUBLIC_IP:5000/api"
 echo ""
 echo "Next step: For 100% Free HTTPS, point your domain (e.g. Cloudflare or DuckDNS) to $PUBLIC_IP"
 echo "=========================================================="
+

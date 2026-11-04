@@ -1214,8 +1214,6 @@ const BASE_SEED_COMPANIES = [
   }
 ];
 
-const { HIGH_PAYING_COMPANIES } = require('./highPayingCompaniesData');
-
 /**
  * Calculates realistic entry level / fresher SDE CTC estimates based on company profile & tier
  */
