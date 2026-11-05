@@ -6,21 +6,38 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log('JobFinder AI Auto-Apply extension installed.');
 });
 
-// Tab navigation listener for 1-click & custom link auto-apply triggers
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url && (tab.url.includes('jf-autoapply=true') || tab.url.includes('jf-autoapply'))) {
-    setTimeout(() => {
-      chrome.tabs.sendMessage(tabId, { action: 'AUTO_FILL_FORM' }, (res) => {
-        if (chrome.runtime.lastError) {
-          // Handled by content script's self-initialization
-        }
-      });
-    }, 1200);
-  }
-});
-
 // Message listener for coordinating content script, popup, and backend
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'JF_GUARD_SUBMIT') {
+    if (sender.id !== chrome.runtime.id || !sender.tab?.id || sender.frameId !== 0) return false;
+    chrome.scripting.executeScript({ target: { tabId: sender.tab.id, frameIds: [0] }, world: 'MAIN',
+      func: (enabled) => {
+        const key = '__jobfinderSubmitGuard';
+        if (!enabled) { window[key]?.restore(); return { installed: false }; }
+        if (window[key]) return { installed: true };
+        const restores = []; const seen = new Set();
+        function guard(win) {
+          if (seen.has(win)) return; seen.add(win);
+          const doc = win.document;
+          const block = event => event.preventDefault();
+          doc.addEventListener('submit', block, true);
+          restores.push(() => doc.removeEventListener('submit', block, true));
+          for (const name of ['submit', 'requestSubmit']) {
+            const proto = win.HTMLFormElement.prototype;
+            const original = Object.getOwnPropertyDescriptor(proto, name);
+            Object.defineProperty(proto, name, { configurable: true, writable: true, value() { throw new Error('JobFinder: automatic form submission blocked'); } });
+            restores.push(() => Object.defineProperty(proto, name, original));
+          }
+          for (const frame of doc.querySelectorAll('iframe')) { try { if (frame.contentDocument) guard(frame.contentWindow); } catch { /* Cross-origin forms remain manual. */ } }
+        }
+        const restore = () => { for (const fn of restores.reverse()) fn(); clearTimeout(window[key]?.timer); delete window[key]; };
+        try { guard(window); window[key] = { restore, timer: setTimeout(restore, 300000) }; return { installed: true }; }
+        catch (error) { restore(); return { installed: false, error: error.message }; }
+      }, args: [request.enabled === true]
+    }).then(results => sendResponse({ success: request.enabled === true ? !!results[0]?.result?.installed : true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
   if (request.action === 'FETCH_OTP') {
     handleFetchOtp(request)
       .then(res => sendResponse(res))

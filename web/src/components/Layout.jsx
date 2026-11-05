@@ -15,6 +15,7 @@ const Layout = ({ onLogout }) => {
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/jobs', label: 'Job Hunter & HR Sheet', icon: Briefcase },
+    { path: '/research', label: 'Recruitment Research', icon: Users },
     { path: '/import', label: 'Import Contacts', icon: Users },
     { path: '/logs', label: 'Queue & Logs', icon: Send },
     { path: '/settings', label: 'Settings', icon: Settings },

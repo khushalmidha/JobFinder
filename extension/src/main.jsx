@@ -128,20 +128,7 @@ const Popup = () => {
         return setStatus('All contacts were already imported.');
       }
 
-      setStatus('Sending emails...');
-      const sendRes = await fetch(`${backendUrl}/api/mail/send`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ contactIds })
-      });
-      
-      const sendData = await sendRes.json();
-      if (!sendRes.ok) throw new Error(sendData.error);
-
-      setStatus(`Queued ${contactIds.length} emails!`);
+      setStatus('Contacts saved for review. Open Recruitment Research to prepare an approved draft. No email sent.');
       setContacts([]);
     } catch (err) {
       setStatus(`Error: ${err.message}`);
@@ -295,7 +282,7 @@ const Popup = () => {
                   onClick={handleSend} 
                   className="w-full bg-emerald-500 hover:bg-emerald-400 text-zinc-950 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center transition"
                 >
-                  <Send className="w-4 h-4 mr-2"/> Send Outreach to {contacts.filter(c => c.selected).length} Contacts
+                  <Send className="w-4 h-4 mr-2"/> Save {contacts.filter(c => c.selected).length} Contacts for Review
                 </button>
               </div>
             )}

@@ -90,8 +90,8 @@ exports.scanBounces = async (req, res) => {
 exports.deleteBounced = async (req, res) => {
   const userId = req.user._id;
   try {
-    const result = await Contact.deleteMany({ userId, status: 'bounced' });
-    res.json({ message: `Successfully removed ${result.deletedCount} bounced contacts.`, deletedCount: result.deletedCount });
+    const result = await Contact.updateMany({ userId, status: 'bounced' }, { $set: { suppressedAt: new Date(), suppressionReason: 'bounce', deliverabilityStatus: 'invalid' } });
+    res.json({ message: `Quarantined ${result.modifiedCount} bounced contacts; history preserved.`, suppressedCount: result.modifiedCount, deletedCount: 0 });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

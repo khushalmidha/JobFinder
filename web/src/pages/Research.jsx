@@ -1,0 +1,92 @@
+import React, { useEffect, useState } from 'react';
+import api from '../services/api';
+
+export default function Research() {
+  const [status, setStatus] = useState('qualified');
+  const [data, setData] = useState({ companies: [], counts: {} });
+  const [detail, setDetail] = useState(null);
+  const [jobId, setJobId] = useState('');
+  const [contactId, setContactId] = useState('');
+  const [name, setName] = useState('');
+  const [resumeLink, setResumeLink] = useState('');
+  const [highlight, setHighlight] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [draft, setDraft] = useState(null);
+  const [budget, setBudget] = useState(null);
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [drafts, setDrafts] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  useEffect(() => {
+    let active = true;
+    Promise.all([api.get(`/research/companies?status=${status}`), api.get('/research/budget'), api.get('/research/drafts'), api.get('/research/queue')])
+      .then(([c,b,d,q]) => { if (active) { setData(c.data); setBudget(b.data); setDrafts(d.data); setTasks(q.data); } })
+      .catch(e => { if (active) setMessage(e.response?.data?.error || e.message); });
+    return () => { active = false; };
+  }, [status]);
+  async function run(fn) {
+    setBusy(true); setMessage('');
+    try { await fn(); } catch (e) { setMessage(e.response?.data?.error || e.message); }
+    finally { setBusy(false); }
+  }
+  async function selectCompany(companyId) {
+    setDetail(null); setDraft(null); setJobId(''); setContactId('');
+    const { data: result } = await api.get(`/research/companies/${companyId}`);
+    setDetail(result);
+  }
+  async function discover() {
+    const companyId = detail.company._id;
+    const result = await api.post(`/research/companies/${companyId}/discover`);
+    await selectCompany(companyId);
+    setMessage(result.data.reason || `Found ${result.data.totalFound} sourced contacts. Individual mailbox existence remains unverified.`);
+    setBudget((await api.get('/research/budget')).data);
+  }
+  async function createDraft() {
+    const { data: result } = await api.post('/research/drafts', { companyId: detail.company._id, jobId, contactId,
+      candidate: { name, resumeLink, confirmed, highlights: [{ text: highlight, source: resumeLink }] } });
+    setDraft(result); setDrafts((await api.get('/research/drafts')).data);
+  }
+  async function saveDraft() {
+    setDraft((await api.patch(`/research/drafts/${draft._id}`, { subject: draft.subject, body: draft.body, reviewed: true })).data);
+    setMessage('Reviewed draft saved. No email sent.'); setDrafts((await api.get('/research/drafts')).data);
+  }
+  const field = 'w-full bg-zinc-900 border border-zinc-700 rounded p-3';
+  return <main className="p-8 space-y-6 max-w-6xl mx-auto">
+    <div><h1 className="text-3xl font-bold text-white">Recruitment research</h1><p className="text-zinc-400 mt-2">Source-backed fixed base above ₹15 LPA → relevant opening → professional contact → reviewed draft.</p></div>
+    <div className="flex flex-wrap gap-3">{Object.entries(data.counts).map(([key,count]) => <span key={key} className="rounded border border-zinc-700 px-3 py-2">{key.replaceAll('_',' ')}: {count}</span>)}</div>
+    {budget && <section className="p-4 border border-zinc-700 rounded space-y-2">
+      <p>Research {budget.globalStop || budget.policy.stopped ? 'stopped' : 'available on demand'} · Paid providers {budget.policy.paidProvidersEnabled ? 'enabled' : 'off'} · Credit cap: {budget.policy.monthlyCredits} / month · Requests: {budget.policy.dailyRequests} / day</p>
+      <button type="button" className="border rounded px-3 py-2" disabled={busy} onClick={() => run(async () => { await api.put('/research/budget', { stopped: !budget.policy.stopped }); setBudget((await api.get('/research/budget')).data); })}>{budget.policy.stopped ? 'Resume research' : 'Stop research'}</button>
+      <details><summary>Reserved usage (includes failed and cached attempts)</summary>{budget.usage.map(u => <p key={u._id}>{u.key}: {u.reserved}</p>)}</details>
+    </section>}
+    <section className="p-4 border border-zinc-700 rounded space-y-2"><p>Local research queue · {tasks.length} checkpointed tasks</p>
+      <button type="button" className="p-2 border rounded" disabled={busy || budget?.policy.stopped || budget?.globalStop} onClick={() => run(async () => { const result=await api.post('/research/queue/run'); setMessage(JSON.stringify(result.data)); setTasks((await api.get('/research/queue')).data); setBudget((await api.get('/research/budget')).data); })}>Run one queued task now</button>
+      <details><summary>Queue results</summary>{tasks.map(t => <p key={t._id}>{t.companyId} · {t.status} · attempt {t.attempts} · {t.lastError || t.result?.reason || `${t.result?.sourcedContacts || 0} sourced contacts`}</p>)}</details>
+    </section>
+    <label className="block">Company status<select className={field} value={status} onChange={e => setStatus(e.target.value)}>{['qualified','research_needed','supported_estimate','conflicting','not_qualified','all'].map(s => <option key={s} value={s}>{s.replaceAll('_',' ')}</option>)}</select></label>
+    {!data.companies.length && <p className="p-5 border border-zinc-700 rounded">No companies in this category. Existing seed lists are research prospects until dated fixed-base evidence is reviewed. Use “research needed” to inspect them.</p>}
+    <div className="grid md:grid-cols-3 gap-6">
+      <div className="space-y-2 max-h-[650px] overflow-auto">{data.companies.map(c => <button type="button" key={c._id} disabled={busy} onClick={() => run(() => selectCompany(c._id))} className="block w-full text-left p-3 border border-zinc-700 rounded hover:bg-zinc-800"><strong>{c.name}</strong><p className="text-xs">{c.domain} · {c.qualificationStatus.replaceAll('_',' ')}</p></button>)}</div>
+      {detail && <section className="md:col-span-2 space-y-4">
+        <h2 className="text-xl font-semibold">{detail.company.name}</h2>
+        <a className="text-yellow-400" href={detail.company.careersUrl} target="_blank" rel="noreferrer">Official careers page</a>
+        <p>{detail.company.qualificationStatus.replaceAll('_',' ')} — annual fixed base must strictly exceed ₹15,00,000.</p>
+        {detail.company.salaryEvidence.map((e,i) => <article key={i} className="p-3 border border-zinc-700 rounded"><p>{e.role} · {e.location} · {e.level}</p><p>₹{e.salaryBaseMinINR?.toLocaleString('en-IN')} – ₹{e.salaryBaseMaxINR?.toLocaleString('en-IN')} / {e.payPeriod} · {e.baseVsCTC}</p><p>Reported {e.reportedOn?.slice(0,10)} · Checked {e.lastCheckedAt?.slice(0,10)} · {e.assessment.status}</p><a href={e.salarySourceUrl} target="_blank" rel="noreferrer" className="text-yellow-400">Pay evidence</a><p>{e.evidenceExcerpt}</p><p>{e.assessment.reasons.join('; ')}</p></article>)}
+        <button type="button" className="p-3 border rounded" disabled={busy || detail.company.qualificationStatus !== 'qualified' || budget?.policy.stopped || budget?.globalStop} onClick={() => run(discover)}>Check public recruiting inboxes (up to 5 requests)</button>
+        <button type="button" className="p-3 border rounded ml-2" disabled={busy || detail.company.qualificationStatus !== 'qualified'} onClick={() => run(async () => { await api.post('/research/queue',{companyIds:[detail.company._id]}); setTasks((await api.get('/research/queue')).data); setMessage('Task queued. Runs only through your explicit action or an enabled local scheduler.'); })}>Queue local research</button>
+        <label className="block">Relevant fresher opening<select className={field} value={jobId} onChange={e => setJobId(e.target.value)}><option value="">Select an opening</option>{detail.jobs.map(j => <option key={j._id} value={j._id}>{j.title} — {j.location}</option>)}</select></label>
+        {!detail.jobs.length && <p>No linked fresher openings stored. Check the careers page and refresh jobs; no active role is assumed.</p>}
+        <label className="block">Sourced contact<select className={field} value={contactId} onChange={e => setContactId(e.target.value)}><option value="">Select a professional contact</option>{detail.contacts.map(c => <option key={c._id} value={c._id} disabled={!!c.blockReason}>{c.email} — {c.verificationStatus} {c.blockReason ? `(${c.blockReason})` : ''}</option>)}</select></label>
+        {detail.contacts.map(c => <div key={c._id} className="text-sm"><p>{c.email} · {c.verificationStatus} · Opportunity {c.opportunity.score}/100</p>{c.opportunity.components.map(p => <span key={p.reason} className="mr-3">{p.reason}: {p.points}</span>)}{c.provenance.map((p,i) => <a className="block text-yellow-400" key={i} href={p.url} target="_blank" rel="noreferrer">{p.provider} source · {p.observedAt?.slice(0,10)}</a>)}</div>)}
+        <label className="block">Your name<input className={field} value={name} onChange={e => { setName(e.target.value); setConfirmed(false); }} /></label>
+        <label className="block">Selected resume link<input className={field} type="url" value={resumeLink} onChange={e => { setResumeLink(e.target.value); setConfirmed(false); }} /></label>
+        <label className="block">One concrete, resume-supported highlight<textarea className={field} maxLength={500} value={highlight} onChange={e => { setHighlight(e.target.value); setConfirmed(false); }} /></label>
+        <label className="block"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} /> I confirmed these facts against my selected resume.</label>
+        <button type="button" className="bg-yellow-500 text-black rounded p-3" disabled={busy || !confirmed || !jobId || !contactId} onClick={() => run(createDraft)}>Create draft for review</button>
+      </section>}
+    </div>
+    {draft && <section className="space-y-3 border border-zinc-700 rounded p-5"><h2 className="text-xl">Review draft</h2><p>Recipient: {draft.recipient} · {draft.status}</p><input aria-label="Draft subject" className={field} value={draft.subject} onChange={e => setDraft({ ...draft, subject: e.target.value, status: 'draft' })} /><textarea aria-label="Draft body" rows={12} className={field} value={draft.body} onChange={e => setDraft({ ...draft, body: e.target.value, status: 'draft' })} /><button type="button" className="p-3 border rounded" disabled={busy} onClick={() => run(saveDraft)}>Save reviewed draft</button><p>Reviewing saves a draft. No email is sent.</p></section>}
+    {drafts.length > 0 && <details><summary>Saved drafts ({drafts.length})</summary>{drafts.map(d => <button type="button" key={d._id} className="block p-2 text-left" onClick={() => setDraft(d)}>{d.recipient} · {d.subject} · {d.status}</button>)}</details>}
+    {message && <p role="status" className="p-4 border border-yellow-700 rounded">{message}</p>}
+  </main>;
+}

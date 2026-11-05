@@ -1,245 +1,108 @@
-const dns = require('dns').promises;
 const Contact = require('../models/Contact');
 const Company = require('../models/Company');
 const User = require('../models/User');
+const { normalizeDomain } = require('./publicEmailDiscovery');
+const { qualifyCompany } = require('./salaryEvidenceService');
+const { reserveResearch } = require('./researchBudgetService');
+const { isDomainConsistent } = require('./ghostScoutService');
+const TARGET_RECRUITER_TITLES = ['Technical Recruiter', 'Talent Acquisition', 'University Recruiter', 'Campus Recruiter', 'Early Careers Recruiter'];
 
-/**
- * Lead Agency Integration Service for Apollo.io and Hunter.io
- */
-
-const TARGET_RECRUITER_TITLES = [
-  'Technical Recruiter',
-  'Senior Technical Recruiter',
-  'Lead Recruiter',
-  'Talent Acquisition Specialist',
-  'Talent Acquisition Lead',
-  'Talent Acquisition Partner',
-  'University Recruiter',
-  'Campus Recruiter',
-  'Early Careers Recruiter',
-  'HR Business Partner',
-  'Head of Talent'
-];
-
-/**
- * Searches Hunter.io for HR & Recruiter email addresses associated with a domain
- * Docs: https://hunter.io/api-documentation/v2#domain-search
- */
-async function searchHunterDomain(domain, apiKey, limit = 15) {
-  if (!apiKey) throw new Error('Hunter.io API key is missing. Please save it in Settings.');
-  const cleanDomain = domain.replace(/https?:\/\//, '').replace(/\/.*$/, '').trim();
-
-  const url = `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(cleanDomain)}&department=human_resources&limit=${limit}&api_key=${encodeURIComponent(apiKey)}`;
-  
-  const response = await fetch(url, {
-    headers: { 'Accept': 'application/json', 'User-Agent': 'JobFinderLeadScout/1.0' }
-  });
-
+async function providerCall({ userId, credits, url, apiKey, payload, provider, reserve = reserveResearch, fetchImpl = fetch }) {
+  if (!userId || !apiKey) throw new Error('Authenticated owner and provider key required');
+  await reserve(userId, { requests: 1, credits });
+  const response = await fetchImpl(url, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
+    headers: { 'Content-Type': 'application/json', ...(provider === 'apollo' ? { 'x-api-key': apiKey } : {}) }, body: JSON.stringify(payload) });
+  if (!response.ok) throw new Error(`Provider request failed (${response.status}); reservation retained, no automatic retry`);
+  return response.json();
+}
+async function searchHunterDomain(domain, apiKey, limit = 5, { userId, reserve = reserveResearch, fetchImpl = fetch } = {}) {
+  domain = normalizeDomain(domain);
+  if (!domain || !userId || !apiKey) throw new Error('Valid domain, owner and Hunter key required');
+  limit = Math.max(1, Math.min(10, Number(limit) || 5));
+  // Conservatively reserve one search credit per requested result across plans.
+  await reserve(userId, { requests: 1, credits: limit });
+  const url = new URL('https://api.hunter.io/v2/domain-search');
+  for (const [k,v] of Object.entries({ domain, api_key: apiKey, department: 'human_resources', limit })) url.searchParams.set(k,v);
+  const response = await fetchImpl(url, { redirect: 'error', signal: AbortSignal.timeout(10000), headers: { Accept: 'application/json' } });
+  if (!response.ok) throw new Error(`Hunter request failed (${response.status}); reservation retained`);
   const data = await response.json();
-  if (!response.ok) {
-    const errorMsg = data.errors?.[0]?.details || data.errors?.[0]?.message || 'Hunter.io API request failed';
-    throw new Error(errorMsg);
-  }
-
-  const emails = data.data?.emails || [];
-  const results = [];
-
-  for (const item of emails) {
-    const email = item.value?.toLowerCase()?.trim();
-    if (!email) continue;
-
-    const hrName = [item.first_name, item.last_name].filter(Boolean).join(' ') || 'Talent Acquisition';
-    const role = item.position || 'Recruiter / Talent Partner';
-    const linkedinUrl = item.linkedin || '';
-    const confidence = item.confidence || 85;
-
-    results.push({
-      email,
-      hrName,
-      company: cleanDomain.split('.')[0].toUpperCase(),
-      domain: cleanDomain,
-      role,
-      linkedinUrl,
-      confidence,
-      source: 'hunter.io',
-      notes: `Discovered via Hunter.io Domain Search (Confidence: ${confidence}%).`
-    });
-  }
-
-  return results;
+  return (data.data?.emails || []).slice(0, limit).filter(item => isDomainConsistent(item.value, domain)).map(item => ({
+    email: item.value.toLowerCase(), hrName: [item.first_name, item.last_name].filter(Boolean).join(' '),
+    domain, role: item.position || 'Recruiting contact', source: 'hunter.io',
+    provenance: (item.sources || []).map(s => ({ url: s.uri, provider: 'hunter.io', observedAt: new Date() })),
+    inferenceFlag: !(item.sources || []).length, vendorStatus: item.verification?.status || 'unknown',
+    verificationStatus: item.verification?.status === 'invalid' ? 'invalid' : ['accept_all', 'catch_all'].includes(item.verification?.status) ? 'catch_all' : !(item.sources || []).length ? 'inferred_unverified' : 'publicly_sourced',
+    deliverabilityStatus: 'unverified', notes: 'Vendor-found address; source evidence is separate from mailbox verification.'
+  }));
 }
-
-/**
- * Searches Apollo.io for Talent Acquisition & Recruiter leads across domains
- * Docs: https://apolloio.github.io/apollo-api-docs/#mixed-people-search
- */
-async function searchApolloPeople({ domains = [], titles = TARGET_RECRUITER_TITLES, locations = ['India', 'Bengaluru', 'Hyderabad', 'Gurgaon', 'Remote'], apiKey, page = 1, perPage = 25 }) {
-  if (!apiKey) throw new Error('Apollo.io API key is missing. Please save it in Settings.');
-
-  const cleanDomains = domains.map(d => d.replace(/https?:\/\//, '').replace(/\/.*$/, '').trim());
-
-  const payload = {
-    api_key: apiKey,
-    q_organization_domains: cleanDomains.join('\n'),
-    person_titles: titles,
-    person_locations: locations,
-    page,
-    per_page: perPage
-  };
-
-  const response = await fetch('https://api.apollo.io/v1/mixed_people/search', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache'
-    },
-    body: JSON.stringify(payload)
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.message || data.error || 'Apollo.io API request failed');
-  }
-
-  const people = data.people || [];
-  const results = [];
-
-  for (const p of people) {
-    const email = p.email?.toLowerCase()?.trim();
-    if (!email) continue; // Skip if no email unlocked
-
-    const hrName = p.name || [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Recruiter';
-    const company = p.organization?.name || (cleanDomains[0] ? cleanDomains[0].split('.')[0].toUpperCase() : 'Company');
-    const role = p.title || 'Technical Recruiter';
-    const linkedinUrl = p.linkedin_url || '';
-
-    results.push({
-      email,
-      hrName,
-      company,
-      domain: p.organization?.primary_domain || cleanDomains[0],
-      role,
-      linkedinUrl,
-      confidence: 90,
-      source: 'apollo.io',
-      notes: `Discovered via Apollo.io People Search (${p.city || 'India'}, ${p.country || ''}).`
-    });
-  }
-
-  return results;
+async function searchApolloPeople({ domains = [], titles = TARGET_RECRUITER_TITLES, apiKey, userId, perPage = 10, reserve, fetchImpl } = {}) {
+  const cleanDomains = domains.map(normalizeDomain).filter(Boolean).slice(0, 10);
+  if (!cleanDomains.length) throw new Error('At least one company domain is required');
+  const data = await providerCall({ userId, apiKey, credits: 0, provider: 'apollo', reserve, fetchImpl,
+    url: 'https://api.apollo.io/api/v1/mixed_people/api_search',
+    payload: { q_organization_domains_list: cleanDomains, person_titles: titles, page: 1, per_page: Math.max(1, Math.min(25, Number(perPage) || 10)) } });
+  // Discovery is not email retrieval; do not turn redacted names into identities.
+  return (data.people || []).map(p => ({ providerPersonId: p.id, firstName: p.first_name || '', lastNamePreview: p.last_name_obfuscated || '', title: p.title || '', hasEmail: !!p.has_email, organization: p.organization?.name || '', source: 'apollo.io', discoveryOnly: true }));
 }
-
-/**
- * Verifies domain MX records to ensure the mail domain is live
- */
-async function verifyDomainMx(domain) {
-  try {
-    const clean = domain.replace(/https?:\/\//, '').replace(/\/.*$/, '').trim();
-    const mxRecords = await dns.resolveMx(clean);
-    return mxRecords && mxRecords.length > 0;
-  } catch (err) {
-    return false;
-  }
+async function enrichApolloPerson({ personId, domain, userId, apiKey, reserve, fetchImpl } = {}) {
+  if (typeof personId !== 'string' || !/^[a-z0-9_-]{1,100}$/i.test(personId)) throw new Error('Valid person ID required');
+  const data = await providerCall({ userId, apiKey, credits: 9, provider: 'apollo', reserve, fetchImpl,
+    url: 'https://api.apollo.io/api/v1/people/match', payload: { id: personId, reveal_personal_emails: false, reveal_phone_number: false, run_waterfall_email: false, run_waterfall_phone: false } });
+  const p = data.person;
+  if (!p?.email || !isDomainConsistent(p.email, domain)) return null;
+  return { email: p.email.toLowerCase(), hrName: p.name || '', role: p.title || '', source: 'apollo.io',
+    provenance: [{ url: p.linkedin_url || 'https://app.apollo.io/', provider: 'apollo.io', observedAt: new Date() }],
+    inferenceFlag: false, vendorStatus: p.email_status || 'unknown',
+    verificationStatus: p.email_status === 'verified' ? 'vendor_verified' : 'unknown', deliverabilityStatus: 'unverified' };
 }
-
-/**
- * Master Lead Harvester: Scrapes Apollo.io and/or Hunter.io for targeted companies,
- * deduplicates against user's Contact list, and saves them directly to MongoDB.
- */
-async function harvestRecruiterLeads({ userId, domains = [], targetAgency = 'both', customTitles = null, limit = 20 }) {
+async function verifyHunterEmail({ email, userId, apiKey, reserve = reserveResearch, fetchImpl = fetch } = {}) {
+  if (!userId || !apiKey) throw new Error('Owner and Hunter key required');
+  await reserve(userId, { requests: 1, credits: 1 });
+  const url = new URL('https://api.hunter.io/v2/email-verifier');
+  url.searchParams.set('email', email); url.searchParams.set('api_key', apiKey);
+  const response = await fetchImpl(url, { redirect: 'error', signal: AbortSignal.timeout(10000) });
+  if (!response.ok) throw new Error(`Hunter verifier failed (${response.status})`);
+  const { data } = await response.json();
+  const status = data?.status;
+  return { vendorStatus: status || 'unknown', verificationStatus: status === 'valid' && !data?.accept_all ? 'vendor_verified' : status === 'invalid' ? 'invalid' : data?.accept_all || status === 'accept_all' ? 'catch_all' : 'unknown' };
+}
+async function findHunterEmail({ domain, firstName, lastName, personSourceUrl, userId, apiKey, reserve = reserveResearch, fetchImpl = fetch } = {}) {
+  domain=normalizeDomain(domain);
+  const {sourceUrl}=require('./salaryEvidenceService');
+  if(!domain || !userId || !apiKey || !firstName?.trim() || !lastName?.trim() || firstName.length>100 || lastName.length>100 || !sourceUrl(personSourceUrl)) throw new Error('Finder needs an independently sourced professional name, domain and source URL');
+  await reserve(userId,{requests:1,credits:2});
+  const url=new URL('https://api.hunter.io/v2/email-finder');
+  for(const [key,value] of Object.entries({domain,first_name:firstName,last_name:lastName,api_key:apiKey}))url.searchParams.set(key,value);
+  const response=await fetchImpl(url,{redirect:'error',signal:AbortSignal.timeout(10000)});
+  if(!response.ok)throw new Error(`Hunter Finder failed (${response.status}); reservation retained`);
+  const {data}=await response.json();
+  if(!data?.email || !isDomainConsistent(data.email,domain))return null;
+  const sources=(data.sources || []).filter(s=>sourceUrl(s.uri));
+  const status=data.verification?.status || 'unknown';
+  return {email:data.email.toLowerCase(),hrName:[firstName,lastName].join(' '),source:'hunter.io',
+    inferenceFlag:!sources.length,vendorStatus:status,
+    verificationStatus:status==='invalid'?'invalid':['accept_all','catch_all'].includes(status)?'catch_all':sources.length?'publicly_sourced':'inferred_unverified',
+    provenance:[{url:personSourceUrl,provider:'user_sourced_professional_identity',observedAt:new Date()},...sources.map(s=>({url:s.uri,provider:'hunter.io',observedAt:new Date()}))],
+    deliverabilityStatus:'unverified'};
+}
+async function harvestRecruiterLeads({ userId, domains = [], targetAgency = 'both', limit = 5 } = {}) {
   const user = await User.findById(userId);
   if (!user) throw new Error('User not found');
-
-  const hunterKey = user.hunterApiKey;
-  const apolloKey = user.apolloApiKey;
-
-  if (targetAgency === 'hunter' && !hunterKey) {
-    throw new Error('Hunter.io API key is not configured in your Settings.');
-  }
-  if (targetAgency === 'apollo' && !apolloKey) {
-    throw new Error('Apollo.io API key is not configured in your Settings.');
-  }
-  if (targetAgency === 'both' && !hunterKey && !apolloKey) {
-    throw new Error('Neither Apollo.io nor Hunter.io API keys are configured. Please add at least one key in Settings.');
-  }
-
-  // If no domains provided, pull top target domains from Company directory
-  let targetDomains = domains;
-  if (!targetDomains || targetDomains.length === 0) {
-    const companies = await Company.find({ domain: { $ne: '' } }).limit(10).lean();
-    targetDomains = companies.map(c => c.domain).filter(Boolean);
-  }
-
-  let aggregatedLeads = [];
-  const errors = [];
-
-  // 1. Harvest from Hunter.io
-  if ((targetAgency === 'hunter' || targetAgency === 'both') && hunterKey) {
-    for (const dom of targetDomains.slice(0, 10)) {
-      try {
-        const hunterLeads = await searchHunterDomain(dom, hunterKey, Math.min(limit, 10));
-        aggregatedLeads.push(...hunterLeads);
-      } catch (err) {
-        errors.push(`Hunter.io [${dom}]: ${err.message}`);
+  if (!Array.isArray(domains) || !domains.length || domains.length > 3) throw new Error('Shortlist one to three qualified company domains first');
+  const clean = domains.map(normalizeDomain);
+  if (clean.some(d => !d)) throw new Error('Invalid domain');
+  const companies = await Company.find({ domain: { $in: clean } }).lean();
+  if (companies.length !== new Set(clean).size || companies.some(c => qualifyCompany(c).qualificationStatus !== 'qualified')) throw new Error('Every target requires current qualifying fixed-base evidence');
+  let addedCount = 0, skippedCount = 0; const discovery = [], contacts = [];
+  for (const company of companies) {
+    if (['hunter', 'both'].includes(targetAgency) && user.hunterApiKey) {
+      for (const lead of await searchHunterDomain(company.domain, user.hunterApiKey, limit, { userId })) {
+        if (await Contact.exists({ userId, email: lead.email })) { skippedCount++; continue; }
+        contacts.push(await Contact.create({ ...lead, userId, companyId: company._id, company: company.name })); addedCount++;
       }
     }
+    if (['apollo', 'both'].includes(targetAgency) && user.apolloApiKey) discovery.push(...await searchApolloPeople({ domains: [company.domain], apiKey: user.apolloApiKey, userId, perPage: limit }));
   }
-
-  // 2. Harvest from Apollo.io
-  if ((targetAgency === 'apollo' || targetAgency === 'both') && apolloKey) {
-    try {
-      const apolloLeads = await searchApolloPeople({
-        domains: targetDomains.slice(0, 15),
-        titles: customTitles || TARGET_RECRUITER_TITLES,
-        apiKey: apolloKey,
-        perPage: limit
-      });
-      aggregatedLeads.push(...apolloLeads);
-    } catch (err) {
-      errors.push(`Apollo.io: ${err.message}`);
-    }
-  }
-
-  // 3. Deduplicate and insert into MongoDB
-  let addedCount = 0;
-  let skippedCount = 0;
-  const savedContacts = [];
-
-  for (const lead of aggregatedLeads) {
-    const exists = await Contact.findOne({ userId, email: lead.email });
-    if (!exists) {
-      const created = await Contact.create({
-        userId,
-        email: lead.email,
-        hrName: lead.hrName,
-        company: lead.company,
-        role: lead.role,
-        source: lead.source,
-        linkedinUrl: lead.linkedinUrl,
-        notes: lead.notes,
-        status: 'pending'
-      });
-      savedContacts.push(created);
-      addedCount++;
-    } else {
-      skippedCount++;
-    }
-  }
-
-  return {
-    addedCount,
-    skippedCount,
-    totalDiscovered: aggregatedLeads.length,
-    contacts: savedContacts,
-    domainsTargeted: targetDomains,
-    errors: errors.length > 0 ? errors : null
-  };
+  return { addedCount, skippedCount, contacts, discovery, totalDiscovered: contacts.length, domainsTargeted: clean, credits: 'Worst-case reservations stored in ResearchUsage; Apollo discovery returns no email' };
 }
-
-module.exports = {
-  searchHunterDomain,
-  searchApolloPeople,
-  verifyDomainMx,
-  harvestRecruiterLeads,
-  TARGET_RECRUITER_TITLES
-};
+module.exports = { searchHunterDomain, findHunterEmail, searchApolloPeople, enrichApolloPerson, verifyHunterEmail, harvestRecruiterLeads, TARGET_RECRUITER_TITLES };

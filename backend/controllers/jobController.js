@@ -88,7 +88,7 @@ exports.getJobs = async (req, res) => {
     const appliedJobs = await JobOpening.countDocuments({ status: { $in: ['applied', 'auto_applied'] } });
 
     res.json({
-      jobs,
+      jobs: jobs.map(job => ({ ...job, expectedBase: 'Fixed-base evidence needed', expectedCtc: job.expectedCtc ? `Unverified CTC estimate: ${job.expectedCtc}` : 'No compensation evidence' })),
       total,
       page: Number(page),
       totalPages: Math.ceil(total / limit),
@@ -165,7 +165,9 @@ exports.exportJobSheet = async (req, res) => {
  */
 exports.getCompanies = async (req, res) => {
   try {
-    const companies = await Company.find().sort({ tier: 1, name: 1 }).lean();
+    const { qualifyCompany } = require('../services/salaryEvidenceService');
+    const raw = await Company.find().sort({ tier: 1, name: 1 }).lean();
+    const companies = raw.map(c => ({ ...c, ...qualifyCompany(c) }));
     res.json({ companies, count: companies.length });
   } catch (err) {
     res.status(500).json({ error: err.message });

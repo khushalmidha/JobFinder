@@ -1,218 +1,48 @@
-const dns = require('dns').promises;
-const dnsSync = require('dns');
-const net = require('net');
-
-// Cache domain MX lookups in-memory (only cache SUCCESSFUL lookups)
+const dns = require('node:dns').promises;
 const mxCache = new Map();
-
-// Secondary public DNS resolver with Google and Cloudflare DNS
-const publicResolver = new dnsSync.promises.Resolver();
-try {
-  publicResolver.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4', '1.0.0.1']);
-} catch (e) {
-  // Use system resolver if setServers fails
+const TTL = 60 * 60 * 1000;
+function isValidEmailSyntax(email) {
+  if (typeof email !== 'string' || email.length > 254) return false;
+  const [local, domain, extra] = email.trim().split('@');
+  return !extra && !!local && local.length <= 64 && !local.startsWith('.') && !local.endsWith('.') && !local.includes('..') &&
+    /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/i.test(local) && !!domain && domain.split('.').length > 1 &&
+    domain.split('.').every(part => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(part));
 }
-
-// Known reputable enterprise and tech domains that are guaranteed valid
-const KNOWN_VALID_DOMAINS = new Set([
-  'bloomberg.net', 'bloomberg.com', 'google.com', 'microsoft.com', 'apple.com', 
-  'amazon.com', 'meta.com', 'netflix.com', 'ibm.com', 'oracle.com', 
-  'deloitte.com', 'pwc.com', 'kpmg.com', 'ey.com', 'accenture.com', 
-  'goldmansachs.com', 'morganstanley.com', 'jpmorgan.com', 'citi.com',
-  'tcs.com', 'infosys.com', 'wipro.com', 'cognizant.com', 'capgemini.com',
-  'uber.com', 'lyft.com', 'airbnb.com', 'stripe.com', 'paypal.com',
-  'salesforce.com', 'adobe.com', 'intel.com', 'nvidia.com', 'cisco.com',
-  'qualcomm.com', 'spotify.com', 'zoom.us', 'linkedin.com', 'github.com',
-  'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'aol.com',
-  'protonmail.com', 'zoho.com'
-]);
-
-/**
- * Resolves MX records for a domain with multi-resolver fallback
- */
-async function resolveDomainMx(domain) {
-  const cleanDomain = (domain || '').toLowerCase().trim();
-  if (!cleanDomain) return { valid: false, error: 'Empty domain' };
-
-  // 1. Whitelist check for known reputable enterprise domains
-  if (KNOWN_VALID_DOMAINS.has(cleanDomain)) {
-    return { valid: true, exchange: `mx.${cleanDomain}`, allExchanges: [`mx.${cleanDomain}`] };
-  }
-
-  // 2. Check successful in-memory cache
-  if (mxCache.has(cleanDomain)) {
-    return mxCache.get(cleanDomain);
-  }
-
-  // 3. Try primary system DNS
-  let records = null;
+async function resolveDomainMx(domain, resolver = dns) {
+  const key = String(domain || '').trim().toLowerCase();
+  if (resolver === dns && mxCache.get(key)?.expires > Date.now()) return mxCache.get(key).result;
   try {
-    records = await dns.resolveMx(cleanDomain);
-  } catch (err) {
-    // 4. Try secondary public DNS (Google 8.8.8.8 / Cloudflare 1.1.1.1)
-    try {
-      records = await publicResolver.resolveMx(cleanDomain);
-    } catch (publicErr) {
-      // 5. RFC 5321 Fallback: check A / AAAA record if MX lookup had issues
-      try {
-        const aRecords = await dns.resolve4(cleanDomain);
-        if (aRecords && aRecords.length > 0) {
-          const res = { valid: true, exchange: cleanDomain, allExchanges: [cleanDomain], note: 'Resolved via A record (RFC 5321 fallback)' };
-          mxCache.set(cleanDomain, res);
-          return res;
-        }
-      } catch (aErr) {
-        // Neither MX nor A record resolved
-      }
-
-      const code = publicErr.code || err.code || 'UNKNOWN';
-      let errorMsg = 'Domain does not have an active mail exchange';
-      if (code === 'ENOTFOUND') errorMsg = 'Domain does not exist (DNS ENOTFOUND)';
-      if (code === 'NODATA') errorMsg = 'Domain has no MX mail records';
-      if (code === 'SERVFAIL') errorMsg = 'DNS server failed to resolve domain';
-
-      // DO NOT cache failed results forever — transient DNS hiccups should not permanently mark domains as invalid!
-      return { valid: false, error: errorMsg, code };
+    const records = await resolver.resolveMx(key);
+    if (records.some(r => r.exchange === '' || r.exchange === '.')) return { valid: false, status: 'invalid', error: 'Domain explicitly declines email (Null MX)' };
+    if (records.length) {
+      records.sort((a, b) => a.priority - b.priority);
+      const result = { valid: true, status: 'domain_mail_capable', exchange: records[0].exchange, allExchanges: records.map(r => r.exchange) };
+      if (resolver === dns) mxCache.set(key, { expires: Date.now() + TTL, result });
+      return result;
     }
+  } catch (error) {
+    if (error.code === 'ENOTFOUND') return { valid: false, status: 'invalid', error: 'Domain does not exist' };
+    // Timeout, SERVFAIL and no MX do not establish that a mailbox is invalid.
   }
-
-  if (records && records.length > 0) {
-    records.sort((a, b) => a.priority - b.priority);
-    const res = { valid: true, exchange: records[0].exchange, allExchanges: records.map(r => r.exchange) };
-    mxCache.set(cleanDomain, res);
-    return res;
-  }
-
-  return { valid: false, error: 'No MX records configured for domain' };
+  return { valid: false, status: 'unknown', error: 'Domain mail capability inconclusive; no mailbox check performed' };
 }
-
-/**
- * Quick SMTP Handshake verification (TCP Port 25 test)
- * Connects to MX host, issues EHLO, and tests connectivity within timeout.
- * Falls back to MX validation if port 25 is blocked by ISP.
- */
-function testSmtpHandshake(mxHost, timeoutMs = 2500) {
-  return new Promise((resolve) => {
-    if (!mxHost) return resolve({ ok: false, error: 'No MX host provided' });
-
-    let socket;
-    let timer;
-
-    const cleanup = () => {
-      clearTimeout(timer);
-      if (socket) {
-        socket.removeAllListeners();
-        socket.destroy();
-      }
-    };
-
-    timer = setTimeout(() => {
-      cleanup();
-      // If port 25 times out (common on residential or restricted networks), MX is still authoritative
-      resolve({ ok: true, note: 'MX reachable (Port 25 handshake timed out, verified via DNS MX)' });
-    }, timeoutMs);
-
-    try {
-      socket = net.createConnection(25, mxHost);
-
-      socket.once('connect', () => {
-        cleanup();
-        resolve({ ok: true, note: `SMTP Port 25 Connected to ${mxHost}` });
-      });
-
-      socket.once('error', (err) => {
-        cleanup();
-        // Many client networks block outgoing TCP port 25. If connection is refused/filtered, MX record is authoritative.
-        resolve({ ok: true, note: `MX active (${mxHost}) [Port 25 closed/filtered: ${err.code}]` });
-      });
-    } catch (e) {
-      cleanup();
-      resolve({ ok: true, note: `MX active (${mxHost})` });
-    }
-  });
+async function validateEmail(email, { resolver = dns } = {}) {
+  const clean = String(email || '').trim().toLowerCase();
+  if (!isValidEmailSyntax(clean)) return { email: clean, isValid: false, status: 'invalid', reason: 'Invalid email syntax', mxHost: null };
+  const mx = await resolveDomainMx(clean.split('@')[1], resolver);
+  return { email: clean, isValid: mx.status === 'invalid' ? false : null, status: mx.status,
+    reason: mx.valid ? 'Domain mail records found; individual mailbox existence is unknown' : mx.error,
+    mxHost: mx.exchange || null };
 }
-
-/**
- * Validates a single email for syntax, domain existence, and MX deliverability
- */
-async function validateEmail(email) {
-  const clean = (email || '').trim().toLowerCase();
-
-  // 1. Syntax check
-  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-  if (!clean || !emailRegex.test(clean)) {
-    return {
-      email,
-      isValid: false,
-      reason: 'Invalid email syntax or format',
-      mxHost: null
-    };
-  }
-
-  const parts = clean.split('@');
-  if (parts.length !== 2) {
-    return { email, isValid: false, reason: 'Malformed email address', mxHost: null };
-  }
-
-  const domain = parts[1];
-  if (!domain || domain.includes('..') || domain.startsWith('.') || domain.endsWith('.')) {
-    return { email, isValid: false, reason: 'Malformed domain name', mxHost: null };
-  }
-
-  // 2. Reject disposable / fake test domains
-  const fakeDomains = ['test.com', 'example.com', 'invalid.com', 'sample.com', 'fake.com', 'mailinator.com', 'tempmail.com', '10minutemail.com'];
-  if (fakeDomains.includes(domain)) {
-    return { email, isValid: false, reason: 'Disposable or dummy test domain', mxHost: null };
-  }
-
-  // 3. DNS MX Check
-  const mx = await resolveDomainMx(domain);
-  if (!mx.valid) {
-    return {
-      email,
-      isValid: false,
-      reason: mx.error || `Domain ${domain} has no active mail server`,
-      mxHost: null
-    };
-  }
-
-  return {
-    email,
-    isValid: true,
-    mxHost: mx.exchange,
-    reason: `Deliverable Mail Server Verified (${mx.exchange})`
-  };
+async function testSmtpHandshake() {
+  return { ok: false, status: 'unknown', note: 'Mailbox probing disabled. SMTP connectivity does not establish mailbox existence.' };
 }
-
-/**
- * Batch validate multiple contacts in chunks
- */
-async function batchValidate(contacts, concurrency = 10) {
+async function batchValidate(contacts, concurrency = 5) {
+  const size = Math.max(1, Math.min(10, Math.floor(Number(concurrency) || 5)));
   const results = [];
-  for (let i = 0; i < contacts.length; i += concurrency) {
-    const chunk = contacts.slice(i, i + concurrency);
-    const chunkResults = await Promise.all(
-      chunk.map(async (contact) => {
-        const val = await validateEmail(contact.email);
-        return {
-          contactId: contact._id,
-          email: contact.email,
-          company: contact.company,
-          isValid: val.isValid,
-          reason: val.reason,
-          mxHost: val.mxHost
-        };
-      })
-    );
-    results.push(...chunkResults);
+  for (let i = 0; i < contacts.length; i += size) {
+    results.push(...await Promise.all(contacts.slice(i, i + size).map(async c => ({ contactId: c._id, company: c.company, ...await validateEmail(c.email) }))));
   }
   return results;
 }
-
-module.exports = {
-  validateEmail,
-  resolveDomainMx,
-  testSmtpHandshake,
-  batchValidate,
-  KNOWN_VALID_DOMAINS
-};
+module.exports = { validateEmail, resolveDomainMx, testSmtpHandshake, batchValidate, isValidEmailSyntax };

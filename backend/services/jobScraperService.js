@@ -217,7 +217,7 @@ async function scrapeGreenhouse(company) {
         matchedResumeId: match.resumeId,
         fitScore: match.score,
         matchRationale: match.rationale,
-        expectedBase: sal.base,
+        expectedBase: '', // No base-pay assertion without cited evidence.
         expectedCtc: sal.ctc,
         ctcMin: sal.ctcMin || 14,
         stipendMonthly: classification.isInternationalRemote ? '$1,500 - $4,500 / month (₹1.25L - ₹3.75L)' : (sal.stipend || '₹50,000 - ₹1,00,000 / month'),
@@ -290,7 +290,7 @@ async function scrapeLever(company) {
         matchedResumeId: match.resumeId,
         fitScore: match.score,
         matchRationale: match.rationale,
-        expectedBase: sal.base,
+        expectedBase: '', // No base-pay assertion without cited evidence.
         expectedCtc: sal.ctc,
         ctcMin: sal.ctcMin || 14,
         stipendMonthly: classification.isInternationalRemote ? '$1,500 - $4,500 / month (₹1.25L - ₹3.75L)' : (sal.stipend || '₹50,000 - ₹1,00,000 / month'),
@@ -362,7 +362,7 @@ async function scrapeAshby(company) {
         matchedResumeId: match.resumeId,
         fitScore: match.score,
         matchRationale: match.rationale,
-        expectedBase: sal.base,
+        expectedBase: '', // No base-pay assertion without cited evidence.
         expectedCtc: sal.ctc,
         ctcMin: sal.ctcMin || 14,
         stipendMonthly: classification.isInternationalRemote ? '$1,500 - $4,500 / month (₹1.25L - ₹3.75L)' : (sal.stipend || '₹50,000 - ₹1,00,000 / month'),
@@ -393,7 +393,7 @@ async function scrapeAshby(company) {
  * Runs a complete crawl across all registered companies in the database
  */
 async function crawlAllCompanies() {
-  const companies = await Company.find();
+  const companies = await Company.find({ $or: [{ lastScannedAt: { $exists: false } }, { lastScannedAt: { $lt: new Date(Date.now() - 6 * 3600000) } }] }).sort({ lastScannedAt: 1 }).limit(25);
   let totalDiscovered = 0;
   let newJobsAdded = 0;
   const startTime = Date.now();
@@ -401,8 +401,9 @@ async function crawlAllCompanies() {
   console.log(`Starting Concurrent Career Site Crawl across ${companies.length} companies...`);
 
   // Process companies in concurrent batches of 6 for high speed
-  const BATCH_SIZE = 6;
+  const BATCH_SIZE = 2;
   for (let i = 0; i < companies.length; i += BATCH_SIZE) {
+    if (process.env.RESEARCH_STOP === 'true' || Date.now() - startTime > 60000) break;
     const batch = companies.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.allSettled(
       batch.map(async (comp) => {

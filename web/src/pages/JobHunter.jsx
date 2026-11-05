@@ -385,7 +385,7 @@ const JobHunter = () => {
             </span>
             <span className="text-[10px] text-cyan-300 font-bold bg-cyan-950/60 border border-cyan-800/60 px-1 rounded">USD</span>
           </div>
-          <div className="text-2xl font-black text-cyan-300 mt-1.5">{jobStats.internationalInternships || 82}</div>
+          <div className="text-2xl font-black text-cyan-300 mt-1.5">{jobStats.internationalInternships || 0}</div>
           <div className="text-[11px] text-cyan-400/90 font-medium mt-1">🌍 $1.5k - $4.5k/mo Stipend</div>
         </div>
 
@@ -427,7 +427,7 @@ const JobHunter = () => {
             <span className="text-yellow-400 font-bold">Companies</span>
             <Building2 className="w-3.5 h-3.5 text-yellow-400" />
           </div>
-          <div className="text-2xl font-black text-zinc-100 mt-1.5">{companies.length || 99}</div>
+          <div className="text-2xl font-black text-zinc-100 mt-1.5">{companies.length || 0}</div>
           <div className="text-[11px] text-zinc-500 mt-1">Greenhouse • Lever • Ashby</div>
         </div>
       </div>
@@ -457,7 +457,7 @@ const JobHunter = () => {
               : 'border-transparent text-zinc-400 hover:text-cyan-300'
             }`}
         >
-          <Globe className="w-4 h-4 text-cyan-400" /> 🌍 International Remote Internships ({jobStats.internationalInternships || 82})
+          <Globe className="w-4 h-4 text-cyan-400" /> 🌍 International Remote Internships ({jobStats.internationalInternships || 0})
         </button>
 
         <button
@@ -527,7 +527,7 @@ const JobHunter = () => {
                 }`}
             >
               <Globe className="w-3.5 h-3.5 text-cyan-400" />
-              🌍 International Remote ({jobStats.internationalInternships || 82})
+              🌍 International Remote ({jobStats.internationalInternships || 0})
             </button>
 
             <button
@@ -848,7 +848,7 @@ const JobHunter = () => {
               <div className="flex flex-wrap md:flex-col items-start md:items-end gap-2 shrink-0">
                 <div className="bg-zinc-900/90 border border-cyan-500/30 px-3.5 py-2 rounded-xl text-right">
                   <div className="text-xs text-zinc-400 font-bold uppercase tracking-wider">Active Openings</div>
-                  <div className="text-xl font-black text-cyan-300">{jobStats.internationalInternships || jobs.length || 82} Remote Interns</div>
+                  <div className="text-xl font-black text-cyan-300">{jobStats.internationalInternships || jobs.length || 0} Remote Interns</div>
                 </div>
                 <div className="bg-zinc-900/90 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-right">
                   <div className="text-xs text-zinc-400 font-bold uppercase tracking-wider">Typical Stipend</div>
@@ -1142,7 +1142,7 @@ const JobHunter = () => {
                 <h3 className="font-bold text-zinc-100 text-base flex items-center gap-2">
                   <span>🏢</span> Tracked High-Paying Tech &amp; Quant Companies
                 </h3>
-                <p className="text-xs text-zinc-400">Total {companies.length} verified companies continually monitored for job postings &amp; campus hiring.</p>
+                <p className="text-xs text-zinc-400">Total {companies.length} research prospects available to check for job postings &amp; campus hiring.</p>
               </div>
               <button
                 onClick={() => setShowAddCompanyModal(true)}
@@ -1306,7 +1306,7 @@ const JobHunter = () => {
                 </span>
               </div>
               <p className="text-xs text-zinc-400">
-                Direct verified Talent Acquisition partners & Tech Recruiters across Google, Amazon, Uber, Swiggy, Zomato, Razorpay, CRED, and Graviton.
+                Professional recruiting contacts with source evidence. Mailbox existence may remain unknown.
               </p>
             </div>
 
@@ -1400,7 +1400,7 @@ const JobHunter = () => {
               </div>
               <h3 className="text-xl font-black text-zinc-100">Master Recruiter & Shared Contact Directory is Protected</h3>
               <p className="text-xs text-zinc-400 leading-relaxed max-w-md mx-auto">
-                This database contains verified direct email IDs of Talent Acquisition partners. Access is private and strictly controlled by <strong>Khushal Midha</strong> (<span className="text-yellow-400">khushalmidha24@gmail.com</span>). You can request access below:
+                This database contains professional contacts of varying evidence quality. Review provenance before outreach. Access is private and strictly controlled by <strong>Khushal Midha</strong> (<span className="text-yellow-400">khushalmidha24@gmail.com</span>). You can request access below:
               </p>
 
               {accessStatus.status === 'pending' ? (
@@ -1457,22 +1457,22 @@ const JobHunter = () => {
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-500/20 border border-indigo-400/40 text-indigo-300 flex items-center gap-1.5">
-                        <span>👻</span> Ghost Scout • Zero Account • Zero Ban • No Credits
+                        <span>👻</span> Public recruiting inbox discovery
                       </span>
-                      <span className="text-[11px] text-emerald-400 font-bold">100% Free Forever</span>
+                      <span className="text-[11px] text-emerald-400 font-bold">Public sources, no provider credits</span>
                     </div>
                     <h4 className="text-lg font-black text-zinc-100 flex items-center gap-2">
-                      Anonymous LinkedIn OSINT &amp; Corporate Email Hunter
+                      Source-backed company contact research
                     </h4>
                     <p className="text-xs text-zinc-400 max-w-2xl leading-relaxed">
-                      Safely discovers HR &amp; Recruiter leads across top companies without logging into your personal LinkedIn account (eliminating bot ban risk) and without paid Apollo/Hunter API keys. Validates deliverability via real-time DNS MX lookups.
+                      Checks public employer pages for recruiting inboxes at companies with qualifying fixed-base evidence. Respect source restrictions; DNS does not verify individual mailboxes.
                     </p>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs text-zinc-400">Total Leads Found:</span>
                     <span className="px-3 py-1 bg-zinc-950 border border-indigo-500/40 rounded-lg font-mono font-bold text-indigo-300 text-sm">
-                      {ghostScoutResult?.totalFound || recruiters.length}
+                      {ghostScoutResult?.totalFound ?? recruiters.length}
                     </span>
                   </div>
                 </div>
@@ -1535,10 +1535,10 @@ const JobHunter = () => {
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>
-                        Discovered <strong>{ghostScoutResult.totalFound} verified leads</strong>! Added <strong>{ghostScoutResult.addedCount} new recruiters</strong> straight to your ColdMail queue.
+                        Discovered <strong>{ghostScoutResult.totalFound} sourced leads</strong>! Added <strong>{ghostScoutResult.addedCount} new recruiters</strong> to your contacts for review.
                       </span>
                     </div>
-                    <span className="text-[10px] text-zinc-400 font-mono">MX Deliverability Verified</span>
+                    <span className="text-[10px] text-zinc-400 font-mono">Mailbox status unverified</span>
                   </div>
                 )}
               </div>
@@ -1626,7 +1626,7 @@ const JobHunter = () => {
                                 ? 'bg-emerald-950/60 border-emerald-800 text-emerald-400'
                                 : 'bg-yellow-950/40 border-yellow-800 text-yellow-400'
                             }`}>
-                              {r.confidence ? `${r.confidence}% (${r.confidenceLevel || 'verified'})` : '96% (verified)'}
+                              {r.confidence ? `${r.confidence}% (${r.confidenceLevel || 'verified'})` : 'Unverified; review source'}
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-xs text-zinc-400">{r.location || 'India'}</td>

@@ -30,7 +30,8 @@ async function syncContactsToTargetAccounts(sourceUserId, contactsToSync) {
 
     // Find all matching registered target users
     const regexList = targetEmails.map(e => new RegExp(`^${e.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i'));
-    const targetUsers = await User.find({ email: { $in: regexList } });
+    // A source account cannot copy contacts into an arbitrary user's account.
+    const targetUsers = await User.find({ email: { $in: regexList }, syncedAccountEmails: sourceUser.email });
 
     if (targetUsers.length === 0) {
       console.log(`[ContactSync] No registered target users found for emails:`, targetEmails);
@@ -60,7 +61,14 @@ async function syncContactsToTargetAccounts(sourceUserId, contactsToSync) {
             source: contact.source || 'excel_upload',
             linkedinUrl: contact.linkedinUrl || '',
             status: 'pending',
-            deliverabilityStatus: contact.deliverabilityStatus || 'valid',
+            deliverabilityStatus: contact.deliverabilityStatus || 'unverified',
+            companyId: contact.companyId,
+            provenance: contact.provenance || [],
+            verificationStatus: contact.verificationStatus || 'unknown',
+            inferenceFlag: !!contact.inferenceFlag,
+            suppressedAt: contact.suppressedAt,
+            suppressionReason: contact.suppressionReason,
+            optOutAt: contact.optOutAt,
             validationReason: contact.validationReason || '',
             validatedAt: contact.validatedAt || new Date(),
             notes: contact.notes || ''

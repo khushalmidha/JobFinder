@@ -43,7 +43,7 @@ exports.getContacts = async (req, res) => {
     }
     if (deliverabilityStatus) {
       if (deliverabilityStatus === 'valid') {
-        query.deliverabilityStatus = { $ne: 'invalid' };
+        query.deliverabilityStatus = 'valid';
       } else if (deliverabilityStatus === 'invalid') {
         query.deliverabilityStatus = 'invalid';
       } else {
@@ -199,7 +199,7 @@ exports.bulkCreate = async (req, res) => {
             if (doc.deliverabilityStatus === 'unverified') {
               try {
                 const val = await validateEmail(doc.email);
-                if (!val.isValid) {
+                if (val.isValid === false) {
                   await Contact.updateOne(
                     { _id: doc._id }, 
                     { 
@@ -212,7 +212,9 @@ exports.bulkCreate = async (req, res) => {
                   await Contact.updateOne(
                     { _id: doc._id }, 
                     { 
-                      deliverabilityStatus: 'valid', 
+                      deliverabilityStatus: 'unverified',
+                      verificationStatus: val.status,
+                      validationReason: val.reason,
                       validatedAt: new Date() 
                     }
                   );
@@ -234,9 +236,12 @@ exports.bulkCreate = async (req, res) => {
 
 exports.updateContact = async (req, res) => {
   try {
+    const allowed = ['company', 'hrName', 'email', 'package', 'role', 'linkedinUrl', 'notes'];
+    const updates = Object.fromEntries(allowed.filter(k => k in req.body).map(k => [k, req.body[k]]));
+    if ('email' in updates || 'company' in updates) Object.assign(updates, { provenance: [], verificationStatus: 'unknown', companyId: null, deliverabilityStatus: 'unverified' });
     const contact = await Contact.findOneAndUpdate(
       { _id: req.params.id, userId: req.user._id },
-      req.body,
+      { $set: updates },
       { new: true }
     );
     if (!contact) return res.status(404).json({ error: 'Contact not found.' });
@@ -392,22 +397,23 @@ exports.validateDeliverability = async (req, res) => {
     for (const c of contacts) {
       try {
         const val = await validateEmail(c.email);
-        c.deliverabilityStatus = val.isValid ? 'valid' : 'invalid';
+        c.deliverabilityStatus = val.isValid === false ? 'invalid' : 'unverified';
+        c.verificationStatus = val.status;
         c.validationReason = val.reason || '';
         c.validatedAt = new Date();
         await c.save();
 
-        if (val.isValid) validCount++;
+        if (val.isValid !== false) validCount++;
         else invalidCount++;
       } catch (err) {
-        c.deliverabilityStatus = 'valid';
+        c.deliverabilityStatus = 'unverified';
         await c.save();
         validCount++;
       }
     }
 
     res.json({
-      message: `Email check finished! Verified ${validCount} deliverable contacts. Separated ${invalidCount} invalid emails into the Invalid Emails tab (none deleted).`,
+      message: `Email check finished! ${validCount} contacts remain mailbox-unverified. Separated ${invalidCount} invalid emails into the Invalid Emails tab (none deleted).`,
       total: contacts.length,
       validCount,
       invalidCount

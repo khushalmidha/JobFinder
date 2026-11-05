@@ -171,6 +171,7 @@ function renderTemplate(template, user, contact, jobLinkOverride, roleOverride) 
 
 exports.sendBatch = async (req, res) => {
   try {
+    if (process.env.OUTREACH_SENDING_ENABLED !== 'true') return res.status(403).json({ error: 'Sending is disabled. Review drafts first; enable sending separately only with explicit approval.' });
     const { contactIds, subjectOverride, bodyOverride, jobLinkOverride, roleOverride, smtpId, templateId } = req.body;
     const userId = req.user._id;
 
@@ -235,6 +236,12 @@ exports.sendBatch = async (req, res) => {
     }
 
     const contacts = await Contact.find({ _id: { $in: contactIds }, userId });
+    const { assertApprovedMessage } = require('../services/outreachApprovalService');
+    for (const contact of contacts) {
+      assertApprovedMessage(contact,
+        renderTemplate(subjectOverride || defaultSubject, user, contact, jobLinkOverride, roleOverride),
+        renderTemplate(bodyOverride || defaultBody, user, contact, jobLinkOverride, roleOverride), req.body.approvedMessages);
+    }
     
     if (contacts.length === 0) {
       return res.status(400).json({ error: 'No valid contacts found to send emails.' });
@@ -279,6 +286,10 @@ exports.sendBatch = async (req, res) => {
       const taskFn = async () => {
         // If batch was paused before execution, do not proceed
         if (batchObj.isPaused) return;
+        if (process.env.OUTREACH_SENDING_ENABLED !== 'true') { batchObj.isPaused = true; return; }
+        const latestContact = await Contact.findOne({ _id: contact._id, userId });
+        const { contactBlockReason } = require('../services/outreachResearchService');
+        if (contactBlockReason(latestContact) || latestContact.email !== contact.email) return;
 
         // Daily limit safety check per sender
         const currentSender = (batchObj.chosenSmtp?.user || user.email || '').toLowerCase();
@@ -308,6 +319,7 @@ exports.sendBatch = async (req, res) => {
           });
 
           queueLimitState = {
+            userId: req.user._id,
             isLimitPaused: true,
             limitType: 'SAFETY_CAP',
             limitAccount: currentSender,
@@ -413,6 +425,7 @@ exports.sendBatch = async (req, res) => {
           });
 
           queueLimitState = {
+            userId: req.user._id,
             isLimitPaused: true,
             limitType,
             limitAccount: currentSender,
@@ -451,8 +464,10 @@ exports.getLogs = async (req, res) => {
 
 exports.getQueueStatus = async (req, res) => {
   try {
-    const pending = activeBatches.reduce((sum, b) => sum + b.tasks.length, 0);
-    const isPaused = activeBatches.length > 0 && activeBatches.every(b => b.isPaused);
+    const ownLimitState = String(queueLimitState.userId) === String(req.user._id) ? queueLimitState : { isLimitPaused: false };
+    const userBatches = activeBatches.filter(b => String(b.userId) === String(req.user._id));
+    const pending = userBatches.reduce((sum, b) => sum + b.tasks.length, 0);
+    const isPaused = userBatches.length > 0 && userBatches.every(b => b.isPaused);
     const startOfToday = getStartOfToday();
 
     // Concurrently fetch User, today's aggregated sent counts per email, and failed contacts
@@ -545,28 +560,28 @@ exports.getQueueStatus = async (req, res) => {
     const isSafetyLimitReached = sentToday >= dailyLimit;
 
     let finalPauseReason = null;
-    if (queueLimitState.isLimitPaused) {
-      if (queueLimitState.limitType === 'SAFETY_CAP') finalPauseReason = 'DAILY_SAFETY_LIMIT_REACHED';
-      else if (queueLimitState.limitType === 'GMAIL_EXCEEDED') finalPauseReason = 'DAILY_LIMIT_EXCEEDED';
-      else if (queueLimitState.limitType === 'AUTH_ERROR') finalPauseReason = 'SMTP_AUTH_ERROR';
-      else if (queueLimitState.limitType === 'NETWORK_ERROR') finalPauseReason = 'NETWORK_ERROR';
-      else if (queueLimitState.limitType === 'SEND_ERROR') finalPauseReason = 'SEND_ERROR';
+    if (ownLimitState.isLimitPaused) {
+      if (ownLimitState.limitType === 'SAFETY_CAP') finalPauseReason = 'DAILY_SAFETY_LIMIT_REACHED';
+      else if (ownLimitState.limitType === 'GMAIL_EXCEEDED') finalPauseReason = 'DAILY_LIMIT_EXCEEDED';
+      else if (ownLimitState.limitType === 'AUTH_ERROR') finalPauseReason = 'SMTP_AUTH_ERROR';
+      else if (ownLimitState.limitType === 'NETWORK_ERROR') finalPauseReason = 'NETWORK_ERROR';
+      else if (ownLimitState.limitType === 'SEND_ERROR') finalPauseReason = 'SEND_ERROR';
       else finalPauseReason = 'ERROR_PAUSED';
     } else if (isSafetyLimitReached) {
       finalPauseReason = 'DAILY_SAFETY_LIMIT_REACHED';
     } else if (isPaused) {
-      const activePausedBatch = activeBatches.find(b => b.isPaused && b.pauseReason);
+      const activePausedBatch = userBatches.find(b => b.isPaused && b.pauseReason);
       finalPauseReason = activePausedBatch?.pauseReason || 'MANUAL';
     }
 
     res.json({
       pending: pending + globalRateLimiter.pending,
       size: globalRateLimiter.size,
-      isPaused: isPaused || queueLimitState.isLimitPaused || isSafetyLimitReached,
+      isPaused: isPaused || ownLimitState.isLimitPaused || isSafetyLimitReached,
       pauseReason: finalPauseReason,
-      limitType: queueLimitState.limitType || (isSafetyLimitReached ? 'SAFETY_CAP' : null),
-      limitAccount: queueLimitState.limitAccount || activeSender,
-      limitMessage: queueLimitState.pauseMessage || (isSafetyLimitReached ? `Daily safety limit of ${dailyLimit} emails reached today on ${activeSender} (${sentToday}/${dailyLimit}). Queue paused to keep 50 emails reserved for important personal messages.` : null),
+      limitType: ownLimitState.limitType || (isSafetyLimitReached ? 'SAFETY_CAP' : null),
+      limitAccount: ownLimitState.limitAccount || activeSender,
+      limitMessage: ownLimitState.pauseMessage || (isSafetyLimitReached ? `Daily safety limit of ${dailyLimit} emails reached today on ${activeSender} (${sentToday}/${dailyLimit}). Queue paused to keep 50 emails reserved for important personal messages.` : null),
       limitFailedCount,
       sentToday,
       dailyLimit,
@@ -673,6 +688,7 @@ exports.testConnection = async (req, res) => {
 exports.pauseQueue = async (req, res) => {
   try {
     activeBatches.forEach(b => {
+      if (String(b.userId) !== String(req.user._id)) return;
       b.isPaused = true;
       b.pauseReason = 'MANUAL';
     });
@@ -684,6 +700,7 @@ exports.pauseQueue = async (req, res) => {
 
 exports.resumeQueue = async (req, res) => {
   try {
+    if (process.env.OUTREACH_SENDING_ENABLED !== 'true') return res.status(403).json({ error: 'Sending is disabled' });
     const user = await User.findById(req.user._id);
     let chosenSmtp = null;
     if (user?.selectedSmtpId && user?.smtpConfigs) {
@@ -709,10 +726,12 @@ exports.resumeQueue = async (req, res) => {
     }
 
     activeBatches.forEach(b => {
+      if (String(b.userId) !== String(req.user._id)) return;
       b.isPaused = false;
       b.pauseReason = null;
     });
     queueLimitState = {
+            userId: req.user._id,
       isLimitPaused: false,
       limitType: null,
       limitAccount: null,
@@ -741,9 +760,10 @@ exports.restoreLimitFailed = async (req, res) => {
 
     // Clean up failure logs for auth/limit/network errors
     const errorRegex = new RegExp('(limit|535|login|password|auth|connect|timeout|socket|econn)', 'i');
-    await MailLog.deleteMany({ userId, status: 'failed', bounceReason: errorRegex });
+    // Preserve historical failure/audit records when restoring pending contacts.
 
     queueLimitState = {
+            userId: req.user._id,
       isLimitPaused: false,
       limitType: null,
       limitAccount: null,
@@ -820,6 +840,7 @@ exports.switchQueueAccount = async (req, res) => {
     await user.save();
 
     queueLimitState = {
+            userId: req.user._id,
       isLimitPaused: false,
       limitAccount: null,
       pauseMessage: null,

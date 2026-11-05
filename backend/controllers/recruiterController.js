@@ -420,13 +420,13 @@ exports.ghostScout = async (req, res) => {
     const result = await scoutRecruiters({
       userId,
       companyQuery: company,
-      domainQuery: domain,
+      domain,
       hrName,
       limit: Number(limit)
     });
 
     res.json({
-      message: `Ghost Scout executed successfully! Discovered ${result.totalFound} recruiters (${result.addedCount} newly added to ColdMail contacts).`,
+      message: result.reason || `Found ${result.totalFound} publicly sourced recruiting contacts (${result.addedCount} new); mailbox existence remains unverified.`,
       result
     });
   } catch (err) {

@@ -1,5 +1,9 @@
 # ColdMail Pilot
 
+JobFinder now includes a recruitment research workspace at `/research`: dated fixed-base salary evidence, professional contact provenance, local budgeted research and editable outreach drafts. Read [the acceptance report](docs/ACCEPTANCE_REPORT.md) and [local operations guide](docs/COST_AND_OPERATIONS.md) before use. Paid research, automatic scheduling and outreach sending default to off. Build/load `extension/dist` for the reviewed-profile application assistant; legacy signed/ZIP artifacts are outdated.
+
+Use Node 24.15+ for the current dependency set. For further work, use [the Codex master prompt](docs/JobFinder_Codex_Master_Prompt.md) and [Antigravity delegation prompts](docs/delegation/).
+
 An open-source cold-outreach automation suite for job applications.
 
 ## Overview

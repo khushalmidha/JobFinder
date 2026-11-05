@@ -10,9 +10,19 @@ const companySchema = new mongoose.Schema({
   locations: [{ type: String }],
   isIndia: { type: Boolean, default: true },
   isRemoteFriendly: { type: Boolean, default: true },
-  entryLevelCtc: { type: String, default: '₹14 - ₹24 LPA' },
-  entryLevelCtcMin: { type: Number, default: 14 },
-  entryLevelCtcMax: { type: Number, default: 24 },
+  entryLevelCtc: { type: String, default: '' }, // Legacy estimate; never qualification evidence.
+  entryLevelCtcMin: { type: Number, default: null },
+  entryLevelCtcMax: { type: Number, default: null },
+  aliases: [String],
+  salaryEvidence: [{
+    role: String, roleFamily: String, level: String,
+    experienceMin: Number, experienceMax: Number, location: String,
+    indiaEligibility: Boolean, indiaEligibilitySourceUrl: String,
+    salaryBaseMinINR: Number, salaryBaseMaxINR: Number,
+    currency: String, payPeriod: String, baseVsCTC: String,
+    salarySourceUrl: String, salarySourceType: String,
+    reportedOn: Date, lastCheckedAt: Date, evidenceConfidence: String, evidenceExcerpt: String
+  }],
   fresherCtcTier: { 
     type: String, 
     default: '20_to_30' 

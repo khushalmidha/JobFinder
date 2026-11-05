@@ -3,13 +3,17 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "engines": {
+    "node": ">=24.15.0"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "node tests/runAutofillTests.js && node tests/runRecruiterTests.js && node --test tests/publicEmailDiscovery.test.js",
-    "test:autofill": "node tests/runAutofillTests.js",
-    "test:recruiter": "node tests/runRecruiterTests.js",
-    "test:discovery": "node --test tests/publicEmailDiscovery.test.js"
+    "test": "node --test tests/*.test.js",
+    "test:autofill": "node --test tests/formAssistant.test.js",
+    "test:recruiter": "node --test tests/researchPolicy.test.js",
+    "test:discovery": "node --test tests/publicEmailDiscovery.test.js",
+    "test:browser": "node tests/browserSmoke.js"
   },
   "keywords": [],
   "author": "",
@@ -28,13 +32,15 @@
     "mongoose": "^9.9.1",
     "multer": "^2.2.0",
     "node-cron": "^4.6.0",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.3.1",
     "p-queue": "^9.3.3",
     "pdf-parse": "^1.1.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "jsdom": "^30.1.3",
-    "nodemon": "^3.1.14"
+    "mongodb-memory-server": "^11.3.0",
+    "nodemon": "^3.1.14",
+    "playwright": "^1.64.1"
   }
 }

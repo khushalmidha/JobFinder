@@ -16,7 +16,8 @@ const recruiterMap = new Map();
   }
 });
 
-const CURATED_RECRUITERS = Array.from(recruiterMap.values());
+// Legacy registries lack per-contact source evidence; do not expose/import them.
+const CURATED_RECRUITERS = [];
 
 
 /**

@@ -8,3 +8,5 @@ coverage/
 *.log
 backend/uploads/
 *.pem
+artifacts/
+backend/audit-production.json
