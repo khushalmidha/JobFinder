@@ -1007,8 +1007,8 @@ const Dashboard = () => {
 
       {activeTab === 'active' && (
       <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 mb-8 p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-          <div className="relative flex-1 min-w-[240px] max-w-md">
+        <div className="flex flex-wrap items-center gap-3 flex-1">
+          <div className="relative flex-1 min-w-[240px] sm:min-w-[280px] max-w-md" style={{ minWidth: '220px' }}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
             <input 
               type="text" 
@@ -1042,7 +1042,7 @@ const Dashboard = () => {
             <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
           </div>
 
-          <div className="relative w-36 sm:w-40 shrink-0">
+          <div className="relative w-40 sm:w-44 shrink-0">
             <select
               value={daysFilter}
               onChange={(e) => setDaysFilter(e.target.value)}
@@ -1053,8 +1053,8 @@ const Dashboard = () => {
               <option value="1_week">&gt; 1 Week Ago</option>
               <option value="2_weeks">&gt; 2 Weeks Ago</option>
               <option value="3_weeks">&gt; 3 Weeks Ago</option>
-              <option value="4_weeks">&gt; 4 Weeks Ago</option>
-              <option value="8_weeks">&gt; 8 Weeks Ago</option>
+              <option value="4_weeks">&gt; 4 Weeks (1 Mo) Ago</option>
+              <option value="8_weeks">&gt; 8 Weeks (2 Mo) Ago</option>
               <option value="within_1_week">&lt; 1 Week (Recent)</option>
               <option value="never_mailed">Never Mailed</option>
             </select>
