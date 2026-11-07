@@ -122,6 +122,8 @@ async function main() {
     console.log('PASS: real campaign UI preview/exact approval/timezone, fake-clock dormant→pause→resume→simulated accepted→persistent progress, unknown-outcome reconciliation/cancel, admin733dryrun; real mail/provider requests=0');
     await page.setViewportSize({width:1440,height:1100});await page.goto(base+'/settings');
     await page.getByRole('heading',{name:'Account email verification',exact:true}).waitFor();
+    assert.equal(await page.locator('label').filter({hasText:/^Mobile \/ Phone$/}).locator('..').locator('input').inputValue(),'');
+    assert.equal(await page.locator('label').filter({hasText:/^College \/ Institution$/}).locator('..').locator('input').inputValue(),'');
     await page.getByLabel('Send a verification code to my registered account email.',{exact:true}).check();
     await page.getByRole('button',{name:'Send verification code',exact:true}).click();
     await page.getByText(/Open your registered inbox and enter/).waitFor();assert.equal(verificationMail.recipient,'browser-owner@example.org');

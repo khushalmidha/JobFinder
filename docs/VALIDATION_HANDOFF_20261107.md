@@ -4,6 +4,7 @@ This follow-up starts from merged main `f7e65e1f7d6416ed42a8292045ea8dcdfb66906f
 
 ## Completed implementation and verification
 
+- Removed fabricated owner-specific applicant defaults and résumé claims from new Settings profiles/templates; existing saved values remain unchanged. Browser regression checks keep unknown applicant facts blank.
 - Added actual Settings account-email verification with a separately configured trusted server sender. Explicit owner request, fixed registered recipient, one-use 64-bit random code, HMAC at rest, ten-minute expiry, five attempts, durable cooldown/per-mailbox/user/server caps and sanitized failures. Delivery remains off by default.
 - Added permanent consumption receipts and terminal consumed challenges. Genuine proof survives delayed confirmation, resend and stale-operation recovery. The administrator CLI now requires trusted method/issuer and matching receipt, while signup/settings cannot grant verification or role authority. Verification itself does not promote anyone.
 - Reviewed fifteen salary records: **zero qualified**. Google/Amazon historical source dates/URLs and unsupported ranges/role/location assertions are corrected. Eleven conflicting estimates remain rejected/unverified claims, outside approved salary evidence.

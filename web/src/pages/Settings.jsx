@@ -26,25 +26,25 @@ const Settings = () => {
 
   // Candidate profile default
   const defaultCandidateProfile = {
-    fullName: 'Khushal Midha',
-    firstName: 'Khushal',
-    lastName: 'Midha',
-    email: 'midhakhushal5@gmail.com',
-    phone: '+91 90507 40836',
-    college: 'Indian Institute of Information Technology, Lucknow',
-    degree: 'B.Tech in Computer Science and Artificial Intelligence',
-    graduationDate: 'July 2027',
-    expectedAnnualSalaryINR: '₹30,00,000',
-    expectedAnnualCtcLpa: '30 LPA',
-    currentCompany: 'Coffeee.io',
-    currentRole: 'Software Development Engineer Intern',
-    internshipDuration: 'June 2025 to August 2025'
+    fullName: '',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    college: '',
+    degree: '',
+    graduationDate: '',
+    expectedAnnualSalaryINR: '',
+    expectedAnnualCtcLpa: '',
+    currentCompany: '',
+    currentRole: '',
+    internshipDuration: ''
   };
 
   // Settings state
   const [settings, setSettings] = useState({
-    name: 'Khushal Midha',
-    email: 'midhakhushal5@gmail.com',
+    name: '',
+    email: '',
     resumeLink: '',
     defaultJobLink: '',
     geminiApiKey: '',
@@ -236,8 +236,8 @@ const Settings = () => {
     const newTemplate = {
       _id: newId,
       name: `Template ${settings.emailTemplates.length + 1}`,
-      subject: `Referral Request | 6-Month SWE Intern | ${settings.name || 'Khushal Midha'}`,
-      body: `Greetings,\n\nI'm ${settings.name || 'Khushal Midha'}, a B.Tech CSE/AI student at IIIT Lucknow with an 8.7 CGPA. I completed a Software Development Engineer Internship at Coffeee.io, where I built assessment debugging modules in Java, Spring Boot, React, and PostgreSQL, and developed an evaluation AI assistant with Redis and Docker.\n\nI'm also an Expert on Codeforces (1809) and 5★ on CodeChef (2137), with 3000+ DSA problems solved. I've built projects including MediPulse, a multi-tenant healthcare platform, Jagrit, an AI-powered news platform, and IIITLBachat, an AI-driven finance platform.\n\nI'm currently looking for a 6-month Software Engineering Internship (SWE Intern) opportunity at {{companyName}} and would really appreciate a referral if there is a suitable opening.\n\nBest regards,\n${settings.name || 'Khushal Midha'}\nResume: {{resumeLink}}`,
+      subject: `Referral request | ${settings.name || 'Applicant'}`,
+      body: `Hello recruiting team,\n\nI am {{userName}}. I am interested in the {{role}} opportunity at {{companyName}}.\n\nPlease review my resume: {{resumeLink}}\n\nBest regards,\n{{userName}}`,
       isDefault: settings.emailTemplates.length === 0
     };
 
@@ -543,7 +543,7 @@ const Settings = () => {
               <label className="text-xs font-semibold text-zinc-300 block mb-1">Full Name</label>
               <input
                 type="text"
-                value={settings.candidateProfile?.fullName || 'Khushal Midha'}
+                value={settings.candidateProfile?.fullName || ''}
                 onChange={(e) => handleProfileChange('fullName', e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none"
               />
@@ -552,7 +552,7 @@ const Settings = () => {
               <label className="text-xs font-semibold text-zinc-300 block mb-1">Primary Email</label>
               <input
                 type="email"
-                value={settings.candidateProfile?.email || 'midhakhushal5@gmail.com'}
+                value={settings.candidateProfile?.email || ''}
                 onChange={(e) => handleProfileChange('email', e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none"
               />
@@ -561,7 +561,7 @@ const Settings = () => {
               <label className="text-xs font-semibold text-zinc-300 block mb-1">Mobile / Phone</label>
               <input
                 type="text"
-                value={settings.candidateProfile?.phone || '+91 90507 40836'}
+                value={settings.candidateProfile?.phone || ''}
                 onChange={(e) => handleProfileChange('phone', e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none"
               />
@@ -573,7 +573,7 @@ const Settings = () => {
               <label className="text-xs font-semibold text-zinc-300 block mb-1">College / Institution</label>
               <input
                 type="text"
-                value={settings.candidateProfile?.college || 'Indian Institute of Information Technology, Lucknow'}
+                value={settings.candidateProfile?.college || ''}
                 onChange={(e) => handleProfileChange('college', e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none"
               />
@@ -582,7 +582,7 @@ const Settings = () => {
               <label className="text-xs font-semibold text-zinc-300 block mb-1">Degree & Major</label>
               <input
                 type="text"
-                value={settings.candidateProfile?.degree || 'B.Tech in Computer Science and Artificial Intelligence'}
+                value={settings.candidateProfile?.degree || ''}
                 onChange={(e) => handleProfileChange('degree', e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none"
               />
@@ -591,7 +591,7 @@ const Settings = () => {
               <label className="text-xs font-semibold text-zinc-300 block mb-1">Graduation Date</label>
               <input
                 type="text"
-                value={settings.candidateProfile?.graduationDate || 'July 2027'}
+                value={settings.candidateProfile?.graduationDate || ''}
                 onChange={(e) => handleProfileChange('graduationDate', e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none"
               />
@@ -609,7 +609,7 @@ const Settings = () => {
                 </label>
                 <input
                   type="text"
-                  value={settings.candidateProfile?.expectedAnnualSalaryINR || '₹30,00,000'}
+                  value={settings.candidateProfile?.expectedAnnualSalaryINR || ''}
                   onChange={(e) => handleProfileChange('expectedAnnualSalaryINR', e.target.value)}
                   className="w-full bg-zinc-900 border border-zinc-750 rounded-lg p-2.5 text-xs font-mono font-bold text-yellow-400 focus:border-yellow-500 outline-none"
                 />
@@ -621,7 +621,7 @@ const Settings = () => {
                 </label>
                 <input
                   type="text"
-                  value={settings.candidateProfile?.expectedAnnualCtcLpa || '30 LPA'}
+                  value={settings.candidateProfile?.expectedAnnualCtcLpa || ''}
                   onChange={(e) => handleProfileChange('expectedAnnualCtcLpa', e.target.value)}
                   className="w-full bg-zinc-900 border border-zinc-750 rounded-lg p-2.5 text-xs font-mono font-bold text-yellow-400 focus:border-yellow-500 outline-none"
                 />
@@ -638,7 +638,7 @@ const Settings = () => {
               <label className="text-xs font-semibold text-zinc-300 block mb-1">Internship Company</label>
               <input
                 type="text"
-                value={settings.candidateProfile?.currentCompany || 'Coffeee.io'}
+                value={settings.candidateProfile?.currentCompany || ''}
                 onChange={(e) => handleProfileChange('currentCompany', e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none"
               />
@@ -647,7 +647,7 @@ const Settings = () => {
               <label className="text-xs font-semibold text-zinc-300 block mb-1">Internship Role</label>
               <input
                 type="text"
-                value={settings.candidateProfile?.currentRole || 'Software Development Engineer Intern'}
+                value={settings.candidateProfile?.currentRole || ''}
                 onChange={(e) => handleProfileChange('currentRole', e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none"
               />
@@ -656,7 +656,7 @@ const Settings = () => {
               <label className="text-xs font-semibold text-zinc-300 block mb-1">Internship Duration</label>
               <input
                 type="text"
-                value={settings.candidateProfile?.internshipDuration || 'June 2025 to August 2025'}
+                value={settings.candidateProfile?.internshipDuration || ''}
                 onChange={(e) => handleProfileChange('internshipDuration', e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-yellow-500 outline-none"
               />
@@ -833,7 +833,7 @@ const Settings = () => {
                   type="text"
                   value={currentTemplate.subject || ''}
                   onChange={(e) => handleTemplateChange('subject', e.target.value)}
-                  placeholder="Referral Request | 6-Month SWE Intern | Khushal Midha"
+                  placeholder="Referral request | Your name"
                   className="w-full bg-zinc-900 border border-zinc-700 text-zinc-100 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-yellow-500 outline-none"
                 />
               </div>
