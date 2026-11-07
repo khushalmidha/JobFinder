@@ -1,0 +1,33 @@
+{
+  "legalName": "Demandbase India Private Limited",
+  "rootDomain": "demandbase.com",
+  "aliases": [
+    "Demandbase"
+  ],
+  "careersUrl": "https://www.demandbase.com/company/careers",
+  "salaryEvidence": [
+    {
+      "role": "Software Engineer Trainee",
+      "roleFamily": "software_engineering",
+      "level": "entry",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Hyderabad, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.demandbase.com/company/careers",
+      "salaryBaseMinINR": null,
+      "salaryBaseMaxINR": null,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://mgit.ac.in/wp-content/uploads/2025/11/2024-25-Placements-Report.pdf",
+      "salarySourceType": "placement_report",
+      "reportedOn": "2025-11-15",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "MGIT placement report lists Demandbase Software Engineer Trainee hiring without distinguishing fixed base salary from total package."
+    }
+  ],
+  "proposedQualification": "research_needed",
+  "researchNotes": "Only overall package documented in MGIT placement sheet; fixed base breakdown is unavailable so marked research_needed without number fabrication."
+}

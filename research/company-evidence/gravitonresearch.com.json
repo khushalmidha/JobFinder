@@ -1,0 +1,34 @@
+{
+  "legalName": "Graviton Research Capital LLP",
+  "rootDomain": "gravitonresearch.com",
+  "aliases": [
+    "Graviton",
+    "Graviton Research"
+  ],
+  "careersUrl": "https://gravitonresearch.com/careers",
+  "salaryEvidence": [
+    {
+      "role": "Quantitative Developer",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Gurgaon, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://gravitonresearch.com/careers",
+      "salaryBaseMinINR": 4500000,
+      "salaryBaseMaxINR": 5500000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus placement observations document Graviton fresher Quant Developer fixed base salary of 45-55 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "HFT quantitative developer fresher role. Exceeds threshold, supported_estimate status."
+}

@@ -1,0 +1,33 @@
+{
+  "legalName": "Jane Street Capital",
+  "rootDomain": "janestreet.com",
+  "aliases": [
+    "Jane Street"
+  ],
+  "careersUrl": "https://www.janestreet.com/join-jane-street/open-roles",
+  "salaryEvidence": [
+    {
+      "role": "Software Engineering Graduate",
+      "roleFamily": "software_engineering",
+      "level": "entry",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Remote / Global (India eligible)",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.janestreet.com/join-jane-street/open-roles",
+      "salaryBaseMinINR": 5000000,
+      "salaryBaseMaxINR": 8000000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus recruitment data records Jane Street Graduate SWE compensation with base above 50 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Jane Street Graduate SWE; supported_estimate."
+}

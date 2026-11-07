@@ -1,0 +1,33 @@
+{
+  "legalName": "Coinbase India Services Private Limited",
+  "rootDomain": "coinbase.com",
+  "aliases": [
+    "Coinbase"
+  ],
+  "careersUrl": "https://www.coinbase.com/careers",
+  "salaryEvidence": [
+    {
+      "role": "Software Engineer 1",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Remote, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.coinbase.com/careers",
+      "salaryBaseMinINR": 1605000,
+      "salaryBaseMaxINR": 1800000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "2025 community dataset notes Coinbase SWE-1 base compensation of 16.05 LPA in India."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Coinbase India SWE-1 reported base 16.05 LPA. Needs independent corroboration."
+}

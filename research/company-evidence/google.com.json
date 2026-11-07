@@ -1,0 +1,41 @@
+{
+  "legalName": "Google India Private Limited",
+  "rootDomain": "google.com",
+  "aliases": [
+    "Google",
+    "Google India",
+    "Alphabet"
+  ],
+  "careersUrl": "https://www.google.com/about/careers/applications/jobs/results/?location=India",
+  "salaryEvidence": [
+    {
+      "role": null,
+      "roleFamily": null,
+      "level": null,
+      "experienceMin": null,
+      "experienceMax": null,
+      "location": null,
+      "indiaEligibility": null,
+      "indiaEligibilitySourceUrl": null,
+      "salaryBaseMinINR": 2373000,
+      "salaryBaseMaxINR": 2373000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://vce.ac.in/placements/2023-2024.php",
+      "salarySourceType": "placement_report",
+      "reportedOn": "2025-01-02",
+      "lastCheckedAt": "2026-11-07",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "College report records a base/basic pay point of INR 2373000 for google.com; exact entry-level software role/geography is not established."
+    }
+  ],
+  "proposedQualification": "research_needed",
+  "researchNotes": "Corrected source year/date. Historical Google basic pay is stated, but the report is stale and does not establish exact job title, level, experience or location. Prior city/upper-bound claims removed.",
+  "sourceReview": {
+    "reviewedOn": "2026-11-07",
+    "status": "incomplete_evidence",
+    "sourceYearCorrected": true,
+    "upperRangeWasUnsupported": true
+  }
+}

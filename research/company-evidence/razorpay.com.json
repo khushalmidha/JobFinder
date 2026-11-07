@@ -1,0 +1,33 @@
+{
+  "legalName": "Razorpay Software Private Limited",
+  "rootDomain": "razorpay.com",
+  "aliases": [
+    "Razorpay"
+  ],
+  "careersUrl": "https://razorpay.com/jobs",
+  "salaryEvidence": [
+    {
+      "role": "Software Development Engineer 1",
+      "roleFamily": "software_engineering",
+      "level": "SDE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://razorpay.com/jobs",
+      "salaryBaseMinINR": 1700000,
+      "salaryBaseMaxINR": 2000000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus placement dataset lists Razorpay SDE-1 base compensation at 17-20 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Razorpay SDE-1 base > 15 LPA; supported_estimate."
+}

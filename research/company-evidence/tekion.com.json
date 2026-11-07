@@ -1,0 +1,33 @@
+{
+  "legalName": "Tekion India Private Limited",
+  "rootDomain": "tekion.com",
+  "aliases": [
+    "Tekion"
+  ],
+  "careersUrl": "https://tekion.com/careers",
+  "salaryEvidence": [
+    {
+      "role": "Associate Software Engineer",
+      "roleFamily": "software_engineering",
+      "level": "entry",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru / Chennai, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://tekion.com/careers",
+      "salaryBaseMinINR": 1500000,
+      "salaryBaseMaxINR": 1800000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Placement data records Tekion Associate Software Engineer base starting at 15.0 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Fixed base lower bound of 15.0 LPA recorded in dataset; requires independent corroboration before qualification decision."
+}

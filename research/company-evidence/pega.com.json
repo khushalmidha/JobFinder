@@ -1,0 +1,40 @@
+{
+  "legalName": "Pegasystems Worldwide India Private Limited",
+  "rootDomain": "pega.com",
+  "aliases": [
+    "Pega",
+    "Pegasystems"
+  ],
+  "careersUrl": "https://www.pega.com/about/careers",
+  "salaryEvidence": [
+    {
+      "role": null,
+      "roleFamily": null,
+      "level": null,
+      "experienceMin": null,
+      "experienceMax": null,
+      "location": null,
+      "indiaEligibility": null,
+      "indiaEligibilitySourceUrl": null,
+      "salaryBaseMinINR": 1600000,
+      "salaryBaseMaxINR": 1600000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://www.vce.ac.in/placements/2025-2026.php",
+      "salarySourceType": "placement_report",
+      "reportedOn": "2026-05-25",
+      "lastCheckedAt": "2026-11-07",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "College report records a base/basic pay point of INR 1600000 for pega.com; exact entry-level software role/geography is not established."
+    }
+  ],
+  "proposedQualification": "research_needed",
+  "researchNotes": "Retain primary-source reported 16 LPA base as incomplete evidence. Exact role, job family, level, experience and location are not stated. Prior exact-role/city/upper-bound claims removed.",
+  "sourceReview": {
+    "reviewedOn": "2026-11-07",
+    "status": "incomplete_evidence",
+    "sourceYearCorrected": false,
+    "upperRangeWasUnsupported": true
+  }
+}

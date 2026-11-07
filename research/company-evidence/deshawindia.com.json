@@ -1,0 +1,34 @@
+{
+  "legalName": "D.E. Shaw India Private Limited",
+  "rootDomain": "deshawindia.com",
+  "aliases": [
+    "D.E. Shaw",
+    "DE Shaw"
+  ],
+  "careersUrl": "https://www.deshawindia.com/careers",
+  "salaryEvidence": [
+    {
+      "role": "Member Tech (Software Developer)",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Hyderabad / Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.deshawindia.com/careers",
+      "salaryBaseMinINR": 2200000,
+      "salaryBaseMaxINR": 2600000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus records document D.E. Shaw Member Tech fresher base salary of 22 to 26 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "DE Shaw Member Tech base exceeds 15 LPA threshold; supported_estimate."
+}

@@ -1,0 +1,40 @@
+{
+  "legalName": "Qualcomm India Private Limited",
+  "rootDomain": "qualcomm.com",
+  "aliases": [
+    "Qualcomm",
+    "Qualcomm Technologies"
+  ],
+  "careersUrl": "https://qualcomm.wd5.myworkdayjobs.com/External",
+  "salaryEvidence": [
+    {
+      "role": null,
+      "roleFamily": null,
+      "level": null,
+      "experienceMin": null,
+      "experienceMax": null,
+      "location": null,
+      "indiaEligibility": null,
+      "indiaEligibilitySourceUrl": null,
+      "salaryBaseMinINR": 1650000,
+      "salaryBaseMaxINR": 1650000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://www.vce.ac.in/placements/2025-2026.php",
+      "salarySourceType": "placement_report",
+      "reportedOn": "2026-05-25",
+      "lastCheckedAt": "2026-11-07",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "College report records a base/basic pay point of INR 1650000 for qualcomm.com; exact entry-level software role/geography is not established."
+    }
+  ],
+  "proposedQualification": "research_needed",
+  "researchNotes": "Retain primary-source reported 16.5 LPA base as incomplete evidence. Exact role, software job family, level, experience and location are not stated. Prior invented role/cities/upper bound removed.",
+  "sourceReview": {
+    "reviewedOn": "2026-11-07",
+    "status": "incomplete_evidence",
+    "sourceYearCorrected": false,
+    "upperRangeWasUnsupported": true
+  }
+}

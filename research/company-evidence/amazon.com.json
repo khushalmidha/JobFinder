@@ -1,0 +1,41 @@
+{
+  "legalName": "Amazon Development Centre (India) Private Limited",
+  "rootDomain": "amazon.com",
+  "aliases": [
+    "Amazon",
+    "Amazon India",
+    "AWS India"
+  ],
+  "careersUrl": "https://amazon.jobs/en/locations/india",
+  "salaryEvidence": [
+    {
+      "role": "Software Development Engineer (report label: S D E)",
+      "roleFamily": "software_engineering",
+      "level": null,
+      "experienceMin": null,
+      "experienceMax": null,
+      "location": null,
+      "indiaEligibility": null,
+      "indiaEligibilitySourceUrl": null,
+      "salaryBaseMinINR": 1967000,
+      "salaryBaseMaxINR": 1967000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://www.vce.ac.in/placements/2024-2025.php",
+      "salarySourceType": "placement_report",
+      "reportedOn": "2025-07-08",
+      "lastCheckedAt": "2026-11-07",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "College report records a base/basic pay point of INR 1967000 for amazon.com; exact entry-level software role/geography is not established."
+    }
+  ],
+  "proposedQualification": "research_needed",
+  "researchNotes": "Corrected source year/date. Reported SDE base is historical/stale; exact level, experience and location are unestablished. Prior SDE-1, city and upper-bound claims removed.",
+  "sourceReview": {
+    "reviewedOn": "2026-11-07",
+    "status": "incomplete_evidence",
+    "sourceYearCorrected": true,
+    "upperRangeWasUnsupported": true
+  }
+}
