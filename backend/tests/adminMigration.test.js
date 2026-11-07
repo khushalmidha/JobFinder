@@ -6,6 +6,8 @@ const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const User = require('../models/User');
 const Audit = require('../models/AdminRoleMigration');
+const Challenge = require('../models/EmailVerificationChallenge');
+const Receipt = require('../models/EmailVerificationReceipt');
 const { promoteVerifiedAdmin, snapshot } = require('../services/adminRoleMigrationService');
 const { parseArgs } = require('../scripts/promoteVerifiedAdmin');
 let mongo, server, base, owner;
@@ -13,16 +15,18 @@ const secret = 'admin-migration-synthetic-auth-secret';
 const now = new Date('2026-11-07T10:00:00Z');
 const verifiedAt = new Date('2026-11-06T10:00:00Z');
 const verification = email => ({ emailVerified: true, emailVerifiedAt: verifiedAt,
-  emailVerificationProof: { method: 'synthetic_identity_test', issuer: 'fixture.example', subject: email, verifiedAt } });
+  emailVerificationProof: { method: 'email_code', issuer: 'jobfinder_trusted_server_sender', subject: email, verifiedAt, challengeId:require('node:crypto').randomUUID() } });
 async function fixture(email, extra = {}) {
-  return User.create({ name: 'Synthetic Migration User', email, passwordHash: 'fixture-not-a-real-password', ...extra });
+  const user = await User.create({ name: 'Synthetic Migration User', email, passwordHash: 'fixture-not-a-real-password', ...extra });
+  if(extra.emailVerified && extra.emailVerificationProof){await Challenge.create({_id:user._id,email,generation:extra.emailVerificationProof.challengeId,state:'consumed',consumedAt:extra.emailVerifiedAt});await Receipt.create({_id:extra.emailVerificationProof.challengeId,userId:user._id,email,consumedAt:extra.emailVerifiedAt});}
+  return user;
 }
 before(async () => {
   process.env.JWT_SECRET = secret;
   process.env.OUTREACH_SENDING_ENABLED = 'false';
   mongo = await MongoMemoryServer.create();
   await mongoose.connect(mongo.getUri());
-  await Promise.all([User.init(), Audit.init()]);
+  await Promise.all([User.init(), Audit.init(), Challenge.init(), Receipt.init()]);
   owner = await fixture('settings-owner@fixture.example');
   const app = express(); app.use(express.json()); app.use('/auth', require('../routes/auth'));
   await new Promise(resolve => { server = app.listen(0, '127.0.0.1', resolve); });
@@ -125,7 +129,9 @@ test('pending migration refuses changed verification evidence and records failur
   const email = 'changed-evidence@fixture.example'; const user = await fixture(email, verification(email));
   const migrationId = 'changed-evidence-migration-001';
   await Audit.create({ _id: migrationId, userId: user._id, email, actor: 'synthetic_operator', status: 'pending', before: snapshot(user.toObject()), leaseUntil: new Date(now.getTime() - 1000) });
-  await User.updateOne({ _id: user._id }, { $set: { 'emailVerificationProof.issuer': 'different-fixture.example' } });
+  await User.updateOne({ _id: user._id }, { $set: { 'emailVerificationProof.challengeId': '00000000-0000-4000-8000-000000000002' } });
+  await Challenge.updateOne({_id:user._id},{$set:{generation:'00000000-0000-4000-8000-000000000002'}});
+  await Receipt.create({_id:'00000000-0000-4000-8000-000000000002',userId:user._id,email,consumedAt:verifiedAt});
   await assert.rejects(promoteVerifiedAdmin({ email, migrationId, apply: true, now }), /changed since/);
   assert.equal((await User.findById(user._id)).role, 'user');
   assert.equal((await Audit.findById(migrationId)).status, 'failed');

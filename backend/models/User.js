@@ -81,11 +81,11 @@ const candidateProfileSchema = new mongoose.Schema({
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  // Written only by a trusted future verification integration, never settings/signup.
+  // Written only after a trusted server-delivered challenge, never settings/signup.
   emailVerified: { type: Boolean, default: false },
   emailVerifiedAt: { type: Date },
   emailVerificationProof: {
-    type: new mongoose.Schema({ method: String, issuer: String, subject: String, verifiedAt: Date }, { _id: false }),
+    type: new mongoose.Schema({ method: String, issuer: String, subject: String, verifiedAt: Date, challengeId: String }, { _id: false }),
     default: undefined
   },
   adminRoleMigrationId: { type: String },

@@ -1,10 +1,11 @@
 const crypto = require('node:crypto');
 const User = require('../models/User');
 const Audit = require('../models/AdminRoleMigration');
+const Receipt = require('../models/EmailVerificationReceipt');
 
 function proofHash(proof) {
   return crypto.createHash('sha256').update(JSON.stringify({
-    method: proof?.method, issuer: proof?.issuer, subject: proof?.subject,
+    method: proof?.method, issuer: proof?.issuer, subject: proof?.subject, challengeId: proof?.challengeId,
     verifiedAt: proof?.verifiedAt ? new Date(proof.verifiedAt).toISOString() : null
   })).digest('hex');
 }
@@ -14,6 +15,7 @@ function verificationProblem(user, now) {
   if (!user.emailVerifiedAt || !Number.isFinite(date.getTime()) || date > now) return 'Stored verification date must be valid and not in the future';
   const proof = user.emailVerificationProof;
   if (!proof || !['method', 'issuer', 'subject'].every(key => typeof proof[key] === 'string' && proof[key].trim() && proof[key].length <= 500)) return 'Stored verification evidence is missing or incomplete';
+  if (proof.method !== 'email_code' || proof.issuer !== 'jobfinder_trusted_server_sender' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(proof.challengeId || '')) return 'Verification evidence must come from a trusted server-delivered challenge';
   if (proof.subject !== user.email) return 'Verification evidence subject does not match the account email';
   const evidenceDate = new Date(proof.verifiedAt);
   if (!proof.verifiedAt || !Number.isFinite(evidenceDate.getTime()) || evidenceDate > now || evidenceDate.getTime() !== date.getTime()) return 'Verification evidence timestamp does not match the stored verification';
@@ -37,6 +39,7 @@ async function promoteVerifiedAdmin({ email, migrationId, apply = false, now = n
   if (existing && (String(existing.userId) !== String(user._id) || existing.email !== email)) throw new Error('Migration ID already belongs to a different account');
   const problem = verificationProblem(user, now);
   if (problem) return { mode: apply ? 'apply' : 'preview', eligible: false, applied: false, migrationId, reason: problem };
+  if (!await Receipt.exists({_id:user.emailVerificationProof.challengeId,userId:user._id,email:user.email,consumedAt:user.emailVerifiedAt})) return { mode:apply?'apply':'preview',eligible:false,applied:false,migrationId,reason:'Matching consumed verification challenge receipt is missing' };
   if (existing?.status === 'applied') {
     if (user.role !== 'admin' || user.adminRoleMigrationId !== migrationId) throw new Error('Applied audit conflicts with current account state; inspect manually');
     return { mode: apply ? 'apply' : 'preview', eligible: true, applied: true, idempotent: true, migrationId, auditStatus: 'applied' };
@@ -76,6 +79,7 @@ async function promoteVerifiedAdmin({ email, migrationId, apply = false, now = n
     const updated = await User.findOneAndUpdate({ _id: current._id, email, role: 'user', emailVerified: true,
       emailVerifiedAt: current.emailVerifiedAt, 'emailVerificationProof.method': proof.method,
       'emailVerificationProof.issuer': proof.issuer, 'emailVerificationProof.subject': proof.subject,
+      'emailVerificationProof.challengeId': proof.challengeId,
       'emailVerificationProof.verifiedAt': proof.verifiedAt, adminRoleMigrationId: { $exists: false } },
     { $set: { role: 'admin', adminRoleMigrationId: migrationId } }, { returnDocument: 'after', runValidators: true }).lean();
     if (!updated) throw new Error('Account changed concurrently; no promotion applied by this attempt');

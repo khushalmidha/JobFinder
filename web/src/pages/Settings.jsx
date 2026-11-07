@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
+import AccountEmailVerification from '../components/AccountEmailVerification';
 import { 
   Save, User, Key, Mail, FileText, CheckCircle, Plus, Trash2, 
   Copy, Star, AlertCircle, RefreshCw, Check, ExternalLink, ShieldCheck, 
@@ -489,6 +490,7 @@ const Settings = () => {
         </button>
       </div>
 
+      <AccountEmailVerification />
       {status && (
         <div className={`p-4 mb-6 rounded-xl border text-sm font-medium flex items-center shadow-sm animate-in fade-in duration-200 ${
           status.includes('success') 

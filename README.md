@@ -1,5 +1,7 @@
 # ColdMail Pilot
 
+Latest follow-up: [reviewed Antigravity handoff](docs/reviews/ANTIGRAVITY_INTEGRATION_20261107.md) and [Settings account-email verification](docs/ACCOUNT_EMAIL_VERIFICATION.md). Verification delivery requires an operator-configured trusted sender and remains off by default; no account was automatically verified or promoted.
+
 Scheduled outreach is available at `/campaigns`; region-separated company staging and administrator dry-run import are at `/companies`. Read [current validation](docs/VALIDATION_20261107.md), [scheduler operations/rollback](docs/SCHEDULED_OUTREACH.md), [company import](docs/COMPANY_IMPORT.md) and [verified admin migration](docs/ADMIN_ROLE_MIGRATION.md). Sending and workers remain disabled by default. Live admin promotion/import are pending genuine account email verification and the owner's final import approval.
 
 JobFinder now includes a recruitment research workspace at `/research`: dated fixed-base salary evidence, professional contact provenance, local budgeted research and editable outreach drafts. Read [the acceptance report](docs/ACCEPTANCE_REPORT.md) and [local operations guide](docs/COST_AND_OPERATIONS.md) before use. Paid research, automatic scheduling and outreach sending default to off. Build/load `extension/dist` for the reviewed-profile application assistant; legacy signed/ZIP artifacts are outdated.
