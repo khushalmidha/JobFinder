@@ -14,7 +14,11 @@
     "test:recruiter": "node --test tests/researchPolicy.test.js",
     "test:discovery": "node --test tests/publicEmailDiscovery.test.js",
     "test:browser": "node tests/browserSmoke.js",
-    "audit:emails": "node scripts/auditStoredEmails.js"
+    "audit:emails": "node scripts/auditStoredEmails.js",
+    "test:campaigns": "node --test tests/campaigns.test.js",
+    "test:imports": "node --test tests/companyImport.test.js",
+    "import:companies": "node scripts/importCompanies.js",
+    "admin:promote": "node scripts/promoteVerifiedAdmin.js"
   },
   "keywords": [],
   "author": "",

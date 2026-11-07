@@ -81,6 +81,14 @@ const candidateProfileSchema = new mongoose.Schema({
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
+  // Written only by a trusted future verification integration, never settings/signup.
+  emailVerified: { type: Boolean, default: false },
+  emailVerifiedAt: { type: Date },
+  emailVerificationProof: {
+    type: new mongoose.Schema({ method: String, issuer: String, subject: String, verifiedAt: Date }, { _id: false }),
+    default: undefined
+  },
+  adminRoleMigrationId: { type: String },
   passwordHash: { type: String, required: true },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   isSharedContactApproved: { type: Boolean, default: false },
