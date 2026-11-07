@@ -1,0 +1,46 @@
+const express = require('express');
+const mongoose = require('mongoose');
+const auth = require('../middleware/auth');
+const service = require('../services/companyImportService');
+const Run = require('../models/CompanyImportRun');
+const Prospect = require('../models/CompanyProspect');
+const Lead = require('../models/PublicRecruitmentLead');
+const router = express.Router();
+router.use(auth);
+const wrap = fn => async (req, res) => { try { await fn(req, res); } catch (error) { res.status(error.status || 400).json({ error: error.code === 11000 ? 'Another company import is active; retry after it completes' : error.message }); } };
+const validId = id => { if (!mongoose.isValidObjectId(id)) throw new Error('Invalid import ID'); return id; };
+router.get('/source-summary', wrap(async (req, res) => res.json(service.sourceSummary())));
+router.get('/prospects', wrap(async (req, res) => {
+  const query = {};
+  if (['India', 'International_Visa_Research'].includes(req.query.region)) query.regionGroup = req.query.region;
+  if (req.query.companyId) query.companyId = validId(req.query.companyId);
+  const rows = await Prospect.find(query).sort({ companyName: 1 }).limit(2000).lean();
+  const term = String(req.query.q || '').trim().toLowerCase();
+  const prospects = term ? rows.filter(row => row.companyName.toLowerCase().includes(term) || String(row.raw?.targetRoles || '').toLowerCase().includes(term)) : rows;
+  res.json({ prospects, count: prospects.length });
+}));
+router.get('/leads', wrap(async (req, res) => res.json({ leads: await Lead.find().sort({ companyName: 1 }).limit(2000).lean(), mailboxVerified: 0, readyToSend: 0 })));
+router.post('/leads/:id/contact', wrap(async (req,res) => {
+  if(req.body.reviewed!==true)throw new Error('Explicit source review required before saving this lead');
+  const lead=await Lead.findById(validId(req.params.id)).lean();
+  if(!lead || lead.listingStatus!=='official_publicly_listed' || !lead.companyId || !lead.checkedAt || Date.now()-new Date(lead.checkedAt)>30*86400000)throw new Error('Fresh official employer publication and resolved company identity required');
+  const Contact=require('../models/Contact'), Company=require('../models/Company');
+  const company=await Company.findById(lead.companyId).lean();
+  if(!company||company.importRollbackArchivedAt)throw new Error('Active resolved company required');
+  const email=lead.email.trim().toLowerCase();
+  const existing=await Contact.findOne({userId:req.user._id,email:{$regex:`^${email.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,$options:'i'}}).lean();
+  if(existing)return res.json({contact:existing,created:false,mailboxVerified:false,readyToSend:false,message:'Existing contact and all suppression/history preserved'});
+  const stableId=new mongoose.Types.ObjectId(require('node:crypto').createHash('sha256').update(`public-lead:${req.user._id}:${email}`).digest('hex').slice(0,24));
+  const contact=await Contact.findOneAndUpdate({_id:stableId,userId:req.user._id},{$setOnInsert:{userId:req.user._id,companyId:company._id,company:company.name,email,role:'Public recruiting inbox',source:'career_crawler',verificationStatus:'publicly_sourced',deliverabilityStatus:'unverified',inferenceFlag:false,provenance:[{url:lead.evidenceUrl,provider:'reviewed_official_public_page',observedAt:lead.checkedAt}],notes:'Owner reviewed official publication; individual mailbox existence remains unverified.'}},{upsert:true,returnDocument:'after',runValidators:true});
+  res.json({contact,created:true,mailboxVerified:false,readyToSend:false,message:'Saved as sourced research contact. Campaign approval and eligibility checks still required.'});
+}));
+router.post('/preview', wrap(async (req, res) => res.json(await service.previewImport(req.user._id, req.body.source || undefined))));
+router.get('/:id', wrap(async (req, res) => {
+  await service.requireAdmin(req.user._id);
+  const run = await Run.findOne({ _id: validId(req.params.id), userId: req.user._id }).lean();
+  if (!run) return res.status(404).json({ error: 'Import not found' });
+  res.json(run);
+}));
+router.post('/:id/apply', wrap(async (req, res) => res.json(await service.applyImport(req.user._id, validId(req.params.id), req.body.digest))));
+router.post('/:id/rollback', wrap(async (req, res) => res.json(await service.rollbackImport(req.user._id, validId(req.params.id)))));
+module.exports = router;

@@ -1,0 +1,46 @@
+{
+  "checkedOn": "2026-11-07",
+  "public_recruiting_contacts": [
+    {
+      "companyName": "Zeta",
+      "email": "careers@zeta.tech",
+      "officialEvidenceUrl": "https://www.zeta.tech/in/careers/work-with-us",
+      "evidenceExcerpt": "Email careers@zeta.tech",
+      "assessment": "official_publicly_listed",
+      "mailboxVerified": false,
+      "readyToSend": false,
+      "salaryQualified": false,
+      "requiresCodexReview": true,
+      "uncertainty": "Supplied batch contains both Zeta and Zeta Tech; resolve employer identity before linking. No verified entry-level fixed-base offer or individual mailbox check."
+    }
+  ],
+  "limited_searches_without_accepted_new_recruiting_inbox": [
+    "Chargebee",
+    "Hasura",
+    "Freshworks",
+    "Postman",
+    "Harness",
+    "Atlan",
+    "Sigmoid",
+    "Unbxd",
+    "Fyle"
+  ],
+  "excluded_examples": [
+    {
+      "company": "Postman",
+      "source": "https://www.postman.com/company/careers/",
+      "reason": "Accommodations inbox is for accessibility support, not general cold applications."
+    },
+    {
+      "company": "Harness",
+      "source": "https://www.harness.io/company/careers",
+      "reason": "Security reporting inbox is not a recruiting contact."
+    },
+    {
+      "company": "Chargebee",
+      "source": "https://www.chargebee.com/company/careers/join-us/",
+      "reason": "Page invites email applications but did not expose a usable recruiting address in the inspected result. Similar-name Chargebees is a different employer."
+    }
+  ],
+  "integration": "Reviewed research artifact only. Original 733-row batch/seven-inbox counts unchanged. No live database writes, sending or paid provider calls."
+}

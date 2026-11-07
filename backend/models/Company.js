@@ -14,6 +14,10 @@ const companySchema = new mongoose.Schema({
   entryLevelCtcMin: { type: Number, default: null },
   entryLevelCtcMax: { type: Number, default: null },
   aliases: [String],
+  // Spreadsheet prospects are not salary evidence or proof of a verified domain.
+  importRunId: { type: mongoose.Schema.Types.ObjectId, ref: 'CompanyImportRun' },
+  importRollbackArchivedAt: Date,
+  regionGroups: { type: [String], default: [] },
   salaryEvidence: [{
     role: String, roleFamily: String, level: String,
     experienceMin: Number, experienceMax: Number, location: String,
@@ -27,7 +31,7 @@ const companySchema = new mongoose.Schema({
     type: String, 
     default: '20_to_30' 
   },
-  careersUrl: { type: String, required: true },
+  careersUrl: { type: String, default: '' },
   atsType: { 
     type: String, 
     default: 'custom'
