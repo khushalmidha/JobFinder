@@ -8,27 +8,33 @@
   "careersUrl": "https://www.pega.com/about/careers",
   "salaryEvidence": [
     {
-      "role": "Associate Software Engineer",
-      "roleFamily": "software_engineering",
-      "level": "entry",
-      "experienceMin": 0,
-      "experienceMax": 2,
-      "location": "Hyderabad / Bengaluru, India",
-      "indiaEligibility": true,
-      "indiaEligibilitySourceUrl": "https://www.pega.com/about/careers",
+      "role": null,
+      "roleFamily": null,
+      "level": null,
+      "experienceMin": null,
+      "experienceMax": null,
+      "location": null,
+      "indiaEligibility": null,
+      "indiaEligibilitySourceUrl": null,
       "salaryBaseMinINR": 1600000,
-      "salaryBaseMaxINR": 1650000,
+      "salaryBaseMaxINR": 1600000,
       "currency": "INR",
       "payPeriod": "year",
       "baseVsCTC": "fixed_base",
       "salarySourceUrl": "https://www.vce.ac.in/placements/2025-2026.php",
       "salarySourceType": "placement_report",
       "reportedOn": "2026-05-25",
-      "lastCheckedAt": "2026-11-05",
-      "evidenceConfidence": "high",
-      "evidenceExcerpt": "Vasavi College of Engineering placement documentation separates Pega Associate Software Engineer annual fixed base of Rs 16,00,000 (16.0 LPA)."
+      "lastCheckedAt": "2026-11-07",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "College report records a base/basic pay point of INR 1600000 for pega.com; exact entry-level software role/geography is not established."
     }
   ],
-  "proposedQualification": "qualified",
-  "researchNotes": "Base pay of 16.0 LPA is verified in Vasavi college audit report, strictly above 15 LPA."
+  "proposedQualification": "research_needed",
+  "researchNotes": "Retain primary-source reported 16 LPA base as incomplete evidence. Exact role, job family, level, experience and location are not stated. Prior exact-role/city/upper-bound claims removed.",
+  "sourceReview": {
+    "reviewedOn": "2026-11-07",
+    "status": "incomplete_evidence",
+    "sourceYearCorrected": false,
+    "upperRangeWasUnsupported": true
+  }
 }

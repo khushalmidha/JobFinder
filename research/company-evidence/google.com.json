@@ -9,27 +9,33 @@
   "careersUrl": "https://www.google.com/about/careers/applications/jobs/results/?location=India",
   "salaryEvidence": [
     {
-      "role": "Software Engineer",
-      "roleFamily": "software_engineering",
-      "level": "SWE-1",
-      "experienceMin": 0,
-      "experienceMax": 2,
-      "location": "Bengaluru / Hyderabad, India",
-      "indiaEligibility": true,
-      "indiaEligibilitySourceUrl": "https://www.google.com/about/careers/applications/jobs/results/?location=India",
+      "role": null,
+      "roleFamily": null,
+      "level": null,
+      "experienceMin": null,
+      "experienceMax": null,
+      "location": null,
+      "indiaEligibility": null,
+      "indiaEligibilitySourceUrl": null,
       "salaryBaseMinINR": 2373000,
-      "salaryBaseMaxINR": 2500000,
+      "salaryBaseMaxINR": 2373000,
       "currency": "INR",
       "payPeriod": "year",
       "baseVsCTC": "fixed_base",
-      "salarySourceUrl": "https://www.vce.ac.in/placements/2025-2026.php",
+      "salarySourceUrl": "https://vce.ac.in/placements/2023-2024.php",
       "salarySourceType": "placement_report",
-      "reportedOn": "2026-05-25",
-      "lastCheckedAt": "2026-11-05",
-      "evidenceConfidence": "high",
-      "evidenceExcerpt": "Vasavi College of Engineering official 2025-26 placement report verifies Google SDE annual base pay of Rs 23,73,000 (23.73 LPA) out of Rs 52 LPA CTC."
+      "reportedOn": "2025-01-02",
+      "lastCheckedAt": "2026-11-07",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "College report records a base/basic pay point of INR 2373000 for google.com; exact entry-level software role/geography is not established."
     }
   ],
-  "proposedQualification": "qualified",
-  "researchNotes": "Verified from Vasavi College of Engineering official placement audit report published May 2026. Fixed base component strictly exceeds 15 LPA threshold."
+  "proposedQualification": "research_needed",
+  "researchNotes": "Corrected source year/date. Historical Google basic pay is stated, but the report is stale and does not establish exact job title, level, experience or location. Prior city/upper-bound claims removed.",
+  "sourceReview": {
+    "reviewedOn": "2026-11-07",
+    "status": "incomplete_evidence",
+    "sourceYearCorrected": true,
+    "upperRangeWasUnsupported": true
+  }
 }
