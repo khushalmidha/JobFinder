@@ -1,4 +1,4 @@
-const { ImapFlow } = require('imapflow');
+const { createMailbox } = require('../services/secureMailboxService');
 const simpleParser = require('mailparser').simpleParser;
 const User = require('../models/User');
 
@@ -7,6 +7,7 @@ const User = require('../models/User');
  */
 exports.getLatestOtp = async (req, res) => {
   const userId = req.user._id;
+  let client, lock;
   try {
     const user = await User.findById(userId);
 
@@ -16,20 +17,10 @@ exports.getLatestOtp = async (req, res) => {
       });
     }
 
-    const client = new ImapFlow({
-      host: user.smtpConfig.host || 'imap.gmail.com',
-      port: 993,
-      secure: true,
-      auth: {
-        user: user.smtpConfig.user,
-        pass: user.smtpConfig.pass
-      },
-      logger: false,
-      tls: { rejectUnauthorized: false }
-    });
+    client = await createMailbox(user.smtpConfig);
 
     await client.connect();
-    const lock = await client.getMailboxLock('INBOX');
+    lock = await client.getMailboxLock('INBOX');
 
     let detectedOtp = null;
     let matchDetails = null;
@@ -37,7 +28,7 @@ exports.getLatestOtp = async (req, res) => {
     try {
       // Search messages received in the last 15 minutes
       const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-      let searchResult = await client.search({ since: fifteenMinutesAgo });
+      let searchResult = (await client.search({ since: fifteenMinutesAgo })).slice(-20);
 
       if (!searchResult || searchResult.length === 0) {
         const total = client.mailbox?.exists || 0;
@@ -67,6 +58,7 @@ exports.getLatestOtp = async (req, res) => {
       ];
 
       for (const item of fetchedMessages) {
+        if (!item.internalDate || new Date(item.internalDate) < fifteenMinutesAgo || new Date(item.internalDate) > new Date()) continue;
         const parsed = await simpleParser(item.source);
         const subject = parsed.subject || '';
         const text = (parsed.text || '') + ' ' + (parsed.html || '');
@@ -97,8 +89,7 @@ exports.getLatestOtp = async (req, res) => {
         if (detectedOtp) break;
       }
     } finally {
-      lock.release();
-      await client.logout();
+      lock.release(); lock = null;
     }
 
     if (detectedOtp) {
@@ -123,5 +114,8 @@ exports.getLatestOtp = async (req, res) => {
       success: false,
       error: 'Failed to access inbox. Ensure your Gmail App Password allows IMAP: ' + error.message
     });
+  } finally {
+    if (lock) lock.release();
+    if (client) await client.logout().catch(() => client.close());
   }
 };

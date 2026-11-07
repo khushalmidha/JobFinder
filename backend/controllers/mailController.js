@@ -1,7 +1,5 @@
 const nodemailer = require('nodemailer');
 const dns = require('dns');
-const { lookup } = dns.promises;
-const lookupSmtpHost = (hostname, options, callback) => dns.lookup(hostname, { ...options, family: 4 }, callback);
 const User = require('../models/User');
 const Contact = require('../models/Contact');
 const MailLog = require('../models/MailLog');
@@ -87,35 +85,23 @@ exports.testConnection = async (req, res) => {
       return res.status(400).json({ error: 'SMTP configuration is missing. Please save or enter your SMTP credentials first.' });
     }
 
-    let smtpHostIp = targetSmtp.host || 'smtp.gmail.com';
-    try {
-      const { address } = await lookup(smtpHostIp, { family: 4 });
-      if (address) smtpHostIp = address;
-    } catch (e) {
-      console.warn("Failed to manually resolve SMTP host to IPv4", e);
-    }
-
+    const { isPublicIP } = require('../services/safePublicFetch');
+    const host = targetSmtp.host || 'smtp.gmail.com';
+    const port = Number(targetSmtp.port) || 465;
+    if (![465, 587].includes(port)) return res.status(400).json({ error: 'Use TLS port 465 or STARTTLS port 587.' });
+    const records = await dns.promises.lookup(host, { all: true, family: 4 });
+    if (!records.length || records.some(r => !isPublicIP(r.address))) return res.status(400).json({ error: 'Private or unsupported SMTP destination.' });
+    const address = records[0].address;
     const transporter = nodemailer.createTransport({
-      host: smtpHostIp,
-      port: Number(targetSmtp.port) || 465,
-      secure: Number(targetSmtp.port) === 465,
-      auth: {
-        user: targetSmtp.user,
-        pass: targetSmtp.pass,
-      },
-      tls: {
-        rejectUnauthorized: false,
-        servername: targetSmtp.host || 'smtp.gmail.com'
-      },
-      family: 4,
-      lookup: lookupSmtpHost,
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 5000
+      host, port, secure: port === 465, requireTLS: true,
+      auth: { user: targetSmtp.user, pass: targetSmtp.pass },
+      tls: { rejectUnauthorized: true, servername: host },
+      lookup: (_host, options, callback) => callback(null, options?.all ? [{ address, family: 4 }] : address, options?.all ? undefined : 4),
+      connectionTimeout: 5000, greetingTimeout: 5000, socketTimeout: 5000
     });
 
     console.log(`Starting SMTP verify for user: ${targetSmtp.user}`);
-    await transporter.verify();
+    try { await transporter.verify(); } finally { transporter.close(); }
     console.log(`SMTP verify success for: ${targetSmtp.user}`);
     res.json({ message: `SMTP connected successfully for ${targetSmtp.user}!` });
   } catch (error) {
