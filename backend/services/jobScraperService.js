@@ -1,6 +1,6 @@
 const Company = require('../models/Company');
 const JobOpening = require('../models/JobOpening');
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 
 // Salary estimator logic on the backend (Strictly Freshers CTC > 12 LPA)
 const SALARY_RANGES = {
@@ -471,35 +471,60 @@ async function crawlAllCompanies() {
 async function generateJobSpreadsheet() {
   const jobs = await JobOpening.find().sort({ detectedAt: -1 }).lean();
 
-  const rows = jobs.map((j, idx) => ({
-    '#': idx + 1,
-    'Priority': j.priority ? j.priority.toUpperCase() : 'NORMAL',
-    'Opening Type': j.isInternationalRemote ? '🌍 International Remote Intern' : (j.jobType === '6_months_internship' ? '⭐ 6-Month Internship' : (j.jobType === 'internship' ? 'Internship' : 'Full-Time')),
-    'Company': j.company,
-    'Job Title': j.title,
-    'Location': j.location,
-    'Remote?': j.isRemote ? 'Yes' : 'No',
-    'International Remote?': j.isInternationalRemote ? 'Yes' : 'No',
-    'India?': j.isIndia ? 'Yes' : 'No',
-    'Fresher Eligible?': j.isFresherEligible ? 'Yes' : 'No',
-    'Category': j.roleCategory,
-    'Expected CTC': j.expectedCtc,
-    'Expected Base Salary': j.expectedBase,
-    'Monthly Stipend': j.stipendMonthly || 'N/A',
-    'Company Tier': j.tier,
-    'Best Resume Variant': j.matchedResumeId,
-    'Fit Score (%)': j.fitScore,
-    'Status': j.status,
-    'Careers URL': j.url,
-    'Apply URL': j.applyUrl,
-    'Detected Date': new Date(j.detectedAt).toLocaleDateString('en-IN')
-  }));
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Live Job Openings');
 
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Live Job Openings');
+  worksheet.columns = [
+    { header: '#', key: 'idx', width: 6 },
+    { header: 'Priority', key: 'priority', width: 14 },
+    { header: 'Opening Type', key: 'type', width: 28 },
+    { header: 'Company', key: 'company', width: 24 },
+    { header: 'Job Title', key: 'title', width: 30 },
+    { header: 'Location', key: 'location', width: 24 },
+    { header: 'Remote?', key: 'isRemote', width: 12 },
+    { header: 'International Remote?', key: 'isInternationalRemote', width: 22 },
+    { header: 'India?', key: 'isIndia', width: 12 },
+    { header: 'Fresher Eligible?', key: 'isFresherEligible', width: 18 },
+    { header: 'Category', key: 'roleCategory', width: 20 },
+    { header: 'Expected CTC', key: 'expectedCtc', width: 18 },
+    { header: 'Expected Base Salary', key: 'expectedBase', width: 20 },
+    { header: 'Monthly Stipend', key: 'stipendMonthly', width: 18 },
+    { header: 'Company Tier', key: 'tier', width: 26 },
+    { header: 'Best Resume Variant', key: 'matchedResumeId', width: 20 },
+    { header: 'Fit Score (%)', key: 'fitScore', width: 14 },
+    { header: 'Status', key: 'status', width: 14 },
+    { header: 'Careers URL', key: 'url', width: 35 },
+    { header: 'Apply URL', key: 'applyUrl', width: 35 },
+    { header: 'Detected Date', key: 'detectedDate', width: 16 }
+  ];
 
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  jobs.forEach((j, idx) => {
+    worksheet.addRow({
+      idx: idx + 1,
+      priority: j.priority ? j.priority.toUpperCase() : 'NORMAL',
+      type: j.isInternationalRemote ? '🌍 International Remote Intern' : (j.jobType === '6_months_internship' ? '⭐ 6-Month Internship' : (j.jobType === 'internship' ? 'Internship' : 'Full-Time')),
+      company: j.company,
+      title: j.title,
+      location: j.location,
+      isRemote: j.isRemote ? 'Yes' : 'No',
+      isInternationalRemote: j.isInternationalRemote ? 'Yes' : 'No',
+      isIndia: j.isIndia ? 'Yes' : 'No',
+      isFresherEligible: j.isFresherEligible ? 'Yes' : 'No',
+      roleCategory: j.roleCategory,
+      expectedCtc: j.expectedCtc,
+      expectedBase: j.expectedBase,
+      stipendMonthly: j.stipendMonthly || 'N/A',
+      tier: j.tier,
+      matchedResumeId: j.matchedResumeId,
+      fitScore: j.fitScore,
+      status: j.status,
+      url: j.url,
+      applyUrl: j.applyUrl,
+      detectedDate: new Date(j.detectedAt).toLocaleDateString('en-IN')
+    });
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
   return buffer;
 }
 

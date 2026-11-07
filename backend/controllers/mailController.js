@@ -336,6 +336,25 @@ exports.sendBatch = async (req, res) => {
           const subject = renderTemplate(subjectOverride || defaultSubject, user, contact, jobLinkOverride, roleOverride);
           const body = renderTemplate(bodyOverride || defaultBody, user, contact, jobLinkOverride, roleOverride);
 
+          // Exact approval assertion check before dispatch
+          const { assertApprovedMessage } = require('../services/outreachApprovalService');
+          assertApprovedMessage(latestContact, subject, body, req.body.approvedMessages);
+
+          // Persistent duplicate-send protection check
+          const duplicateSent = await MailLog.findOne({
+            userId,
+            status: { $in: ['sent', 'delivered'] },
+            $or: [
+              { contactId: latestContact._id },
+              { recipientEmail: latestContact.email.toLowerCase().trim() }
+            ]
+          }).lean();
+          if (duplicateSent) {
+            console.warn(`🛑 Duplicate-send blocked for ${latestContact.email}: already sent on ${duplicateSent.sentAt}`);
+            await Contact.findByIdAndUpdate(latestContact._id, { status: 'sent' });
+            return;
+          }
+
           let messageId = '';
           if (batchObj.useBrevo) {
             const result = await sendWithBrevo(user.brevoApiKey, {
@@ -356,15 +375,17 @@ exports.sendBatch = async (req, res) => {
             messageId = info.messageId;
           }
 
-          // Log success with senderEmail
+          // Log success with senderEmail and recipientEmail
           await MailLog.create({
             userId,
             contactId: contact._id,
+            recipientEmail: contact.email.toLowerCase().trim(),
             senderEmail: currentSender,
             subject,
             body,
             status: 'sent',
-            providerMessageId: messageId
+            providerMessageId: messageId,
+            sentAt: new Date()
           });
 
           await Contact.findByIdAndUpdate(contact._id, { status: 'sent', lastMailedAt: new Date() });

@@ -50,6 +50,37 @@ export default function Research() {
     setDraft((await api.patch(`/research/drafts/${draft._id}`, { subject: draft.subject, body: draft.body, reviewed: true })).data);
     setMessage('Reviewed draft saved. No email sent.'); setDrafts((await api.get('/research/drafts')).data);
   }
+  const [importJson, setImportJson] = useState('');
+  const [validationPreview, setValidationPreview] = useState(null);
+  const [showImporter, setShowImporter] = useState(false);
+
+  async function handleValidateEvidence() {
+    if (!importJson.trim()) return setMessage('Please paste salary evidence JSON to validate.');
+    try {
+      const parsed = JSON.parse(importJson);
+      const res = await api.post('/research/evidence/validate', parsed);
+      setValidationPreview(res.data.results);
+      setMessage(`Validated ${res.data.validatedCount} company evidence record(s).`);
+    } catch (e) {
+      setMessage(`Invalid JSON or validation error: ${e.response?.data?.error || e.message}`);
+    }
+  }
+
+  async function handleImportEvidence() {
+    if (!validationPreview || validationPreview.length === 0) return setMessage('Validate evidence before importing.');
+    try {
+      const res = await api.post('/research/evidence/import', validationPreview);
+      setMessage(`Successfully imported ${res.data.importedTotal} salary evidence items across ${res.data.importedCompanies?.length || 0} companies.`);
+      setValidationPreview(null);
+      setImportJson('');
+      // Refresh companies list
+      const c = await api.get(`/research/companies?status=${status}`);
+      setData(c.data);
+    } catch (e) {
+      setMessage(`Import failed: ${e.response?.data?.error || e.message}`);
+    }
+  }
+
   const field = 'w-full bg-zinc-900 border border-zinc-700 rounded p-3';
   return <main className="p-8 space-y-6 max-w-6xl mx-auto">
     <div><h1 className="text-3xl font-bold text-white">Recruitment research</h1><p className="text-zinc-400 mt-2">Source-backed fixed base above ₹15 LPA → relevant opening → professional contact → reviewed draft.</p></div>
@@ -63,6 +94,79 @@ export default function Research() {
       <button type="button" className="p-2 border rounded" disabled={busy || budget?.policy.stopped || budget?.globalStop} onClick={() => run(async () => { const result=await api.post('/research/queue/run'); setMessage(JSON.stringify(result.data)); setTasks((await api.get('/research/queue')).data); setBudget((await api.get('/research/budget')).data); })}>Run one queued task now</button>
       <details><summary>Queue results</summary>{tasks.map(t => <p key={t._id}>{t.companyId} · {t.status} · attempt {t.attempts} · {t.lastError || t.result?.reason || `${t.result?.sourcedContacts || 0} sourced contacts`}</p>)}</details>
     </section>
+    {/* Salary Evidence Review / Import UI */}
+    <section className="p-4 border border-zinc-700 rounded space-y-3 bg-zinc-900/50">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-white">Salary Evidence Importer</h2>
+          <p className="text-xs text-zinc-400">Review & import verified researcher findings (strict &gt; ₹15 LPA fixed base) directly into the directory.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowImporter(!showImporter)}
+          className="border border-zinc-700 px-3 py-1.5 rounded text-xs hover:bg-zinc-800"
+        >
+          {showImporter ? 'Hide Importer' : '+ Review & Import Evidence'}
+        </button>
+      </div>
+
+      {showImporter && (
+        <div className="space-y-3 pt-2">
+          <textarea
+            rows={5}
+            placeholder='Paste company evidence JSON or array (e.g. from research/company-evidence/*.json)'
+            value={importJson}
+            onChange={e => setImportJson(e.target.value)}
+            className="w-full bg-zinc-950 border border-zinc-700 rounded p-2.5 text-xs font-mono text-zinc-200 outline-none focus:border-yellow-500"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy || !importJson.trim()}
+              onClick={() => run(handleValidateEvidence)}
+              className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold rounded text-zinc-100 disabled:opacity-50"
+            >
+              1. Validate Evidence
+            </button>
+            <button
+              type="button"
+              disabled={busy || !validationPreview || validationPreview.length === 0}
+              onClick={() => run(handleImportEvidence)}
+              className="px-3 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-xs font-bold rounded text-zinc-950 disabled:opacity-50"
+            >
+              2. Import Validated Records
+            </button>
+          </div>
+
+          {validationPreview && (
+            <div className="border border-zinc-800 rounded p-3 bg-zinc-950/80 space-y-2 max-h-60 overflow-y-auto">
+              <h3 className="text-xs font-bold text-yellow-400">Validation Results ({validationPreview.length} companies):</h3>
+              {validationPreview.map((c, idx) => (
+                <div key={idx} className="text-xs border-b border-zinc-800 pb-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-zinc-200">{c.legalName} ({c.rootDomain})</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      c.qualificationStatus === 'qualified' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
+                      c.qualificationStatus === 'supported_estimate' ? 'bg-blue-950 text-blue-400 border border-blue-800' :
+                      'bg-red-950 text-red-400 border border-red-800'
+                    }`}>
+                      {c.qualificationStatus.replaceAll('_', ' ')}
+                    </span>
+                  </div>
+                  {c.salaryEvidence.map((ev, i) => (
+                    <div key={i} className="text-zinc-400 text-[11px] mt-1 pl-2 border-l border-zinc-700">
+                      {ev.role} · Base: ₹{ev.salaryBaseMinINR?.toLocaleString('en-IN') || 'N/A'} - ₹{ev.salaryBaseMaxINR?.toLocaleString('en-IN') || 'N/A'} · Source: {ev.salarySourceType}
+                      <p className="text-zinc-500 italic truncate">{ev.evidenceExcerpt}</p>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+
     <label className="block">Company status<select className={field} value={status} onChange={e => setStatus(e.target.value)}>{['qualified','research_needed','supported_estimate','conflicting','not_qualified','all'].map(s => <option key={s} value={s}>{s.replaceAll('_',' ')}</option>)}</select></label>
     {!data.companies.length && <p className="p-5 border border-zinc-700 rounded">No companies in this category. Existing seed lists are research prospects until dated fixed-base evidence is reviewed. Use “research needed” to inspect them.</p>}
     <div className="grid md:grid-cols-3 gap-6">

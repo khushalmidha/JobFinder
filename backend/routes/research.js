@@ -24,6 +24,90 @@ router.get('/companies', wrap(async (req,res) => {
   const status = req.query.status || 'qualified';
   res.json({ companies: status === 'all' ? companies : companies.filter(c => c.qualificationStatus === status), counts });
 }));
+router.post('/evidence/validate', wrap(async (req, res) => {
+  const payload = Array.isArray(req.body) ? req.body : (req.body.companies || [req.body]);
+  const fields = ['role','roleFamily','level','experienceMin','experienceMax','location','indiaEligibility','indiaEligibilitySourceUrl','salaryBaseMinINR','salaryBaseMaxINR','currency','payPeriod','baseVsCTC','salarySourceUrl','salarySourceType','reportedOn','lastCheckedAt','evidenceConfidence','evidenceExcerpt'];
+
+  const results = payload.map(item => {
+    const domain = (item.rootDomain || item.domain || '').toLowerCase().trim();
+    const evaluatedEvidence = (item.salaryEvidence || []).map(raw => {
+      const ev = Object.fromEntries(fields.filter(k => k in raw).map(k => [k, raw[k]]));
+      return { ...ev, assessment: assessEvidence(ev) };
+    });
+    const states = new Set(evaluatedEvidence.map(e => e.assessment.status));
+    let qualificationStatus = 'research_needed';
+    if (states.has('qualified') && states.has('not_qualified')) qualificationStatus = 'conflicting';
+    else if (states.has('qualified')) qualificationStatus = 'qualified';
+    else if (states.has('not_qualified')) qualificationStatus = 'not_qualified';
+    else if (states.has('supported_estimate')) qualificationStatus = 'supported_estimate';
+
+    return {
+      legalName: item.legalName || item.name || domain,
+      rootDomain: domain,
+      careersUrl: item.careersUrl || `https://${domain}/careers`,
+      salaryEvidence: evaluatedEvidence,
+      qualificationStatus,
+      proposedQualification: item.proposedQualification || qualificationStatus,
+      valid: evaluatedEvidence.length > 0 && evaluatedEvidence.every(e => e.assessment.status !== 'research_needed')
+    };
+  });
+
+  res.json({ validatedCount: results.length, results });
+}));
+
+router.post('/evidence/import', wrap(async (req, res) => {
+  const user = await User.findById(req.user._id).select('role').lean();
+  if (user?.role !== 'admin' && process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Only an administrator can import shared evidence into production' });
+  }
+
+  const payload = Array.isArray(req.body) ? req.body : (req.body.companies || [req.body]);
+  const fields = ['role','roleFamily','level','experienceMin','experienceMax','location','indiaEligibility','indiaEligibilitySourceUrl','salaryBaseMinINR','salaryBaseMaxINR','currency','payPeriod','baseVsCTC','salarySourceUrl','salarySourceType','reportedOn','lastCheckedAt','evidenceConfidence','evidenceExcerpt'];
+  let importedTotal = 0;
+  const importedCompanies = [];
+
+  for (const item of payload) {
+    const domain = (item.rootDomain || item.domain || '').toLowerCase().trim();
+    if (!domain) continue;
+
+    let company = await Company.findOne({ domain });
+    if (!company) {
+      company = new Company({
+        name: item.legalName || item.name || domain,
+        domain,
+        careersUrl: item.careersUrl || `https://${domain}/careers`,
+        salaryEvidence: []
+      });
+    }
+
+    let addedToCompany = 0;
+    for (const raw of (item.salaryEvidence || [])) {
+      const ev = Object.fromEntries(fields.filter(k => k in raw).map(k => [k, raw[k]]));
+      const assessment = assessEvidence(ev);
+      const isDuplicate = (company.salaryEvidence || []).some(existing => 
+        existing.salarySourceUrl === ev.salarySourceUrl && existing.role === ev.role
+      );
+      if (!isDuplicate && assessment.status !== 'research_needed') {
+        company.salaryEvidence.push(ev);
+        addedToCompany++;
+      }
+    }
+
+    if (addedToCompany > 0 || !company._id) {
+      await company.save();
+      importedTotal += addedToCompany;
+      importedCompanies.push({
+        domain,
+        name: company.name,
+        addedCount: addedToCompany,
+        status: qualifyCompany(company.toObject()).qualificationStatus
+      });
+    }
+  }
+
+  res.json({ success: true, importedTotal, importedCompanies });
+}));
+
 router.post('/companies/:id/evidence', wrap(async (req,res) => {
   const user = await User.findById(req.user._id).select('role').lean();
   if (user?.role !== 'admin') return res.status(403).json({ error: 'Only an administrator can add evidence to the shared company directory' });

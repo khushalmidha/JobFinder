@@ -1,6 +1,6 @@
 const { GoogleGenAI } = require('@google/genai');
 const { generateContentStreamWithFallback, generateContentWithFallback } = require('../utils/geminiHelper');
-const xlsx = require('xlsx');
+const ExcelJS = require('exceljs');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const User = require('../models/User');
@@ -180,17 +180,36 @@ exports.parseFile = async (req, res) => {
     const ext = req.file.originalname.split('.').pop().toLowerCase();
 
     if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
-      const workbook = xlsx.readFile(req.file.path);
+      const workbook = new ExcelJS.Workbook();
+      if (ext === 'csv') {
+        await workbook.csv.readFile(req.file.path);
+      } else {
+        await workbook.xlsx.readFile(req.file.path);
+      }
       let data = [];
       
       // Select the sheet with the most records (in case file has cover/info sheets)
-      for (const sheetName of workbook.SheetNames) {
-        const sheet = workbook.Sheets[sheetName];
-        const rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
-        if (rows.length > data.length) {
-          data = rows;
+      workbook.eachSheet((sheet) => {
+        const sheetRows = [];
+        let headers = [];
+        sheet.eachRow((row, rowNumber) => {
+          const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+          if (rowNumber === 1 || headers.length === 0) {
+            headers = values.map(v => v !== null && v !== undefined ? (typeof v === 'object' && v.text ? v.text : String(v).trim()) : '');
+          } else {
+            const rowObj = {};
+            headers.forEach((h, idx) => {
+              if (!h) return;
+              const val = values[idx];
+              rowObj[h] = val !== null && val !== undefined ? (typeof val === 'object' && val.text ? val.text : String(val).trim()) : '';
+            });
+            sheetRows.push(rowObj);
+          }
+        });
+        if (sheetRows.length > data.length) {
+          data = sheetRows;
         }
-      }
+      });
       
       if (data.length > 0) {
         const headers = Object.keys(data[0]);

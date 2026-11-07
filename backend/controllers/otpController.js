@@ -1,4 +1,4 @@
-const imaps = require('imap-simple');
+const { ImapFlow } = require('imapflow');
 const simpleParser = require('mailparser').simpleParser;
 const User = require('../models/User');
 
@@ -16,97 +16,90 @@ exports.getLatestOtp = async (req, res) => {
       });
     }
 
-    const config = {
-      imap: {
+    const client = new ImapFlow({
+      host: user.smtpConfig.host || 'imap.gmail.com',
+      port: 993,
+      secure: true,
+      auth: {
         user: user.smtpConfig.user,
-        password: user.smtpConfig.pass,
-        host: user.smtpConfig.host || 'imap.gmail.com',
-        port: 993,
-        tls: true,
-        authTimeout: 7000,
-        tlsOptions: { rejectUnauthorized: false }
-      }
-    };
-
-    const connection = await imaps.connect(config);
-    await connection.openBox('INBOX');
-
-    // Search messages received in the last 15 minutes
-    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-    const searchCriteria = [
-      ['SINCE', fifteenMinutesAgo.toISOString()]
-    ];
-
-    const fetchOptions = {
-      bodies: ['HEADER', 'TEXT'],
-      markSeen: false,
-      struct: true
-    };
-
-    let messages = await connection.search(searchCriteria, fetchOptions);
-
-    // If no recent message in 15 min, look at last 5 messages in inbox
-    if (!messages || messages.length === 0) {
-      const allSearch = ['ALL'];
-      const lastMessages = await connection.search(allSearch, { bodies: ['HEADER', 'TEXT'], markSeen: false });
-      messages = lastMessages.slice(-5);
-    }
-
-    // Sort newest first
-    messages.sort((a, b) => {
-      const dateA = new Date(a.attributes?.date || 0);
-      const dateB = new Date(b.attributes?.date || 0);
-      return dateB - dateA;
+        pass: user.smtpConfig.pass
+      },
+      logger: false,
+      tls: { rejectUnauthorized: false }
     });
+
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
 
     let detectedOtp = null;
     let matchDetails = null;
 
-    // Regex patterns for OTP / verification codes
-    const otpRegexList = [
-      /(?:code|otp|verification code|security code|one-time password|passcode|pin)[:\s-]*<b>?(\d{4,8})<\/b>?/i,
-      /(?:code|otp|verification|passcode|pin)[^\d\n\r]{1,20}(\d{4,8})/i,
-      /\b(\d{4,8})\b\s*(?:is your|to verify|as your verification code|is the one-time code)/i,
-      /\bverification code:\s*(\d{4,8})\b/i,
-      /\bOTP:\s*(\d{4,8})\b/i
-    ];
+    try {
+      // Search messages received in the last 15 minutes
+      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+      let searchResult = await client.search({ since: fifteenMinutesAgo });
 
-    for (const item of messages) {
-      const part = item.parts.find(p => p.which === 'TEXT');
-      if (!part) continue;
-
-      const id = item.attributes.uid;
-      const parsed = await simpleParser("Imap-Id: " + id + "\r\n" + part.body);
-      const subject = parsed.subject || '';
-      const text = (parsed.text || '') + ' ' + (parsed.html || '');
-      const from = parsed.from ? parsed.from.text : '';
-
-      // Check subject first
-      for (const rx of otpRegexList) {
-        const subMatch = subject.match(rx);
-        if (subMatch && subMatch[1]) {
-          detectedOtp = subMatch[1];
-          matchDetails = { subject, from, date: item.attributes.date, source: 'subject' };
-          break;
+      if (!searchResult || searchResult.length === 0) {
+        const total = client.mailbox?.exists || 0;
+        if (total > 0) {
+          const start = Math.max(1, total - 4);
+          searchResult = `${start}:${total}`;
         }
       }
 
-      if (detectedOtp) break;
-
-      // Check body
-      for (const rx of otpRegexList) {
-        const bodyMatch = text.match(rx);
-        if (bodyMatch && bodyMatch[1]) {
-          detectedOtp = bodyMatch[1];
-          matchDetails = { subject, from, date: item.attributes.date, source: 'body' };
-          break;
+      const fetchedMessages = [];
+      if (searchResult && (Array.isArray(searchResult) ? searchResult.length > 0 : true)) {
+        for await (const msg of client.fetch(searchResult, { source: true, internalDate: true })) {
+          fetchedMessages.push(msg);
         }
       }
 
-      if (detectedOtp) break;
+      // Sort newest first
+      fetchedMessages.sort((a, b) => new Date(b.internalDate || 0) - new Date(a.internalDate || 0));
+
+      // Regex patterns for OTP / verification codes
+      const otpRegexList = [
+        /(?:code|otp|verification code|security code|one-time password|passcode|pin)[:\s-]*<b>?(\d{4,8})<\/b>?/i,
+        /(?:code|otp|verification|passcode|pin)[^\d\n\r]{1,20}(\d{4,8})/i,
+        /\b(\d{4,8})\b\s*(?:is your|to verify|as your verification code|is the one-time code)/i,
+        /\bverification code:\s*(\d{4,8})\b/i,
+        /\bOTP:\s*(\d{4,8})\b/i
+      ];
+
+      for (const item of fetchedMessages) {
+        const parsed = await simpleParser(item.source);
+        const subject = parsed.subject || '';
+        const text = (parsed.text || '') + ' ' + (parsed.html || '');
+        const from = parsed.from ? parsed.from.text : '';
+
+        // Check subject first
+        for (const rx of otpRegexList) {
+          const subMatch = subject.match(rx);
+          if (subMatch && subMatch[1]) {
+            detectedOtp = subMatch[1];
+            matchDetails = { subject, from, date: item.internalDate, source: 'subject' };
+            break;
+          }
+        }
+
+        if (detectedOtp) break;
+
+        // Check body
+        for (const rx of otpRegexList) {
+          const bodyMatch = text.match(rx);
+          if (bodyMatch && bodyMatch[1]) {
+            detectedOtp = bodyMatch[1];
+            matchDetails = { subject, from, date: item.internalDate, source: 'body' };
+            break;
+          }
+        }
+
+        if (detectedOtp) break;
+      }
+    } finally {
+      lock.release();
+      await client.logout();
     }
-
-    connection.end();
 
     if (detectedOtp) {
       return res.json({

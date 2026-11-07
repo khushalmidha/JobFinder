@@ -1,5 +1,5 @@
 const Contact = require('../models/Contact');
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 const { HIGH_PAYING_RECRUITERS } = require('./highPayingCompaniesData');
 const { REMOTE_GLOBAL_RECRUITERS } = require('./remoteAndGlobalCompaniesData');
 
@@ -105,23 +105,36 @@ async function generateRecruiterSpreadsheet(userId) {
   const contacts = await Contact.find({ userId, source: 'recruiter_sheet' }).lean();
   const data = contacts.length > 0 ? contacts : CURATED_RECRUITERS;
 
-  const rows = data.map((r, idx) => ({
-    '#': idx + 1,
-    'Company': r.company,
-    'Recruiter / HR Name': r.hrName || 'Hiring Lead',
-    'Email Address': r.email,
-    'Role / Designation': r.role || 'Talent Acquisition',
-    'Package Range': r.package || 'Competitive Tech Standard',
-    'LinkedIn Profile': r.linkedinUrl || '',
-    'Status in ColdMail Queue': r.status || 'Verified Recruiter',
-    'Added On': r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-IN') : 'Curated Directory'
-  }));
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Indian Tech Recruiters');
 
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Indian Tech Recruiters');
+  worksheet.columns = [
+    { header: '#', key: 'idx', width: 6 },
+    { header: 'Company', key: 'company', width: 24 },
+    { header: 'Recruiter / HR Name', key: 'hrName', width: 24 },
+    { header: 'Email Address', key: 'email', width: 30 },
+    { header: 'Role / Designation', key: 'role', width: 26 },
+    { header: 'Package Range', key: 'package', width: 22 },
+    { header: 'LinkedIn Profile', key: 'linkedinUrl', width: 35 },
+    { header: 'Status in ColdMail Queue', key: 'status', width: 22 },
+    { header: 'Added On', key: 'addedOn', width: 16 }
+  ];
 
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  data.forEach((r, idx) => {
+    worksheet.addRow({
+      idx: idx + 1,
+      company: r.company,
+      hrName: r.hrName || 'Hiring Lead',
+      email: r.email,
+      role: r.role || 'Talent Acquisition',
+      package: r.package || 'Competitive Tech Standard',
+      linkedinUrl: r.linkedinUrl || '',
+      status: r.status || 'Verified Recruiter',
+      addedOn: r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-IN') : 'Curated Directory'
+    });
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
   return buffer;
 }
 
