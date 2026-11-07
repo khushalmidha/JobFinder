@@ -16,3 +16,11 @@ Reviewer found no high-severity salary-rule defect; source authenticity still re
 ## Final follow-up — 6 November 2026
 
 The same Astra reviewer inspected current MAIN-world submission guards/fill concurrency, persistent queue leases/retries, provider reservation/status handling and research-route ownership after integration. Result: **no new high or critical findings in that scope**. It independently ran `node --test tests/formAssistant.test.js tests/publicEmailDiscovery.test.js`: 15 passed, 0 failed. It did not rerun Chromium or temporary-Mongo integration tests. No edits, network calls, paid requests or production operations were performed by the reviewer. This bounded review does not remove the documented legacy deployment blockers.
+
+## Engineering continuation follow-up — 7 November 2026
+
+1. **Dependency advisories migrated**: Removed `xlsx` in backend and web (migrated to `exceljs`); removed `imap-simple` (migrated to `imapflow`, eliminating `imap`, `utf7`, and vulnerable `semver` dependencies). 0 high vulnerabilities remain.
+2. **Duplicate-send protection & approval guards**: Persistent `MailLog` indexing on `contactId` and `recipientEmail` with pre-dispatch check; exact recipient/subject/body approval strictly enforced before dispatch.
+3. **Salary evidence review/import UI**: Added interactive importer and validator to `web/src/pages/Research.jsx` supported by `/api/research/evidence/validate` and `/api/research/evidence/import`.
+4. **Antigravity research records**: 50 company evidence JSON files created in `research/company-evidence/` on branch `research/antigravity-salary-evidence-20261105` (commit `3c62244`). 100% pass `salaryEvidenceService.assessEvidence` and `qualifyCompany`.
+5. **Verification**: 31/31 backend unit regression tests passed (`node --test tests/*.test.js`). Chromium smoke test passed (`node tests/browserSmoke.js`) with 0 form submissions and synthetic data isolation. Sending, paid APIs, and AWS provisioning remain disabled.
