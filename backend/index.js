@@ -27,6 +27,9 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/recruiters', recruiterRoutes);
+app.use('/api/research', require('./routes/research'));
+app.use('/api/campaigns', require('./routes/campaigns'));
+app.use('/api/company-imports', require('./routes/companyImport'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
@@ -41,6 +44,10 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/jobfinder
     await seedCompaniesIfEmpty();
     // Start automated 3-slot scheduler (Morning, Afternoon, Night)
     initJobScheduler();
+    require('./services/researchQueueService').initResearchScheduler();
+    // Build only additive indexes. The worker stays off unless explicitly enabled.
+    await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime','MailLog','CompanyImportRun','CompanyProspect','PublicRecruitmentLead'].map(model => require(`./models/${model}`).init()));
+    require('./services/campaignWorkerService').initCampaignScheduler();
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

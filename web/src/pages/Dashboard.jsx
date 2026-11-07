@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp, Download, Play, Pause, RefreshCw, Trash2, Sparkles, CheckCircle2, ShieldCheck, XCircle, AlertTriangle, RotateCcw, ArrowRightLeft, X, FileText, Copy } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 const Dashboard = () => {
   const [contacts, setContacts] = useState([]);
@@ -530,7 +530,7 @@ const Dashboard = () => {
     }
   };
 
-  const downloadExcel = (onlySelected = false) => {
+  const downloadExcel = async (onlySelected = false) => {
     const listToExport = onlySelected
       ? contacts.filter(c => selectedIds.has(c._id))
       : filteredContacts;
@@ -540,36 +540,44 @@ const Dashboard = () => {
       return;
     }
     
-    const formattedData = listToExport.map(c => ({
-      'Company': c.company || '',
-      'HR Name': c.hrName || '',
-      'Email': c.email || '',
-      'Role': c.role || '',
-      'Status': c.status || '',
-      'Date Added': new Date(c.createdAt).toLocaleDateString(),
-      'Last Mailed': c.lastMailedAt ? new Date(c.lastMailedAt).toLocaleDateString() : 'Never'
-    }));
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(onlySelected ? "Selected Contacts" : "Contacts");
 
-    const worksheet = XLSX.utils.json_to_sheet(formattedData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, onlySelected ? "Selected Contacts" : "Contacts");
-    
-    // Auto-size columns roughly
-    const colWidths = [
-      { wch: 20 }, // Company
-      { wch: 20 }, // HR Name
-      { wch: 30 }, // Email
-      { wch: 20 }, // Role
-      { wch: 15 }, // Status
-      { wch: 15 }, // Date Added
-      { wch: 15 }  // Last Mailed
+    worksheet.columns = [
+      { header: 'Company', key: 'company', width: 22 },
+      { header: 'HR Name', key: 'hrName', width: 22 },
+      { header: 'Email', key: 'email', width: 32 },
+      { header: 'Role', key: 'role', width: 22 },
+      { header: 'Status', key: 'status', width: 16 },
+      { header: 'Date Added', key: 'dateAdded', width: 16 },
+      { header: 'Last Mailed', key: 'lastMailed', width: 16 }
     ];
-    worksheet['!cols'] = colWidths;
 
+    listToExport.forEach(c => {
+      worksheet.addRow({
+        company: c.company || '',
+        hrName: c.hrName || '',
+        email: c.email || '',
+        role: c.role || '',
+        status: c.status || '',
+        dateAdded: new Date(c.createdAt).toLocaleDateString(),
+        lastMailed: c.lastMailedAt ? new Date(c.lastMailedAt).toLocaleDateString() : 'Never'
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
     const filename = onlySelected 
       ? `JobFinder_Selected_${listToExport.length}_Contacts.xlsx` 
       : "JobFinder_Contacts.xlsx";
-    XLSX.writeFile(workbook, filename);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const downloadTxt = (onlySelected = false, includeDetails = false) => {
@@ -1007,8 +1015,8 @@ const Dashboard = () => {
 
       {activeTab === 'active' && (
       <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 mb-8 p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-          <div className="relative flex-1 min-w-[240px] max-w-md">
+        <div className="flex flex-wrap items-center gap-3 flex-1">
+          <div className="relative flex-1 min-w-[240px] sm:min-w-[280px] max-w-md" style={{ minWidth: '220px' }}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
             <input 
               type="text" 
@@ -1042,7 +1050,7 @@ const Dashboard = () => {
             <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
           </div>
 
-          <div className="relative w-36 sm:w-40 shrink-0">
+          <div className="relative w-40 sm:w-44 shrink-0">
             <select
               value={daysFilter}
               onChange={(e) => setDaysFilter(e.target.value)}
@@ -1053,8 +1061,8 @@ const Dashboard = () => {
               <option value="1_week">&gt; 1 Week Ago</option>
               <option value="2_weeks">&gt; 2 Weeks Ago</option>
               <option value="3_weeks">&gt; 3 Weeks Ago</option>
-              <option value="4_weeks">&gt; 4 Weeks Ago</option>
-              <option value="8_weeks">&gt; 8 Weeks Ago</option>
+              <option value="4_weeks">&gt; 4 Weeks (1 Mo) Ago</option>
+              <option value="8_weeks">&gt; 8 Weeks (2 Mo) Ago</option>
               <option value="within_1_week">&lt; 1 Week (Recent)</option>
               <option value="never_mailed">Never Mailed</option>
             </select>

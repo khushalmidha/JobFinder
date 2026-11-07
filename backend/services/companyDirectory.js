@@ -1218,56 +1218,8 @@ const BASE_SEED_COMPANIES = [
  * Calculates realistic entry level / fresher SDE CTC estimates based on company profile & tier
  */
 function getCompanyCtcInfo(comp) {
-  if (comp.entryLevelCtc && comp.entryLevelCtcMin) {
-    return {
-      entryLevelCtc: comp.entryLevelCtc,
-      entryLevelCtcMin: comp.entryLevelCtcMin,
-      entryLevelCtcMax: comp.entryLevelCtcMax || comp.entryLevelCtcMin,
-      fresherCtcTier: comp.fresherCtcTier || '20_to_30'
-    };
-  }
-
-  const name = (comp.name || '').toLowerCase();
-  const tier = comp.tier || '';
-
-  // 1. Specific company overrides
-  if (name.includes('graviton') || name.includes('tower research') || name.includes('hudson river') || name.includes('jump trading') || name.includes('jane street') || name.includes('millennium')) {
-    return { entryLevelCtc: '₹60 - ₹120 LPA', entryLevelCtcMin: 60, entryLevelCtcMax: 120, fresherCtcTier: 'above_50' };
-  }
-  if (name.includes('de shaw') || name.includes('worldquant')) {
-    return { entryLevelCtc: '₹50 - ₹85 LPA', entryLevelCtcMin: 50, entryLevelCtcMax: 85, fresherCtcTier: 'above_50' };
-  }
-  if (name.includes('google') || name.includes('apple') || name.includes('meta') || name.includes('netflix') || name.includes('stripe')) {
-    return { entryLevelCtc: '₹35 - ₹60 LPA', entryLevelCtcMin: 35, entryLevelCtcMax: 60, fresherCtcTier: '35_to_50' };
-  }
-  if (name.includes('uber') || name.includes('microsoft') || name.includes('amazon') || name.includes('atlassian') || name.includes('adobe') || name.includes('nvidia') || name.includes('salesforce') || name.includes('goldman sachs') || name.includes('morgan stanley')) {
-    return { entryLevelCtc: '₹28 - ₹48 LPA', entryLevelCtcMin: 28, entryLevelCtcMax: 48, fresherCtcTier: '20_to_35' };
-  }
-  if (name.includes('cred') || name.includes('razorpay') || name.includes('swiggy') || name.includes('groww') || name.includes('phonepe') || name.includes('flipkart') || name.includes('postman') || name.includes('browserstack')) {
-    return { entryLevelCtc: '₹22 - ₹40 LPA', entryLevelCtcMin: 22, entryLevelCtcMax: 40, fresherCtcTier: '20_to_35' };
-  }
-  if (name.includes('zepto') || name.includes('blinkit') || name.includes('zomato') || name.includes('meesho') || name.includes('dream11') || name.includes('urban company') || name.includes('inmobi')) {
-    return { entryLevelCtc: '₹18 - ₹32 LPA', entryLevelCtcMin: 18, entryLevelCtcMax: 32, fresherCtcTier: '12_to_20' };
-  }
-
-  // 2. Fallbacks based on tier
-  if (tier.includes('Tier 0')) {
-    return { entryLevelCtc: '₹55 - ₹100 LPA', entryLevelCtcMin: 55, entryLevelCtcMax: 100, fresherCtcTier: 'above_50' };
-  }
-  if (tier.includes('Tier 1: Global Tech Titan')) {
-    return { entryLevelCtc: '₹30 - ₹52 LPA', entryLevelCtcMin: 30, entryLevelCtcMax: 52, fresherCtcTier: '20_to_35' };
-  }
-  if (tier.includes('Tier 1.5')) {
-    return { entryLevelCtc: '₹20 - ₹36 LPA', entryLevelCtcMin: 20, entryLevelCtcMax: 36, fresherCtcTier: '20_to_35' };
-  }
-  if (tier.includes('Remote-First')) {
-    return { entryLevelCtc: '₹28 - ₹55 LPA ($35k-$65k)', entryLevelCtcMin: 28, entryLevelCtcMax: 55, fresherCtcTier: '20_to_35' };
-  }
-  if (tier.includes('Tier 2')) {
-    return { entryLevelCtc: '₹14 - ₹24 LPA', entryLevelCtcMin: 14, entryLevelCtcMax: 24, fresherCtcTier: '12_to_20' };
-  }
-
-  return { entryLevelCtc: '₹10 - ₹18 LPA', entryLevelCtcMin: 10, entryLevelCtcMax: 18, fresherCtcTier: 'under_12' };
+  // Preserve supplied legacy estimates, never invent compensation from tier.
+  return { entryLevelCtc: comp.entryLevelCtc || '', entryLevelCtcMin: comp.entryLevelCtcMin ?? null, entryLevelCtcMax: comp.entryLevelCtcMax ?? null, fresherCtcTier: comp.fresherCtcTier || 'unknown' };
 }
 
 // Master unified company directory
@@ -1286,7 +1238,15 @@ BASE_SEED_COMPANIES.forEach(c => {
   }
 });
 
-const SEED_COMPANIES = Array.from(companyDedupMap.values());
+const canonicalCompanies = new Map();
+for (const company of companyDedupMap.values()) {
+  const domain = require('./publicEmailDiscovery').normalizeDomain(company.domain);
+  const key = domain || company.name.toLowerCase().trim();
+  const previous = canonicalCompanies.get(key);
+  if (previous) previous.aliases = [...new Set([...(previous.aliases || []), company.name])];
+  else canonicalCompanies.set(key, { ...company, domain: domain || '' });
+}
+const SEED_COMPANIES = Array.from(canonicalCompanies.values());
 
 /**
  * Ensures the master company directory is seeded with Entry-Level CTC in MongoDB
@@ -1298,7 +1258,7 @@ async function seedCompaniesIfEmpty() {
       await Company.findOneAndUpdate(
         { name: comp.name },
         { 
-          $set: {
+          $setOnInsert: {
             ...comp,
             ...ctcInfo
           }
@@ -1306,7 +1266,7 @@ async function seedCompaniesIfEmpty() {
         { upsert: true, new: true }
       );
     }
-    console.log(`Company directory verified & seeded with entry-level CTC (${SEED_COMPANIES.length} companies).`);
+    console.log(`Company research prospects seeded; compensation is not verified (${SEED_COMPANIES.length} companies).`);
   } catch (err) {
     console.error('Error seeding companies:', err);
   }

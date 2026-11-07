@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "JobFinder AI & Auto-Apply Pilot",
+  "name": "JobFinder Application Assistant",
   "version": "1.0.0",
-  "description": "Auto-detects role, company, estimated SDE1 CTC/Base, best resume matching, and humanoid auto-fill with Email OTP extraction.",
+  "description": "Preview and fill supported fields from an applicant-reviewed profile. Manual submission only.",
   "action": {
     "default_popup": "index.html"
   },
@@ -17,8 +17,8 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.bundle.js"],
-      "all_frames": true,
+      "js": ["src/content/index.js"],
+      "all_frames": false,
       "match_about_blank": true,
       "run_at": "document_idle"
     }
@@ -35,11 +35,5 @@
     "https://jobfinder-backend.onrender.com/*",
     "https://mail.google.com/*",
     "<all_urls>"
-  ],
-  "web_accessible_resources": [
-    {
-      "matches": ["<all_urls>"],
-      "resources": ["content.bundle.js", "src/*"]
-    }
   ]
 }

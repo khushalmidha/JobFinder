@@ -1,0 +1,5 @@
+# Independent reviewer prompt
+
+Review the JobFinder change read-only against the current main SHA and docs/AUDIT.md. Do not send mail, spend credits, provision cloud resources, run production jobs or modify files. Verify salary qualification requires dated, relevant, India-eligible annual fixed base strictly > INR 1,500,000; estimates/CTC cannot qualify. Trace recruiter provenance and inferred/unknown/catch-all statuses to UI and sending guards. MX and SMTP connectivity cannot establish mailbox existence. Check user scoping, SSRF, suppression, credentials, retry budgets and global stop behavior. Trace the built extension to the shared engine; test implicit-submit dropdowns, consent precedence, prefilled values and no-submit behavior. Verify draft grounding, candidate profile discrepancies, request accounting and concurrency. Report severity, concrete file/line, reproduction, impact and smallest fix; distinguish tests run from assumptions. Return actual commands/results and monthly cost assumptions.
+
+No Astra integration has been invoked merely by creating this file. Save an actual reviewer result separately only if a reviewer is available and runs.

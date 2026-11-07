@@ -13,6 +13,10 @@ function initJobScheduler() {
   // Clear any existing tasks
   scheduledTasks.forEach(task => task.stop());
   scheduledTasks = [];
+  if (process.env.JOB_SCHEDULER_ENABLED !== 'true' || process.env.RESEARCH_STOP === 'true') {
+    console.log('Local scheduler disabled. Set JOB_SCHEDULER_ENABLED=true to opt in.');
+    return;
+  }
 
   console.log('Initializing Job Hunter 3-Slot Automated Scheduler (Morning, Afternoon, Night)...');
 
@@ -45,15 +49,10 @@ function initJobScheduler() {
  * Executes a crawl and records stats in scheduler config
  */
 async function runScheduledCrawl(slotName = 'Manual') {
+  if (process.env.RESEARCH_STOP === 'true') return { status: 'stopped', success: false };
   if (isScanRunning) {
-    // If it's been running for more than 60 seconds, treat as timed out and auto-recover
-    if (Date.now() - scanStartedAt > 60000) {
-      console.warn('Previous scan took longer than 60s, auto-resetting isScanRunning flag.');
-      isScanRunning = false;
-    } else {
       console.log('Scan is already in progress, skipping duplicate execution.');
       return { status: 'already_running', message: 'A scan is currently running in background' };
-    }
   }
 
   isScanRunning = true;
@@ -98,7 +97,7 @@ function getSchedulerStatus() {
   const now = new Date();
   
   return {
-    isActive: true,
+    isActive: scheduledTasks.length > 0 && process.env.RESEARCH_STOP !== 'true',
     isCurrentlyScanning: isScanRunning,
     slots: [
       { name: 'Morning Scan', time: '09:00 AM IST', cron: '0 9 * * *' },

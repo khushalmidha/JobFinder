@@ -1,4 +1,4 @@
-const imaps = require('imap-simple');
+const { ImapFlow } = require('imapflow');
 const simpleParser = require('mailparser').simpleParser;
 const User = require('../models/User');
 const Contact = require('../models/Contact');
@@ -13,57 +13,54 @@ exports.scanBounces = async (req, res) => {
       return res.status(400).json({ error: 'Email configuration is missing.' });
     }
 
-    const config = {
-      imap: {
+    const client = new ImapFlow({
+      host: user.smtpConfig.host || 'imap.gmail.com',
+      port: 993,
+      secure: true,
+      auth: {
         user: user.smtpConfig.user,
-        password: user.smtpConfig.pass,
-        host: 'imap.gmail.com', // Default to gmail
-        port: 993,
-        tls: true,
-        authTimeout: 5000,
-        tlsOptions: { rejectUnauthorized: false }
-      }
-    };
+        pass: user.smtpConfig.pass
+      },
+      logger: false,
+      tls: { rejectUnauthorized: false }
+    });
 
-    const connection = await imaps.connect(config);
-    await connection.openBox('INBOX');
-
-    // Search for recent failure notifications (last 7 days for safety)
-    const delay = 7 * 24 * 3600 * 1000;
-    const since = new Date(Date.now() - delay);
-    
-    const searchCriteria = [
-      ['SINCE', since.toISOString()],
-      ['OR', ['SUBJECT', 'Delivery Status Notification'], ['SUBJECT', 'Undeliverable']]
-    ];
-
-    const fetchOptions = {
-      bodies: ['TEXT'],
-      markSeen: true
-    };
-
-    const messages = await connection.search(searchCriteria, fetchOptions);
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
     let bouncedEmails = new Set();
 
-    for (let item of messages) {
-      const all = item.parts.find(part => part.which === 'TEXT');
-      const id = item.attributes.uid;
-      const idHeader = "Imap-Id: "+id+"\r\n";
-      const mail = await simpleParser(idHeader + all.body);
-      
-      const bodyText = mail.text || '';
-      
-      const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
-      let match;
-      while ((match = emailRegex.exec(bodyText)) !== null) {
-        const foundEmail = match[1].toLowerCase();
-        if (foundEmail !== user.smtpConfig.user.toLowerCase() && !foundEmail.includes('mailer-daemon')) {
-          bouncedEmails.add(foundEmail);
+    try {
+      // Search for recent failure notifications (last 7 days for safety)
+      const delay = 7 * 24 * 3600 * 1000;
+      const since = new Date(Date.now() - delay);
+
+      const searchResult = await client.search({
+        since,
+        or: [
+          { header: ['subject', 'Delivery Status Notification'] },
+          { header: ['subject', 'Undeliverable'] }
+        ]
+      });
+
+      if (Array.isArray(searchResult) && searchResult.length > 0) {
+        for await (const item of client.fetch(searchResult, { source: true, flags: true })) {
+          const mail = await simpleParser(item.source);
+          const bodyText = mail.text || '';
+          
+          const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
+          let match;
+          while ((match = emailRegex.exec(bodyText)) !== null) {
+            const foundEmail = match[1].toLowerCase();
+            if (foundEmail !== user.smtpConfig.user.toLowerCase() && !foundEmail.includes('mailer-daemon')) {
+              bouncedEmails.add(foundEmail);
+            }
+          }
         }
       }
+    } finally {
+      lock.release();
+      await client.logout();
     }
-    
-    connection.end();
 
     const emailsArray = Array.from(bouncedEmails);
     let modifiedCount = 0;
@@ -90,8 +87,8 @@ exports.scanBounces = async (req, res) => {
 exports.deleteBounced = async (req, res) => {
   const userId = req.user._id;
   try {
-    const result = await Contact.deleteMany({ userId, status: 'bounced' });
-    res.json({ message: `Successfully removed ${result.deletedCount} bounced contacts.`, deletedCount: result.deletedCount });
+    const result = await Contact.updateMany({ userId, status: 'bounced' }, { $set: { suppressedAt: new Date(), suppressionReason: 'bounce', deliverabilityStatus: 'invalid' } });
+    res.json({ message: `Quarantined ${result.modifiedCount} bounced contacts; history preserved.`, suppressedCount: result.modifiedCount, deletedCount: 0 });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

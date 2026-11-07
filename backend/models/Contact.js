@@ -18,9 +18,26 @@ const contactSchema = new mongoose.Schema({
   deliverabilityStatus: { 
     type: String, 
     enum: ['valid', 'invalid', 'unverified'], 
-    default: 'valid' 
+    default: 'unverified'
   },
   validationReason: { type: String, default: '' },
+  companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
+  provenance: [{ url: String, provider: String, observedAt: Date }],
+  inferenceFlag: { type: Boolean, default: false },
+  verificationStatus: { type: String, enum: ['unknown', 'domain_mail_capable', 'publicly_sourced', 'vendor_verified', 'inferred_unverified', 'catch_all', 'invalid'], default: 'unknown' },
+  vendorStatus: String,
+  suppressedAt: Date,
+  suppressionReason: String,
+  optOutAt: Date,
+  suppressionAuditRunId: String,
+  smtpConnectivity: {
+    runId: String,
+    checkedAt: Date,
+    domainStatus: String,
+    smtpStatus: String,
+    smtpHost: String,
+    mailboxVerified: { type: Boolean, default: false }
+  },
   validatedAt: { type: Date },
   repliedAt: { type: Date },
   replySnippet: { type: String, default: '' },

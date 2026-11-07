@@ -41,7 +41,7 @@ exports.login = async (req, res) => {
 
 exports.getSettings = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-passwordHash');
+    const user = await User.findById(req.user._id).select('-passwordHash -emailVerificationProof -adminRoleMigrationId');
     if (!user) return res.status(404).json({ error: 'User not found.' });
 
     let changed = false;
@@ -86,9 +86,13 @@ exports.getSettings = async (req, res) => {
 
 exports.updateSettings = async (req, res) => {
   try {
-    const updates = { ...req.body };
-    delete updates.passwordHash;
-    delete updates._id;
+    // Settings are preferences, never authority to modify identity or privileges.
+    // The web currently submits its full settings object: ignore read-only fields.
+    const allowed = ['name', 'resumeLink', 'defaultJobLink', 'dailyEmailLimit',
+      'emailTemplates', 'selectedTemplateId', 'mailTemplate', 'blockedCompanies',
+      'syncedAccountEmails', 'smtpConfigs', 'selectedSmtpId', 'smtpConfig',
+      'geminiApiKey', 'brevoApiKey', 'hunterApiKey', 'apolloApiKey', 'candidateProfile'];
+    const updates = Object.fromEntries(allowed.filter(key => Object.hasOwn(req.body, key)).map(key => [key, req.body[key]]));
 
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ error: 'User not found.' });
@@ -134,7 +138,7 @@ exports.updateSettings = async (req, res) => {
 
     await user.save();
 
-    const updatedUser = await User.findById(user._id).select('-passwordHash');
+    const updatedUser = await User.findById(user._id).select('-passwordHash -emailVerificationProof -adminRoleMigrationId');
     res.json(updatedUser);
   } catch (error) {
     res.status(500).json({ error: error.message });
