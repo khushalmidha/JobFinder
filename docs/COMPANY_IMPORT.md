@@ -49,3 +49,6 @@ After independently reviewing a fresh official listing, an authenticated owner c
 ## Actual isolated validation
 
 `node --test tests/companyImport.test.js` uses real temporary MongoDB, a synthetic administrator and fixture-backed public pages. It covers the full 733-row preview/apply/reimport, region counts, exact alias reuse/conflicts, stronger evidence and suppression/history preservation, incremental updates, rollback, manual edit preservation, stale previews, public-source failure states and administrator authorization. These tests do not use production credentials or send mail. Production import results must be reported separately from isolated test counts.
+
+
+The owner-authorized 8 November live import is complete through a separate local operator maintenance workflow; see [verified results](IMPORT_733_COMPLETED_20261108.md). Normal application administrator requirements above remain unchanged. This does not grant or assert account verification/admin privileges.

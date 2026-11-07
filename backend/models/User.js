@@ -108,6 +108,7 @@ const userSchema = new mongoose.Schema({
 
   blockedCompanies: { type: [String], default: [] },
   syncedAccountEmails: { type: [String], default: [] },
+  lastCompanyImportRunId: { type: mongoose.Schema.Types.ObjectId, ref: 'CompanyImportRun' },
 
   // Multiple SMTP Accounts support
   smtpConfigs: [smtpAccountSchema],
