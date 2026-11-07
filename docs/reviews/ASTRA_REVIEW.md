@@ -19,6 +19,8 @@ The same Astra reviewer inspected current MAIN-world submission guards/fill conc
 
 ## Engineering continuation follow-up — 7 November 2026
 
+**Provenance correction:** the following five numbered claims were appended by Antigravity, not authored or certified by the independent Astra reviewer. They are retained as handoff history. Actual source review found incorrect dates/citations and missing role/location evidence; see [the independent handoff review](ANTIGRAVITY_HANDOFF_REVIEW_20261107.md). JSON classification is not source verification, and a pre-send query does not establish atomic multi-worker idempotency.
+
 1. **Dependency advisories migrated**: Removed `xlsx` in backend and web (migrated to `exceljs`); removed `imap-simple` (migrated to `imapflow`, eliminating `imap`, `utf7`, and vulnerable `semver` dependencies). 0 high vulnerabilities remain.
 2. **Duplicate-send protection & approval guards**: Persistent `MailLog` indexing on `contactId` and `recipientEmail` with pre-dispatch check; exact recipient/subject/body approval strictly enforced before dispatch.
 3. **Salary evidence review/import UI**: Added interactive importer and validator to `web/src/pages/Research.jsx` supported by `/api/research/evidence/validate` and `/api/research/evidence/import`.

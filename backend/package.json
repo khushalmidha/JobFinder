@@ -13,7 +13,8 @@
     "test:autofill": "node --test tests/formAssistant.test.js",
     "test:recruiter": "node --test tests/researchPolicy.test.js",
     "test:discovery": "node --test tests/publicEmailDiscovery.test.js",
-    "test:browser": "node tests/browserSmoke.js"
+    "test:browser": "node tests/browserSmoke.js",
+    "audit:emails": "node scripts/auditStoredEmails.js"
   },
   "keywords": [],
   "author": "",

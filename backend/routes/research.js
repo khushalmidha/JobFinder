@@ -57,8 +57,8 @@ router.post('/evidence/validate', wrap(async (req, res) => {
 
 router.post('/evidence/import', wrap(async (req, res) => {
   const user = await User.findById(req.user._id).select('role').lean();
-  if (user?.role !== 'admin' && process.env.NODE_ENV === 'production') {
-    return res.status(403).json({ error: 'Only an administrator can import shared evidence into production' });
+  if (user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Only an administrator can import shared evidence' });
   }
 
   const payload = Array.isArray(req.body) ? req.body : (req.body.companies || [req.body]);

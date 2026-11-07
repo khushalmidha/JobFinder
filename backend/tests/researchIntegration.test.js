@@ -59,6 +59,10 @@ test('other users cannot retrieve or draft against private contacts',async()=>{
   assert.equal(blocked.status,400);
   const noAuth=await fetch(base+'/research/companies');assert.equal(noAuth.status,401);
 });
+test('shared evidence import requires an administrator even outside production',async()=>{
+  const response=await request('/research/evidence/import','POST',{companies:[]});
+  assert.equal(response.status,403);
+});
 test('atomic persistent request and monthly credit reservations prevent concurrent overspend',async()=>{
   await Policy.create({userId:other,dailyRequests:3,paidProvidersEnabled:true,monthlyCredits:2});
   const attempts=await Promise.allSettled(Array.from({length:8},()=>reserveResearch(other,{requests:1,credits:1})));

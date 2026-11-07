@@ -4,6 +4,8 @@ JobFinder now includes a recruitment research workspace at `/research`: dated fi
 
 Use Node 24.15+ for the current dependency set. For further work, use [the Codex master prompt](docs/JobFinder_Codex_Master_Prompt.md) and [Antigravity delegation prompts](docs/delegation/).
 
+The [7 November email audit](docs/EMAIL_AUDIT_20261107.md) checked server connectivity for stored contacts and conservatively suppressed confirmed invalid records. Use `npm run audit:emails` in backend with an explicit environment file and user scope; the default is a dry run. SMTP connectivity never establishes that an individual mailbox exists.
+
 An open-source cold-outreach automation suite for job applications.
 
 ## Overview

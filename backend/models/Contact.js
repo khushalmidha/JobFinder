@@ -29,6 +29,15 @@ const contactSchema = new mongoose.Schema({
   suppressedAt: Date,
   suppressionReason: String,
   optOutAt: Date,
+  suppressionAuditRunId: String,
+  smtpConnectivity: {
+    runId: String,
+    checkedAt: Date,
+    domainStatus: String,
+    smtpStatus: String,
+    smtpHost: String,
+    mailboxVerified: { type: Boolean, default: false }
+  },
   validatedAt: { type: Date },
   repliedAt: { type: Date },
   replySnippet: { type: String, default: '' },
