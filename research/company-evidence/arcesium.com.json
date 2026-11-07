@@ -1,0 +1,33 @@
+{
+  "legalName": "Arcesium India Private Limited",
+  "rootDomain": "arcesium.com",
+  "aliases": [
+    "Arcesium"
+  ],
+  "careersUrl": "https://www.arcesium.com/careers",
+  "salaryEvidence": [
+    {
+      "role": "Software Engineer",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Hyderabad / Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.arcesium.com/careers",
+      "salaryBaseMinINR": 1800000,
+      "salaryBaseMaxINR": 2100000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus reports indicate Arcesium Software Engineer fresher base pay of 18-21 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Arcesium Software Engineer base exceeds 15 LPA; supported_estimate."
+}

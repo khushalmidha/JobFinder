@@ -1,0 +1,33 @@
+{
+  "legalName": "Databricks Software India Private Limited",
+  "rootDomain": "databricks.com",
+  "aliases": [
+    "Databricks"
+  ],
+  "careersUrl": "https://www.databricks.com/company/careers",
+  "salaryEvidence": [
+    {
+      "role": "Software Engineer",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.databricks.com/company/careers",
+      "salaryBaseMinINR": 3960000,
+      "salaryBaseMaxINR": 4200000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "2025 community placement dataset reports Databricks Software Engineer India base pay of 39.6 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Community report cites 39.6 LPA base; categorized as supported_estimate pending official compensation disclosure."
+}

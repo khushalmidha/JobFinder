@@ -1,0 +1,35 @@
+{
+  "legalName": "Amazon Development Centre (India) Private Limited",
+  "rootDomain": "amazon.com",
+  "aliases": [
+    "Amazon",
+    "Amazon India",
+    "AWS India"
+  ],
+  "careersUrl": "https://amazon.jobs/en/locations/india",
+  "salaryEvidence": [
+    {
+      "role": "Software Development Engineer I (SDE-1)",
+      "roleFamily": "software_engineering",
+      "level": "SDE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Hyderabad / Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://amazon.jobs/en/locations/india",
+      "salaryBaseMinINR": 1967000,
+      "salaryBaseMaxINR": 2100000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://www.vce.ac.in/placements/2025-2026.php",
+      "salarySourceType": "placement_report",
+      "reportedOn": "2026-05-25",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "high",
+      "evidenceExcerpt": "Vasavi official 2025-26 placement report records Amazon SDE-1 employment with annual fixed base pay of Rs 19,67,000 (19.67 LPA) out of Rs 47.50 LPA total compensation."
+    }
+  ],
+  "proposedQualification": "qualified",
+  "researchNotes": "Vasavi College placement audit disaggregates Amazon SDE-1 base pay from front-loaded signing bonuses and RSUs. Base of 19.67 LPA qualifies."
+}

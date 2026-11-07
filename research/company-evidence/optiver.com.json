@@ -1,0 +1,33 @@
+{
+  "legalName": "Optiver India Private Limited",
+  "rootDomain": "optiver.com",
+  "aliases": [
+    "Optiver"
+  ],
+  "careersUrl": "https://optiver.com/working-at-optiver/career-opportunities",
+  "salaryEvidence": [
+    {
+      "role": "Graduate Software Engineer",
+      "roleFamily": "software_engineering",
+      "level": "entry",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Mumbai, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://optiver.com/working-at-optiver/career-opportunities",
+      "salaryBaseMinINR": 4000000,
+      "salaryBaseMaxINR": 6000000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus placement observations cite Optiver Graduate Software Engineer base pay of 40-60 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "HFT Graduate SWE role in Mumbai; supported_estimate."
+}

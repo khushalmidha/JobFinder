@@ -1,0 +1,33 @@
+{
+  "legalName": "Stripe India Private Limited",
+  "rootDomain": "stripe.com",
+  "aliases": [
+    "Stripe"
+  ],
+  "careersUrl": "https://stripe.com/jobs",
+  "salaryEvidence": [
+    {
+      "role": "Software Engineer",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://stripe.com/jobs",
+      "salaryBaseMinINR": 2400000,
+      "salaryBaseMaxINR": 3000000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus reports indicate Stripe India Software Engineer base compensation between 24 and 30 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Stripe India entry SWE base exceeds 15 LPA; supported_estimate."
+}

@@ -1,0 +1,34 @@
+{
+  "legalName": "Pegasystems Worldwide India Private Limited",
+  "rootDomain": "pega.com",
+  "aliases": [
+    "Pega",
+    "Pegasystems"
+  ],
+  "careersUrl": "https://www.pega.com/about/careers",
+  "salaryEvidence": [
+    {
+      "role": "Associate Software Engineer",
+      "roleFamily": "software_engineering",
+      "level": "entry",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Hyderabad / Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.pega.com/about/careers",
+      "salaryBaseMinINR": 1600000,
+      "salaryBaseMaxINR": 1650000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://www.vce.ac.in/placements/2025-2026.php",
+      "salarySourceType": "placement_report",
+      "reportedOn": "2026-05-25",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "high",
+      "evidenceExcerpt": "Vasavi College of Engineering placement documentation separates Pega Associate Software Engineer annual fixed base of Rs 16,00,000 (16.0 LPA)."
+    }
+  ],
+  "proposedQualification": "qualified",
+  "researchNotes": "Base pay of 16.0 LPA is verified in Vasavi college audit report, strictly above 15 LPA."
+}

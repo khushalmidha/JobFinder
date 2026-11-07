@@ -1,0 +1,33 @@
+{
+  "legalName": "Tata Consultancy Services Limited",
+  "rootDomain": "tcs.com",
+  "aliases": [
+    "TCS"
+  ],
+  "careersUrl": "https://www.tcs.com/careers",
+  "salaryEvidence": [
+    {
+      "role": "Assistant System Engineer / Prime Developer",
+      "roleFamily": "software_engineering",
+      "level": "entry",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Pan India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.tcs.com/careers",
+      "salaryBaseMinINR": 336000,
+      "salaryBaseMaxINR": 900000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://www.vce.ac.in/placements/2025-2026.php",
+      "salarySourceType": "placement_report",
+      "reportedOn": "2026-05-25",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "high",
+      "evidenceExcerpt": "Vasavi College official placement records verify TCS Ninja / Digital / Prime base salary packages ranging from 3.36 to 9.0 LPA."
+    }
+  ],
+  "proposedQualification": "not_qualified",
+  "researchNotes": "Mass tech recruiter base compensation (3.36-9 LPA) falls well below the 15 LPA fixed-base qualification threshold; not_qualified."
+}

@@ -1,0 +1,33 @@
+{
+  "legalName": "Nutanix Technologies India Private Limited",
+  "rootDomain": "nutanix.com",
+  "aliases": [
+    "Nutanix"
+  ],
+  "careersUrl": "https://www.nutanix.com/company/careers",
+  "salaryEvidence": [
+    {
+      "role": "Member of Technical Staff 1 (MTS-1)",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.nutanix.com/company/careers",
+      "salaryBaseMinINR": 1800000,
+      "salaryBaseMaxINR": 2200000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus placement dataset lists Nutanix MTS-1 base salary at 18-22 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Nutanix MTS-1 base exceeds 15 LPA; supported_estimate."
+}

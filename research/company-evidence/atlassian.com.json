@@ -1,0 +1,33 @@
+{
+  "legalName": "Atlassian India LLP",
+  "rootDomain": "atlassian.com",
+  "aliases": [
+    "Atlassian"
+  ],
+  "careersUrl": "https://www.atlassian.com/company/careers",
+  "salaryEvidence": [
+    {
+      "role": "Graduate Software Engineer",
+      "roleFamily": "software_engineering",
+      "level": "entry",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.atlassian.com/company/careers",
+      "salaryBaseMinINR": 1800000,
+      "salaryBaseMaxINR": 2000000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus hiring observations indicate Atlassian Graduate SWE base pay of 18-20 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Base pay verified above threshold; supported_estimate."
+}

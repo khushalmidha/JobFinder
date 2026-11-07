@@ -1,0 +1,34 @@
+{
+  "legalName": "Qualcomm India Private Limited",
+  "rootDomain": "qualcomm.com",
+  "aliases": [
+    "Qualcomm",
+    "Qualcomm Technologies"
+  ],
+  "careersUrl": "https://qualcomm.wd5.myworkdayjobs.com/External",
+  "salaryEvidence": [
+    {
+      "role": "Associate Engineer",
+      "roleFamily": "software_engineering",
+      "level": "entry",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Hyderabad / Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://qualcomm.wd5.myworkdayjobs.com/External",
+      "salaryBaseMinINR": 1650000,
+      "salaryBaseMaxINR": 1750000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://www.vce.ac.in/placements/2025-2026.php",
+      "salarySourceType": "placement_report",
+      "reportedOn": "2026-05-25",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "high",
+      "evidenceExcerpt": "Vasavi College placement audit verifies Qualcomm Associate Engineer base pay of Rs 16,50,000 (16.5 LPA) separated from bonus and total package of Rs 26.5 LPA."
+    }
+  ],
+  "proposedQualification": "qualified",
+  "researchNotes": "Vasavi official record confirms Qualcomm base pay of 16.50 LPA, strictly > 15.00 LPA."
+}

@@ -1,0 +1,33 @@
+{
+  "legalName": "Squarepoint Services India Private Limited",
+  "rootDomain": "squarepoint-capital.com",
+  "aliases": [
+    "Squarepoint Capital"
+  ],
+  "careersUrl": "https://www.squarepoint-capital.com/careers",
+  "salaryEvidence": [
+    {
+      "role": "Quantitative Developer",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.squarepoint-capital.com/careers",
+      "salaryBaseMinINR": 3500000,
+      "salaryBaseMaxINR": 4500000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus placement dataset lists Squarepoint Capital Quant Developer base pay of 35-45 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Squarepoint Quant Developer base exceeds 15 LPA; supported_estimate."
+}

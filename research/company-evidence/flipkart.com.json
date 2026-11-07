@@ -1,0 +1,33 @@
+{
+  "legalName": "Flipkart Internet Private Limited",
+  "rootDomain": "flipkart.com",
+  "aliases": [
+    "Flipkart"
+  ],
+  "careersUrl": "https://www.flipkartcareers.com",
+  "salaryEvidence": [
+    {
+      "role": "Software Development Engineer 1",
+      "roleFamily": "software_engineering",
+      "level": "SDE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.flipkartcareers.com",
+      "salaryBaseMinINR": 1800000,
+      "salaryBaseMaxINR": 2000000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus placement dataset lists Flipkart SDE-1 base pay at 18-20 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "Flipkart SDE-1 base pay exceeds 15 LPA; supported_estimate."
+}

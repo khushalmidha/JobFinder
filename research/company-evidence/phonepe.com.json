@@ -1,0 +1,33 @@
+{
+  "legalName": "PhonePe Private Limited",
+  "rootDomain": "phonepe.com",
+  "aliases": [
+    "PhonePe"
+  ],
+  "careersUrl": "https://www.phonepe.com/careers",
+  "salaryEvidence": [
+    {
+      "role": "Software Engineer",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.phonepe.com/careers",
+      "salaryBaseMinINR": 1800000,
+      "salaryBaseMaxINR": 2200000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus placement reports document PhonePe fresher Software Engineer base salary of 18-22 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "PhonePe entry SWE base exceeds 15 LPA; supported_estimate."
+}

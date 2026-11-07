@@ -1,0 +1,33 @@
+{
+  "legalName": "ServiceNow India Private Limited",
+  "rootDomain": "servicenow.com",
+  "aliases": [
+    "ServiceNow"
+  ],
+  "careersUrl": "https://www.servicenow.com/careers.html",
+  "salaryEvidence": [
+    {
+      "role": "Associate Software Engineer",
+      "roleFamily": "software_engineering",
+      "level": "entry",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Hyderabad / Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://www.servicenow.com/careers.html",
+      "salaryBaseMinINR": 1600000,
+      "salaryBaseMaxINR": 1800000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Campus placement dataset lists ServiceNow Associate Software Engineer base salary of 16-18 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "ServiceNow ASE base pay exceeds 15 LPA; supported_estimate."
+}

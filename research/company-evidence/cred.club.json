@@ -1,0 +1,33 @@
+{
+  "legalName": "Dreamplug Technologies Private Limited",
+  "rootDomain": "cred.club",
+  "aliases": [
+    "CRED"
+  ],
+  "careersUrl": "https://careers.cred.club",
+  "salaryEvidence": [
+    {
+      "role": "Backend Engineer",
+      "roleFamily": "software_engineering",
+      "level": "SWE-1",
+      "experienceMin": 0,
+      "experienceMax": 2,
+      "location": "Bengaluru, India",
+      "indiaEligibility": true,
+      "indiaEligibilitySourceUrl": "https://careers.cred.club",
+      "salaryBaseMinINR": 2000000,
+      "salaryBaseMaxINR": 2500000,
+      "currency": "INR",
+      "payPeriod": "year",
+      "baseVsCTC": "fixed_base",
+      "salarySourceUrl": "https://github.com/anxkhn/placement-data-2025",
+      "salarySourceType": "salary_dataset",
+      "reportedOn": "2025-12-01",
+      "lastCheckedAt": "2026-11-05",
+      "evidenceConfidence": "medium",
+      "evidenceExcerpt": "Placement records cite CRED entry engineering base pay between 20 and 25 LPA."
+    }
+  ],
+  "proposedQualification": "supported_estimate",
+  "researchNotes": "CRED entry software engineering base reported at 20-25 LPA; supported_estimate."
+}
