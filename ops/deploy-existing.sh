@@ -2,7 +2,6 @@
 set -eu
 # Existing host only. No instances, volumes, credentials or paid APIs created.
 test -f backend/.env || { echo 'Missing private backend/.env'; exit 1; }
-node_check=''
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   compose() { docker compose "$@"; }
 else
@@ -15,5 +14,5 @@ done
 compose config --quiet
 compose build
 compose up -d --wait --wait-timeout 180
-curl --fail --silent --show-error --max-time 15 http://127.0.0.1/api/health >/dev/null
+compose exec -T backend node -e "fetch('http://web/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 printf 'Deployment healthy; sending and research remain disabled.\n'

@@ -28,8 +28,8 @@ services:
   web:
     build: ./web
     restart: unless-stopped
-    ports:
-      - "80:80"
+    expose:
+      - "80"
     depends_on:
       backend:
         condition: service_healthy
@@ -37,3 +37,24 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+  ingress:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      JOBFINDER_DOMAIN: ${JOBFINDER_DOMAIN:?Set verified public hostname in root .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  caddy_data:
+  caddy_config:

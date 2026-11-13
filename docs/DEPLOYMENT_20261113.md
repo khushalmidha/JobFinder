@@ -1,4 +1,4 @@
-# Existing-host deployment — 13 November 2026
+# Existing-host deployment â€” 13 November 2026
 
 ## Observed state
 
@@ -33,3 +33,12 @@ Legacy tracked Compose contained a database credential and weak JWT default. New
 ## Validation status
 
 Docker Compose config validation passed locally without resolving runtime env files; git diff --check passed. Docker daemon is unavailable locally, so container build/start, Nginx execution and real host SMTP are pending, not passed. The preceding feature commit had 101 backend tests and Chromium/GitHub CI passing; this deployment branch needs its own CI. No live deployment is claimed until verified.
+
+
+## Live-host follow-up
+
+AWS login succeeded. Existing JobFinder-Server i-07b4f6961dc550de0 in us-east-1 was identified via tags and its SSH ED25519 fingerprint verified against AWS console output. Old web container was restarting with invalid Nginx variables; backend used the same existing MongoDB as the approved import. Gmail465 verified TLS and Gmail587 TCP succeeded from that host without sending mail. No EC2 free allowance appeared in the account Free Tier API response; zero-cost hosting is not certified. CPU credit mode changed from unlimited to standard to avoid surplus-credit charges. Existing volume is reused with a 2GiB swap file for builds; no new instance or volume provisioned.
+
+The existing encryption behavior is explicitly preserved. Read-only assessment found 8 encrypted values readable with the existing legacy key and 2 pre-existing unreadable values; those require owner re-entry, not guessed credential migration. JWT is rotated for deployment, so existing sessions need login again. Sending remains disabled. Runtime configuration and old container/image references are privately backed up outside the repository.
+
+HTTPS ingress uses Caddy with persistent certificate storage and a public IP-derived sslip.io hostname. It adds no paid DNS/domain purchase; the hostname changes if the instance public IP changes. Same-origin proxy, backend health and external certificate must be verified before reporting success. Keep root .env hostname and backend .env private. Older local deployment edits remain preserved in the IDE workspace; use the reviewed ops branch as the release source.
