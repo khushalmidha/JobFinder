@@ -178,7 +178,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://careers.swiggy.com',
     atsType: 'lever',
     atsToken: 'swiggy',
-    description: 'India’s leading on-demand convenience and quick commerce platform.'
+    description: 'Indiaâ€™s leading on-demand convenience and quick commerce platform.'
   },
   {
     name: 'Razorpay',
@@ -202,7 +202,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://www.zeptonow.com/careers',
     atsType: 'lever',
     atsToken: 'zeptonow',
-    description: 'India’s fastest-growing quick-commerce decacorn.'
+    description: 'Indiaâ€™s fastest-growing quick-commerce decacorn.'
   },
   {
     name: 'Groww',
@@ -238,7 +238,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://www.browserstack.com/careers',
     atsType: 'greenhouse',
     atsToken: 'browserstack',
-    description: 'World’s leading cloud web & mobile testing platform.'
+    description: 'Worldâ€™s leading cloud web & mobile testing platform.'
   },
   {
     name: 'Cred',
@@ -286,7 +286,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://www.urbancompany.com/careers',
     atsType: 'lever',
     atsToken: 'urbancompany',
-    description: 'Asia’s largest at-home home services and beauty tech marketplace.'
+    description: 'Asiaâ€™s largest at-home home services and beauty tech marketplace.'
   },
 
   // --- Remote-First Global Tech (Hiring from India) ---
@@ -300,7 +300,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://about.gitlab.com/jobs',
     atsType: 'greenhouse',
     atsToken: 'gitlab',
-    description: 'World’s largest all-remote software development and DevSecOps platform.'
+    description: 'Worldâ€™s largest all-remote software development and DevSecOps platform.'
   },
   {
     name: 'Automattic (WordPress)',
@@ -726,7 +726,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://careers.salesforce.com',
     atsType: 'custom',
     atsToken: 'salesforce',
-    description: 'World’s #1 CRM and enterprise cloud platform.'
+    description: 'Worldâ€™s #1 CRM and enterprise cloud platform.'
   },
 
   // --- Tier 1.5 High-Paying Indian Unicorns & Top Startups (CTC > 14 LPA) ---
@@ -740,7 +740,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://www.phonepe.com/careers',
     atsType: 'custom',
     atsToken: 'phonepe',
-    description: 'India’s largest UPI and digital payments financial technology ecosystem.'
+    description: 'Indiaâ€™s largest UPI and digital payments financial technology ecosystem.'
   },
   {
     name: 'Zerodha',
@@ -776,7 +776,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://blinkit.com/careers',
     atsType: 'lever',
     atsToken: 'blinkit',
-    description: 'India’s pioneer 10-minute instant delivery quick-commerce platform.'
+    description: 'Indiaâ€™s pioneer 10-minute instant delivery quick-commerce platform.'
   },
   {
     name: 'Dream11',
@@ -788,7 +788,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://careers.dream11.com',
     atsType: 'lever',
     atsToken: 'dream11',
-    description: 'India’s biggest fantasy sports gaming platform serving 150M+ users.'
+    description: 'Indiaâ€™s biggest fantasy sports gaming platform serving 150M+ users.'
   },
   {
     name: 'Mobile Premier League (MPL)',
@@ -824,7 +824,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://www.sliceit.com/careers',
     atsType: 'lever',
     atsToken: 'slice',
-    description: 'Modern consumer payment and card fintech for India’s youth.'
+    description: 'Modern consumer payment and card fintech for Indiaâ€™s youth.'
   },
   {
     name: 'Jupiter Money',
@@ -872,7 +872,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://coindcx.com/careers',
     atsType: 'lever',
     atsToken: 'coindcx',
-    description: 'India’s first crypto unicorn exchange and Web3 platform.'
+    description: 'Indiaâ€™s first crypto unicorn exchange and Web3 platform.'
   },
   {
     name: 'CoinSwitch',
@@ -896,7 +896,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://sharechat.com/careers',
     atsType: 'greenhouse',
     atsToken: 'sharechat',
-    description: 'India’s largest vernacular social network and Moj short-video app.'
+    description: 'Indiaâ€™s largest vernacular social network and Moj short-video app.'
   },
   {
     name: 'Upstox',
@@ -968,7 +968,7 @@ const BASE_SEED_COMPANIES = [
     careersUrl: 'https://www.shiprocket.in/careers',
     atsType: 'lever',
     atsToken: 'shiprocket',
-    description: 'India’s top e-commerce shipping and fulfillment enablement platform.'
+    description: 'Indiaâ€™s top e-commerce shipping and fulfillment enablement platform.'
   },
   {
     name: 'UrbanPiper',
@@ -1067,7 +1067,7 @@ const BASE_SEED_COMPANIES = [
     description: 'Open source APM and observability platform based on OpenTelemetry.'
   },
 
-  // --- Top AI & Deep Tech Unicorns (CTC > 30 LPA, Intern ₹1L/month) ---
+  // --- Top AI & Deep Tech Unicorns (CTC > 30 LPA, Intern â‚¹1L/month) ---
   {
     name: 'Pinecone',
     domain: 'pinecone.io',
@@ -1253,6 +1253,8 @@ const SEED_COMPANIES = Array.from(canonicalCompanies.values());
  */
 async function seedCompaniesIfEmpty() {
   try {
+    // Existing imported directories are authoritative; startup is not a migration.
+    if (await Company.exists({})) return;
     for (const comp of SEED_COMPANIES) {
       const ctcInfo = getCompanyCtcInfo(comp);
       await Company.findOneAndUpdate(
