@@ -5,6 +5,7 @@ const schema = new mongoose.Schema({
   companyName: String, email: String, evidenceUrl: String,
   listingStatus: { type: String, enum: ['official_publicly_listed', 'source_claim_unchecked', 'not_found', 'inconclusive'], default: 'source_claim_unchecked' },
   checkedAt: Date, evidenceExcerpt: String, checkReason: String,
+  sourceReview: mongoose.Schema.Types.Mixed,
   mailboxVerified: { type: Boolean, default: false, enum: [false] },
   readyToSend: { type: Boolean, default: false, enum: [false] },
   importRunId: { type: mongoose.Schema.Types.ObjectId, ref: 'CompanyImportRun' }

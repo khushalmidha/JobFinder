@@ -10,7 +10,8 @@ const schema = new mongoose.Schema({
   journal: [mongoose.Schema.Types.Mixed],
   error: String, appliedAt: Date, rolledBackAt: Date,
   rollbackReport: mongoose.Schema.Types.Mixed,
-  recoveryEvents: [{ at: Date, actor: mongoose.Schema.Types.ObjectId, previousStatus: String, reason: String }]
+  recoveryEvents: [{ at: Date, actor: mongoose.Schema.Types.ObjectId, previousStatus: String, reason: String }],
+  execution: mongoose.Schema.Types.Mixed
 }, { timestamps: true });
 // One shared-directory import mutates at a time across processes.
 schema.index({ lockKey: 1 }, { unique: true, partialFilterExpression: { mutating: true } });

@@ -1,8 +1,10 @@
 # ColdMail Pilot
 
+**8 November 2026:** the explicitly approved 733-row company import is complete, with eight public recruiting leads available across the primary and two configured accounts. See [verified import results](docs/IMPORT_733_COMPLETED_20261108.md) and [local operator maintenance](docs/OPERATOR_COMPANY_IMPORT.md). Sending remains disabled.
+
 Latest follow-up: [reviewed Antigravity handoff](docs/reviews/ANTIGRAVITY_INTEGRATION_20261107.md) and [Settings account-email verification](docs/ACCOUNT_EMAIL_VERIFICATION.md). Verification delivery requires an operator-configured trusted sender and remains off by default; no account was automatically verified or promoted.
 
-Scheduled outreach is available at `/campaigns`; region-separated company staging and administrator dry-run import are at `/companies`. Read [current validation](docs/VALIDATION_20261107.md), [scheduler operations/rollback](docs/SCHEDULED_OUTREACH.md), [company import](docs/COMPANY_IMPORT.md) and [verified admin migration](docs/ADMIN_ROLE_MIGRATION.md). Sending and workers remain disabled by default. Live admin promotion/import are pending genuine account email verification and the owner's final import approval.
+Scheduled outreach is available at `/campaigns`; region-separated company staging and administrator dry-run import are at `/companies`. Read [current validation](docs/VALIDATION_20261107.md), [scheduler operations/rollback](docs/SCHEDULED_OUTREACH.md), [company import](docs/COMPANY_IMPORT.md) and [verified admin migration](docs/ADMIN_ROLE_MIGRATION.md). Sending and workers remain disabled by default. Application admin promotion still requires genuine account verification; the separately approved operator data import is recorded in the latest import report.
 
 JobFinder now includes a recruitment research workspace at `/research`: dated fixed-base salary evidence, professional contact provenance, local budgeted research and editable outreach drafts. Read [the acceptance report](docs/ACCEPTANCE_REPORT.md) and [local operations guide](docs/COST_AND_OPERATIONS.md) before use. Paid research, automatic scheduling and outreach sending default to off. Build/load `extension/dist` for the reviewed-profile application assistant; legacy signed/ZIP artifacts are outdated.
 

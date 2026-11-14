@@ -199,6 +199,8 @@ async function applyImport(userId, runId, digest, options = {}) {
 
 async function rollbackImport(userId, runId) {
   await requireAdmin(userId);
+  const operatorRun=await Run.findOne({_id:runId,userId}).select('execution').lean();
+  if(operatorRun?.execution?.kind==='local_operator_maintenance')throw new Error('Operator imports require contact-aware local maintenance rollback');
   const run = await Run.findOneAndUpdate({ _id: runId, userId, status: { $in: ['applied', 'failed'] } }, { $set: { status: 'rolling_back', mutating: true } }, { returnDocument: 'after' });
   if (!run) throw new Error('Only an applied/failed owned run can be rolled back');
   const report = { restoredProspects: 0, removedProspects: 0, restoredLeads: 0, removedLeads: 0, removedCompanies: 0, archivedCompanies: 0, retainedCompanies: 0, conflicts: [] };
