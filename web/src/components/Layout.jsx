@@ -19,6 +19,7 @@ const Layout = ({ onLogout }) => {
     { path: '/companies', label: 'Company Directory', icon: Briefcase },
     { path: '/campaigns', label: 'Scheduled Campaigns', icon: Send },
     { path: '/crm', label: 'Outreach CRM', icon: Users },
+    { path: '/email-checks', label: 'Email Checks', icon: Users },
     { path: '/import', label: 'Import Contacts', icon: Users },
     { path: '/logs', label: 'Queue & Logs', icon: Send },
     { path: '/settings', label: 'Settings', icon: Settings },

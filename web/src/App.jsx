@@ -6,6 +6,7 @@ import JobHunter from './pages/JobHunter';
 import Research from './pages/Research';
 import Companies from './pages/Companies';
 import Campaigns from './pages/Campaigns';
+import ContactIntake from './pages/ContactIntake';
 import OutreachCRM from './pages/OutreachCRM';
 import Settings from './pages/Settings';
 import Logs from './pages/Logs';
@@ -26,6 +27,7 @@ function App() {
           <Route path="research" element={<Research />} />
           <Route path="companies" element={<Companies />} />
           <Route path="campaigns" element={<Campaigns />} />
+          <Route path="email-checks" element={<ContactIntake />} />
           <Route path="crm" element={<OutreachCRM />} />
           <Route path="import" element={<Import />} />
           <Route path="logs" element={<Logs />} />

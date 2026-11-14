@@ -32,6 +32,7 @@ async function recipientReason(user,contact,row,now=new Date(),dispatchId) {
   if(!contact || String(contact.userId)!==String(user._id))return 'Owned contact not found';
   if(!validEmail(normalizeEmail(contact.email)))return 'Unsupported or invalid recipient syntax';
   if(await RecipientSuppression.exists({userId:user._id,email:normalizeEmail(contact.email)}))return 'Recipient has a persistent suppression record';
+  if(require('./contactAdmissionService').enabled() && !await require('./contactAdmissionService').validProof(user._id,contact.email))return 'Fresh trusted mailbox verification required';
   const blocked=contactBlockReason(contact);if(blocked)return blocked;
   if(!['publicly_sourced','vendor_verified'].includes(contact.verificationStatus))return 'Individual recruiting contact requires public or provider evidence';
   if((user.blockedCompanies||[]).some(c=>c.toLowerCase()===contact.company.toLowerCase()))return 'Company is on your do-not-contact list';

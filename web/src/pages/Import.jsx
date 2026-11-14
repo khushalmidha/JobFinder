@@ -300,7 +300,7 @@ const Import = () => {
       setStatus('');
       const allToSave = parsedContacts.map(c => ({...c, source: 'excel_upload'}));
       const CHUNK_SIZE = 500;
-      let totalAdded = 0;
+      let totalAdded = 0, totalStaged = 0, totalRejected = 0;
 
       for (let i = 0; i < allToSave.length; i += CHUNK_SIZE) {
         const chunk = allToSave.slice(i, i + CHUNK_SIZE);
@@ -312,12 +312,13 @@ const Import = () => {
 
         const { data } = await api.post('/contacts/bulk', { contacts: chunk });
         totalAdded += (data.added || 0);
+        totalStaged += (data.staged || 0); totalRejected += (data.rejected || 0);
       }
 
       const syncMsg = (syncedAccountEmails && syncedAccountEmails.length > 0)
         ? ` and automatically one-way synced to ${syncedAccountEmails.join(', ')}`
         : '';
-      setStatus(`🎉 Success! Added ${totalAdded} new contacts from your sheet (duplicates safely skipped${syncMsg}).`);
+      setStatus(`🎉 Success! Added ${totalAdded} new contacts. ${totalStaged} pending in Email Checks; ${totalRejected} rejected (duplicates skipped${syncMsg}).`);
       setParsedContacts([]);
       setFile(null);
     } catch (err) {

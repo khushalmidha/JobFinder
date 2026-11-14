@@ -63,8 +63,9 @@ async function verifyHunterEmail({ email, userId, apiKey, reserve = reserveResea
   const response = await fetchImpl(url, { redirect: 'error', signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`Hunter verifier failed (${response.status})`);
   const { data } = await response.json();
+  if(data?.email && String(data.email).trim().toLowerCase()!==String(email).trim().toLowerCase())throw new Error('Verifier returned a different email; no proof accepted');
   const status = data?.status;
-  return { vendorStatus: status || 'unknown', verificationStatus: status === 'valid' && !data?.accept_all ? 'vendor_verified' : status === 'invalid' ? 'invalid' : data?.accept_all || status === 'accept_all' ? 'catch_all' : 'unknown' };
+  return { vendorStatus: status || 'unknown', verificationStatus: status === 'valid' && !data?.accept_all && data?.smtp_check !== false ? 'vendor_verified' : status === 'invalid' ? 'invalid' : data?.accept_all || status === 'accept_all' ? 'catch_all' : 'unknown' };
 }
 async function findHunterEmail({ domain, firstName, lastName, personSourceUrl, userId, apiKey, reserve = reserveResearch, fetchImpl = fetch } = {}) {
   domain=normalizeDomain(domain);
@@ -98,6 +99,7 @@ async function harvestRecruiterLeads({ userId, domains = [], targetAgency = 'bot
     if (['hunter', 'both'].includes(targetAgency) && user.hunterApiKey) {
       for (const lead of await searchHunterDomain(company.domain, user.hunterApiKey, limit, { userId })) {
         if (await Contact.exists({ userId, email: lead.email })) { skippedCount++; continue; }
+        if(require('./contactAdmissionService').enabled()){const result=await require('./contactAdmissionService').intake(userId,[{...lead,companyId:company._id,company:company.name}]);contacts.push(...result.contacts);addedCount+=result.added;skippedCount+=result.staged+result.rejected;continue;}
         contacts.push(await Contact.create({ ...lead, userId, companyId: company._id, company: company.name })); addedCount++;
       }
     }

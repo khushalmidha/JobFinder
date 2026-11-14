@@ -88,12 +88,13 @@ exports.getCompanies = async (req, res) => {
 exports.bulkCreate = async (req, res) => {
   try {
     const { contacts } = req.body;
+    if(!Array.isArray(contacts)||contacts.length>1000)return res.status(400).json({error:"Provide at most1000 contacts"});
     const existingCompanies = await Contact.distinct('company', { userId: req.user._id });
 
     // Split multiple emails into separate contacts
     let flattenedContacts = [];
     for (const c of contacts) {
-      if (c.email && c.email.match(/[\s,;]/)) {
+      if (typeof c.email === 'string' && c.email.match(/[\s,;]/)) {
         const emails = c.email.split(/[\s,;]+/).filter(e => e.trim());
         for (const e of emails) {
           flattenedContacts.push({ ...c, email: e.trim() });
@@ -126,6 +127,7 @@ exports.bulkCreate = async (req, res) => {
       return {
         ...c,
         company: comp,
+        email: typeof c.email==='string'?c.email.trim().toLowerCase():'',
         userId: req.user._id,
         source: c.source || 'extension'
       };
@@ -148,6 +150,12 @@ exports.bulkCreate = async (req, res) => {
 
     if (newContacts.length === 0) {
       return res.status(200).json({ message: 'No new contacts to add (all were duplicates)', added: 0 });
+    }
+
+    if (require('../services/contactAdmissionService').enabled()) {
+      const result = await require('../services/contactAdmissionService').intake(req.user._id,newContacts);
+      invalidateContactCache(req.user._id);
+      return res.status(201).json({...result,message:`Added ${result.added} verified contacts; ${result.staged} pending verification; ${result.rejected} rejected. No paid credits used.`});
     }
 
     // Fast syntax validation (instant 0ms check, no blocking network delays)
@@ -387,6 +395,10 @@ exports.bulkDelete = async (req, res) => {
  */
 exports.validateDeliverability = async (req, res) => {
   try {
+    if(require('../services/contactAdmissionService').enabled()) {
+      const report=await require('../services/contactHygieneService').scan({userId:req.user._id,limit:200,apply:true});
+      return res.json({...report,validCount:report.mailboxValid,invalidCount:report.confirmedInvalid,message:`Checked ${report.checked} due contacts; removed ${report.removed} confirmed-invalid. Uncertain addresses preserved; background checks cover remaining records.`});
+    }
     const { validateEmail } = require('../services/emailDeliverabilityService');
     const userId = req.user._id;
     const contacts = await Contact.find({ userId });
