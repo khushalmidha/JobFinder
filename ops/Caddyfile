@@ -1,0 +1,8 @@
+{$JOBFINDER_DOMAIN} {
+    encode gzip
+    reverse_proxy web:80
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+}

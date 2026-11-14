@@ -1,49 +1,68 @@
-name: Deploy JobFinder to AWS EC2
-
+name: Deploy JobFinder to existing EC2
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
-
+permissions:
+  contents: read
+concurrency:
+  group: jobfinder-production
+  cancel-in-progress: false
 jobs:
-  deploy:
-    name: Auto Deploy to AWS
+  validate:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 20
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            web/package-lock.json
+            extension/package-lock.json
+      - run: npm ci && npm test
+        working-directory: backend
+      - run: npm ci && npm run build && npm run lint
+        working-directory: web
+      - run: npm ci && npm run build && npm run lint
+        working-directory: extension
+      - run: npx playwright install --with-deps chromium && npm run test:browser
+        working-directory: backend
+  deploy:
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - name: Require existing host credentials
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ${{ secrets.EC2_USER }}
+          KEY: ${{ secrets.EC2_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.EC2_SSH_FINGERPRINT }}
+        run: |
+          test -n "$HOST" && test -n "$USER" && test -n "$KEY" && test -n "$FINGERPRINT" || { echo 'Configure existing EC2 host/user/key/fingerprint secrets first'; exit 1; }
+      - name: Deploy tested commit to existing EC2
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER || 'ubuntu' }}
+          username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script_stop: true
+          fingerprint: ${{ secrets.EC2_SSH_FINGERPRINT }}
+          envs: DEPLOY_SHA
+          command_timeout: 15m
           script: |
-            echo "🚀 [CI/CD] Starting automated deployment on AWS EC2..."
-            
-            # Find and navigate to repository root
-            if [ -d "$HOME/JobFinder" ]; then
-              cd "$HOME/JobFinder"
-            elif [ -d "$HOME/jobfinder" ]; then
-              cd "$HOME/jobfinder"
-            elif [ -d "/home/ubuntu/JobFinder" ]; then
-              cd "/home/ubuntu/JobFinder"
-            else
-              echo "Error: JobFinder directory not found in $HOME"
-              exit 1
-            fi
-
-            echo "📥 Pulling latest code from origin/main..."
-            git reset --hard HEAD
-            git pull origin main
-
-            echo "🐳 Building and starting updated Docker containers..."
-            sudo docker compose up -d --build
-
-            echo "🧹 Pruning old Docker images..."
-            sudo docker image prune -f
-
-            echo "✅ [CI/CD] JobFinder deployed successfully!"
-
+            set -eu
+            if [ -d "$HOME/JobFinder/.git" ]; then cd "$HOME/JobFinder";
+            elif [ -d "$HOME/jobfinder/.git" ]; then cd "$HOME/jobfinder";
+            else echo 'Existing JobFinder checkout not found'; exit 1; fi
+            test -z "$(git status --porcelain --untracked-files=no)" || { echo 'Tracked host edits detected; reconcile before deployment'; exit 1; }
+            git fetch origin main
+            test "$(git rev-parse origin/main)" = "$DEPLOY_SHA" || { echo 'Newer main exists; dispatch latest deployment'; exit 1; }
+            git checkout --detach "$DEPLOY_SHA"
+            sh ops/deploy-existing.sh
