@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const mongoose = require('mongoose');
 const Receipt = require('../models/DeliveryEventReceipt');
 const MailLog = require('../models/MailLog');
+const DeliveryLedger = require('../models/DeliveryLedger');
 const Contact = require('../models/Contact');
 const Suppression = require('../models/RecipientSuppression');
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -21,10 +22,48 @@ function authenticate(raw, headers, env = process.env, now = Date.now()) {
 }
 async function applyEvent({ event, userId, digest }) {
   const email = event.recipientEmail.trim().toLowerCase();
-  const candidates = await MailLog.find({ userId, providerMessageId: event.messageId, recipientEmail: exactEmail(email) }).limit(2).lean();
-  if (candidates.length !== 1) throw fail('No unique owned sent-message match', 409);
+  const [mailLogs, ledgerEntries] = await Promise.all([
+    MailLog.find({ userId, providerMessageId: event.messageId, recipientEmail: exactEmail(email) }).limit(2).lean(),
+    DeliveryLedger.find({ userId, providerMessageId: event.messageId, recipientEmail: exactEmail(email) }).limit(2).lean()
+  ]);
+
+  // Unified delivery map: deduplicate identical deliveries across MailLog and DeliveryLedger
+  // by originalMailLogId, while detecting cross-store ambiguity between different deliveries.
+  const unified = new Map();
+  for (const log of mailLogs) {
+    const key = String(log._id);
+    unified.set(key, { mailLog: log, ledger: null });
+  }
+  for (const ledger of ledgerEntries) {
+    const key = ledger.originalMailLogId ? String(ledger.originalMailLogId) : `ledger:${ledger._id}`;
+    if (unified.has(key)) {
+      unified.get(key).ledger = ledger;
+    } else {
+      unified.set(key, { mailLog: null, ledger });
+    }
+  }
+
+  // Reject ambiguous candidate sets across stores (e.g. multiple distinct deliveries with the same messageId)
+  if (unified.size !== 1) throw fail('No unique owned sent-message match', 409);
+
+  const [matchedDelivery] = unified.values();
+  const matchedMailLog = matchedDelivery.mailLog;
+  const matchedLedger = matchedDelivery.ledger;
+  const canonicalMailLogId = matchedMailLog?._id || matchedLedger?.originalMailLogId || null;
+
   let receipt;
-  try { receipt = await Receipt.create({ eventId: event.eventId, digest, userId, mailLogId: candidates[0]._id, recipientEmail: email, providerMessageId: event.messageId, eventType: String(event.eventType || '').slice(0, 100), enhancedStatus: String(event.enhancedStatus || '').slice(0, 30) }); }
+  try {
+    receipt = await Receipt.create({
+      eventId: event.eventId,
+      digest,
+      userId,
+      mailLogId: canonicalMailLogId,
+      recipientEmail: email,
+      providerMessageId: event.messageId,
+      eventType: String(event.eventType || '').slice(0, 100),
+      enhancedStatus: String(event.enhancedStatus || '').slice(0, 30)
+    });
+  }
   catch (error) {
     if (error.code !== 11000) throw error;
     const previous = await Receipt.findOne({ eventId: event.eventId }).lean();
@@ -40,7 +79,17 @@ async function applyEvent({ event, userId, digest }) {
     await Suppression.updateOne({ userId, email }, { $setOnInsert: { userId, email, reason, source: 'authenticated_provider_5.1.1', evidenceEventId: event.eventId } }, { upsert: true });
     await Contact.updateMany({ userId, email: exactEmail(email) }, { $set: { deliverabilityStatus: 'invalid', verificationStatus: 'invalid' } });
     await Contact.updateMany({ userId, email: exactEmail(email), suppressedAt: null }, { $set: { suppressedAt: new Date(), suppressionReason: reason } });
-    await MailLog.updateOne({ _id: candidates[0]._id, userId, status: { $ne: 'bounced' } }, { $set: { status: 'bounced', bounceReason: reason } });
+
+    // Ensure outcome is not lost if MailLog was pruned concurrently during webhook processing:
+    // Update MailLog if present, and update DeliveryLedger unconditionally.
+    if (matchedMailLog) {
+      await MailLog.updateOne({ _id: matchedMailLog._id, userId, status: { $ne: 'bounced' } }, { $set: { status: 'bounced', bounceReason: reason } });
+    }
+    if (matchedLedger) {
+      await DeliveryLedger.updateOne({ _id: matchedLedger._id, userId, status: { $ne: 'bounced' } }, { $set: { status: 'bounced', bounceReason: reason } });
+    } else if (canonicalMailLogId) {
+      await DeliveryLedger.updateOne({ originalMailLogId: canonicalMailLogId, userId, status: { $ne: 'bounced' } }, { $set: { status: 'bounced', bounceReason: reason } });
+    }
     outcome = 'confirmed_recipient_failure';
   }
   await Receipt.updateOne({ _id: receipt._id }, { $set: { state: 'completed', outcome } });

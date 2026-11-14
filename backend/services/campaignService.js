@@ -1,7 +1,7 @@
 const crypto=require('node:crypto');
 const mongoose=require('mongoose');
 const User=require('../models/User'), Contact=require('../models/Contact'), Company=require('../models/Company');
-const Campaign=require('../models/OutreachCampaign'), Dispatch=require('../models/OutreachDispatch'), MailLog=require('../models/MailLog');
+const Campaign=require('../models/OutreachCampaign'), Dispatch=require('../models/OutreachDispatch'), MailLog=require('../models/MailLog'), DeliveryLedger=require('../models/DeliveryLedger');
 const {contactBlockReason}=require('./outreachResearchService');
 const {qualifyCompany}=require('./salaryEvidenceService');
 const RecipientSuppression=require('../models/RecipientSuppression');
@@ -24,6 +24,7 @@ function resolveSender(user,id) {
 }
 async function duplicateReason(userId,contactId,email,excludeDispatchId) {
   if(await MailLog.exists({userId,status:{$in:['sent','delivered']},$or:[{contactId},{recipientEmail:email}]}))return 'Already sent: contact or recipient history';
+  if(await DeliveryLedger.exists({userId,status:{$in:['sent','delivered']},$or:[{contactId},{recipientEmail:email}]}))return 'Already sent: contact or recipient history';
   if(await Dispatch.exists({userId,recipientEmail:email,status:{$in:['sending','sent','unknown_outcome']},...(excludeDispatchId?{_id:{$ne:excludeDispatchId}}:{})}))return 'Previous send or unresolved delivery outcome';
   return null;
 }

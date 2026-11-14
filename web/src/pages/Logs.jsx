@@ -6,6 +6,9 @@ const Logs = () => {
   const [logs, setLogs] = useState([]);
   const [queueStatus, setQueueStatus] = useState({ pending: 0, size: 0, isPaused: false, limitFailedCount: 0 });
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalInWindow, setTotalInWindow] = useState(0);
 
   // Daily limit recovery & switch account state
   const [smtpAccounts, setSmtpAccounts] = useState([]);
@@ -15,14 +18,19 @@ const Logs = () => {
   const [restoringLimit, setRestoringLimit] = useState(false);
   const [actionToast, setActionToast] = useState('');
 
-  const fetchData = async () => {
+  const fetchData = async (targetPage = page) => {
     try {
       setLoading(true);
       const [logsRes, queueRes] = await Promise.all([
-        api.get('/mail/logs'),
+        api.get(`/mail/logs?page=${targetPage}&limit=100`),
         api.get('/mail/queue-status')
       ]);
-      setLogs(logsRes.data);
+      const data = logsRes.data;
+      const items = Array.isArray(data) ? data : (data.logs || []);
+      setLogs(items);
+      setTotalInWindow(Array.isArray(data) ? items.length : (data.totalInWindow ?? items.length));
+      setTotalPages(Array.isArray(data) ? 1 : (data.totalPages || 1));
+      setPage(Array.isArray(data) ? 1 : (data.page || 1));
       setQueueStatus(queueRes.data);
     } catch (err) {
       console.error('Failed to fetch logs:', err);
@@ -105,7 +113,7 @@ const Logs = () => {
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2 bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-800">
             <span className="text-xs font-medium text-zinc-400">
-              Queue: {queueStatus.pending + queueStatus.size}
+              Queue: {queueStatus.pending || 0}
             </span>
             {queueStatus.dailyLimit && (
               <button
@@ -367,6 +375,16 @@ const Logs = () => {
         </div>
       )}
 
+      {/* 48-Hour Rolling Retention Informational Notice */}
+      <div className="mb-8 p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs flex items-center justify-between shadow-sm">
+        <div className="flex items-center space-x-2.5">
+          <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <span>
+            <strong className="text-zinc-100">Automatic 48-Hour Retention:</strong> Detailed email logs are kept for a rolling 48 hours (UTC). Older records expire automatically; anti-duplicate delivery ledger and suppression evidence remain permanently protected.
+          </span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex items-center">
           <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center mr-4">
@@ -374,8 +392,10 @@ const Logs = () => {
           </div>
           <div>
             <p className="text-sm font-medium text-zinc-400">Emails in Queue</p>
-            <h2 className="text-3xl font-bold text-zinc-100 mt-1">{queueStatus.pending + queueStatus.size}</h2>
-            <p className="text-xs text-zinc-500 mt-1">Sending 1 email every 3 seconds to avoid spam filters.</p>
+            <h2 className="text-3xl font-bold text-zinc-100 mt-1">{queueStatus.pending || 0}</h2>
+            <p className="text-xs text-zinc-500 mt-1">
+              Sending 1 email every {queueStatus.intervalSeconds || 180} seconds ({Math.round((queueStatus.intervalSeconds || 180) / 60)} min safe pace).
+            </p>
           </div>
         </div>
 
@@ -384,8 +404,9 @@ const Logs = () => {
             <Mail className="w-6 h-6 text-green-400" />
           </div>
           <div>
-            <p className="text-sm font-medium text-zinc-400">Total Sent / Logged</p>
-            <h2 className="text-3xl font-bold text-zinc-100 mt-1">{logs.length}</h2>
+            <p className="text-sm font-medium text-zinc-400">Logs in last 48 hours</p>
+            <h2 className="text-3xl font-bold text-zinc-100 mt-1">{totalInWindow}</h2>
+            <p className="text-xs text-zinc-500 mt-1">Detailed logs older than 48 hours expire automatically.</p>
           </div>
         </div>
       </div>
@@ -447,6 +468,29 @@ const Logs = () => {
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-800 bg-zinc-900/60 text-xs">
+            <span className="text-zinc-400">
+              Page {page} of {totalPages} ({totalInWindow} total logs in last 48h)
+            </span>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => fetchData(Math.max(1, page - 1))}
+                disabled={page <= 1 || loading}
+                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-300 font-medium transition cursor-pointer"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => fetchData(Math.min(totalPages, page + 1))}
+                disabled={page >= totalPages || loading}
+                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-300 font-medium transition cursor-pointer"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Switch Sender Account & Daily Quota Modal */}

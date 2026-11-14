@@ -48,8 +48,9 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/jobfinder
     initJobScheduler();
     require('./services/researchQueueService').initResearchScheduler();
     // Build only additive indexes. The worker stays off unless explicitly enabled.
-    await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime','MailLog','CompanyImportRun','CompanyProspect','PublicRecruitmentLead','EmailVerificationChallenge','EmailVerificationBudget','EmailVerificationReceipt','DeliveryEventReceipt','OutreachReminder','RecipientSuppression'].map(model => require(`./models/${model}`).init()));
+    await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime','MailLog','DeliveryLedger','CompanyImportRun','CompanyProspect','PublicRecruitmentLead','EmailVerificationChallenge','EmailVerificationBudget','EmailVerificationReceipt','DeliveryEventReceipt','OutreachReminder','RecipientSuppression'].map(model => require(`./models/${model}`).init()));
     require('./services/campaignWorkerService').initCampaignScheduler();
+    require('./services/retentionService').initRetentionScheduler();
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

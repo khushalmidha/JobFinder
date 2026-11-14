@@ -1,6 +1,6 @@
 const crypto=require('node:crypto');
 const Campaign=require('../models/OutreachCampaign'),Dispatch=require('../models/OutreachDispatch'),Runtime=require('../models/OutreachRuntime');
-const User=require('../models/User'),Contact=require('../models/Contact'),MailLog=require('../models/MailLog');
+const User=require('../models/User'),Contact=require('../models/Contact'),MailLog=require('../models/MailLog'),DeliveryLedger=require('../models/DeliveryLedger');
 const {digest,resolveSender,recipientReason,configuredLimit,normalizeEmail}=require('./campaignService');
 const LEASE_MS=120000;
 const active=['scheduled','running'];
@@ -24,15 +24,23 @@ async function recoverExpired(now){
 }
 async function quotaAvailable(campaign,user,now){
   const start=dayStart(now),legacy={sentAt:{$gte:start},status:{$in:['sent','delivered']},dispatchId:{$exists:false}};
-  const [global,legacyGlobal,owner,legacyOwner,account,legacyAccount,perCampaign]=await Promise.all([
-    Dispatch.countDocuments({startedAt:{$gte:start}}),MailLog.countDocuments(legacy),
-    Dispatch.countDocuments({userId:user._id,startedAt:{$gte:start}}),MailLog.countDocuments({...legacy,userId:user._id}),
-    Dispatch.countDocuments({senderEmail:campaign.snapshot.senderEmail,startedAt:{$gte:start}}),MailLog.countDocuments({...legacy,senderEmail:campaign.snapshot.senderEmail}),
-    Dispatch.countDocuments({campaignId:campaign._id,startedAt:{$gte:start}})
+  const legacyLogIds = await MailLog.distinct('_id', legacy);
+  const legacyGlobal = legacyLogIds.length;
+  const legacyOwner = await MailLog.countDocuments({...legacy,userId:user._id});
+  const legacyAccount = await MailLog.countDocuments({...legacy,senderEmail:campaign.snapshot.senderEmail});
+  const dedupedLedger = {...legacy, originalMailLogId: {$nin: legacyLogIds}};
+  const [global,owner,account,perCampaign,ledgerGlobal,ledgerOwner,ledgerAccount]=await Promise.all([
+    Dispatch.countDocuments({startedAt:{$gte:start}}),
+    Dispatch.countDocuments({userId:user._id,startedAt:{$gte:start}}),
+    Dispatch.countDocuments({senderEmail:campaign.snapshot.senderEmail,startedAt:{$gte:start}}),
+    Dispatch.countDocuments({campaignId:campaign._id,startedAt:{$gte:start}}),
+    DeliveryLedger.countDocuments(dedupedLedger),
+    DeliveryLedger.countDocuments({...dedupedLedger,userId:user._id}),
+    DeliveryLedger.countDocuments({...dedupedLedger,senderEmail:campaign.snapshot.senderEmail})
   ]);
-  if(global+legacyGlobal>=configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450))return 'Global daily cap reached (UTC day)';
+  if(global+legacyGlobal+ledgerGlobal>=configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450))return 'Global daily cap reached (UTC day)';
   const cap=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
-  if(owner+legacyOwner>=cap||account+legacyAccount>=cap||perCampaign>=campaign.snapshot.dailyLimit)return 'User, sender or campaign daily cap reached (UTC day)';
+  if(owner+legacyOwner+ledgerOwner>=cap||account+legacyAccount+ledgerAccount>=cap||perCampaign>=campaign.snapshot.dailyLimit)return 'User, sender or campaign daily cap reached (UTC day)';
   return null;
 }
 async function finishCampaign(campaign,now){
