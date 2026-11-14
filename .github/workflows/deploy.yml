@@ -22,13 +22,17 @@ jobs:
             backend/package-lock.json
             web/package-lock.json
             extension/package-lock.json
-      - run: npm ci && npm test
+      - run: npm ci
         working-directory: backend
       - run: npm ci && npm run build && npm run lint
         working-directory: web
       - run: npm ci && npm run build && npm run lint
         working-directory: extension
-      - run: npx playwright install --with-deps chromium && npm run test:browser
+      - run: npx playwright install --with-deps chromium
+        working-directory: backend
+      - run: npm test
+        working-directory: backend
+      - run: npm run test:browser
         working-directory: backend
   deploy:
     needs: validate
