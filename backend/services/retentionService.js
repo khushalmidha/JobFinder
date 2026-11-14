@@ -5,6 +5,12 @@ const DeliveryLedger = require('../models/DeliveryLedger');
 const Runtime = require('../models/OutreachRuntime');
 
 const normalizeEmail = val => String(val || '').trim().toLowerCase();
+const canonicalFields = ['userId','contactId','recipientEmail','senderEmail','providerMessageId','messageHash','status','bounceReason','sentAt','campaignId','dispatchId','subject','body','updatedAt','__v'];
+function sourceVersion(log) {
+  return Object.fromEntries(['_id', ...canonicalFields].map(key => [key, log[key] === undefined ? { $exists: false } : { $eq: log[key] }]));
+}
+const sameId = (a,b) => String(a || '') === String(b || '');
+
 
 const STATUS_RANKS = {
   failed: 0,
@@ -113,9 +119,10 @@ async function pruneOldMailLogs({
   if (!skipLock) {
     await ensureRuntime();
     lockToken = crypto.randomUUID();
+    const leaseNow = new Date();
     const lock = await Runtime.findOneAndUpdate(
-      { _id: 'retention_worker', leaseUntil: { $lte: parsedNow } },
-      { $set: { leaseToken: lockToken, leaseUntil: new Date(+parsedNow + LEASE_MS), lastRunAt: parsedNow } },
+      { _id: 'retention_worker', leaseUntil: { $lte: leaseNow } },
+      { $set: { leaseToken: lockToken, leaseUntil: new Date(+leaseNow + LEASE_MS), lastRunAt: parsedNow } },
       { returnDocument: 'after' }
     );
     if (!lock || lock.leaseToken !== lockToken) {
@@ -167,7 +174,9 @@ async function pruneOldMailLogs({
           // Check immutable canonical identity: do not silently overwrite a mismatched identity
           if (String(existing.userId) !== String(log.userId) ||
               existing.recipientEmail !== recEmail ||
-              new Date(existing.sentAt).getTime() !== new Date(log.sentAt).getTime()) {
+              new Date(existing.sentAt).getTime() !== new Date(log.sentAt).getTime() ||
+              (existing.contactId && !sameId(existing.contactId, log.contactId)) || (existing.campaignId && !sameId(existing.campaignId, log.campaignId)) || (existing.dispatchId && !sameId(existing.dispatchId, log.dispatchId)) ||
+              (existing.senderEmail && normalizeEmail(existing.senderEmail) !== sendEmail) || (existing.providerMessageId && existing.providerMessageId.trim() !== provId) || (existing.messageHash && existing.messageHash !== hash)) {
             skippedIds.add(String(log._id));
             continue; // Fail closed: identity mismatch
           }
@@ -180,7 +189,7 @@ async function pruneOldMailLogs({
 
           ops.push({
             updateOne: {
-              filter: { originalMailLogId: log._id },
+              filter: Object.fromEntries(Object.entries(existing).map(([key,value]) => [key, { $eq: value }])),
               update: {
                 $set: {
                   status: winningStatus,
@@ -287,18 +296,7 @@ async function pruneOldMailLogs({
 
         const deleteOps = verifiedLogs.map(log => ({
           deleteOne: {
-            filter: {
-              _id: log._id,
-              userId: log.userId,
-              contactId: log.contactId || { $in: [null, undefined] },
-              recipientEmail: log.recipientEmail || '',
-              senderEmail: log.senderEmail || '',
-              providerMessageId: log.providerMessageId || '',
-              messageHash: log.messageHash || '',
-              status: log.status,
-              bounceReason: log.bounceReason || '',
-              sentAt: { $eq: log.sentAt, $lt: cutoff }
-            }
+            filter: { ...sourceVersion(log), sentAt: { $eq: log.sentAt, $lt: cutoff } }
           }
         }));
 
@@ -334,16 +332,20 @@ let schedulerTask = null;
 function initRetentionScheduler() {
   // Explicit 'true' required. Never enable silently on deploy.
   if (process.env.MAIL_RETENTION_ENABLED !== 'true') return null;
+  const owners = [...new Set(String(process.env.MAIL_RETENTION_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean))];
+  const globalAllowed = process.env.MAIL_RETENTION_ALLOW_GLOBAL === 'true';
+  if (owners.some(id => !mongoose.isValidObjectId(id)) || (!owners.length && !globalAllowed)) {
+    console.error('Retention requires valid owner IDs or explicit global authorization');
+    return null;
+  }
+  if (schedulerTask) return schedulerTask;
 
   try {
     const cron = require('node-cron');
     schedulerTask = cron.schedule('0 * * * *', async () => {
       try {
-        await pruneOldMailLogs({
-          now: new Date(),
-          retentionHours: 48,
-          allowGlobal: true
-        });
+        const scopes = owners.length ? owners.map(userId => ({ userId })) : [{ allowGlobal: true }];
+        for (const scope of scopes) await pruneOldMailLogs({ now: new Date(), retentionHours: 48, ...scope });
       } catch (err) {
         console.error('Mail log retention cleanup failed:', err);
       }

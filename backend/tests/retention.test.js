@@ -618,3 +618,23 @@ test('Logs API: rolling 48h window with bounded pagination and array fallback', 
   assert.ok(Array.isArray(resArray.data));
   assert.equal(resArray.data.length, 2);
 });
+
+
+test('legacy raw documents with absent optional fields are archived then removed without losing identity', async () => {
+  const contact=await Contact.create({userId:userA._id,company:'Fixture',email:'legacy@example.org'});
+  const raw={_id:new mongoose.Types.ObjectId(),userId:userA._id,contactId:contact._id,status:'sent',subject:'Legacy',body:'Synthetic',sentAt:new Date('2026-11-01T00:00:00Z')};
+  await MailLog.collection.insertOne(raw);
+  const result=await pruneOldMailLogs({now:fixedNow,userId:userA._id});
+  assert.equal(result.deleted,1);assert.equal(await MailLog.countDocuments(),0);
+  assert.equal(String((await DeliveryLedger.findOne({originalMailLogId:raw._id})).contactId),String(contact._id));
+});
+
+test('a concurrent ledger bounce is not downgraded by cleanup and cannot lose suppression evidence', async () => {
+  const contact=await Contact.create({userId:userA._id,company:'Fixture',email:'concurrent@example.org'});
+  const log=await MailLog.create({userId:userA._id,contactId:contact._id,recipientEmail:contact.email,subject:'Synthetic',body:'Synthetic',status:'sent',sentAt:new Date('2026-11-01T00:00:00Z')});
+  await DeliveryLedger.create({originalMailLogId:log._id,userId:userA._id,contactId:contact._id,recipientEmail:contact.email,sentAt:log.sentAt,status:'failed'});
+  const original=DeliveryLedger.bulkWrite.bind(DeliveryLedger);
+  DeliveryLedger.bulkWrite=async(ops,options)=>{await DeliveryLedger.updateOne({originalMailLogId:log._id},{$set:{status:'bounced',bounceReason:'Authenticated 5.1.1'}});return original(ops,options);};
+  try {await pruneOldMailLogs({now:fixedNow,userId:userA._id});}finally{DeliveryLedger.bulkWrite=original;}
+  assert.equal((await DeliveryLedger.findOne({originalMailLogId:log._id})).status,'bounced');
+});
