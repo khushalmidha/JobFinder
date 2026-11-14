@@ -3,6 +3,7 @@ const dns = require('dns');
 const User = require('../models/User');
 const Contact = require('../models/Contact');
 const MailLog = require('../models/MailLog');
+const DeliveryLedger = require('../models/DeliveryLedger');
 const Campaign = require('../models/OutreachCampaign');
 const Dispatch = require('../models/OutreachDispatch');
 
@@ -15,10 +16,33 @@ exports.sendBatch = async (req, res) => {
 
 exports.getLogs = async (req, res) => {
   try {
-    const logs = await MailLog.find({ userId: req.user._id })
-      .populate('contactId', 'company email hrName')
-      .sort({ sentAt: -1 });
-    res.json(logs);
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+    const skip = (page - 1) * limit;
+
+    const filter = { userId: req.user._id, sentAt: { $gte: cutoff } };
+    const [totalInWindow, logs] = await Promise.all([
+      MailLog.countDocuments(filter),
+      MailLog.find(filter)
+        .populate('contactId', 'company email hrName')
+        .sort({ sentAt: -1 })
+        .skip(skip)
+        .limit(limit)
+    ]);
+
+    if (req.query.format === 'array') {
+      return res.json(logs);
+    }
+
+    res.json({
+      logs,
+      totalInWindow,
+      retentionHours: 48,
+      page,
+      limit,
+      totalPages: Math.ceil(totalInWindow / limit) || 1
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -33,14 +57,42 @@ exports.getQueueStatus = async (req,res) => {
     const {senderOptions,configuredLimit}=require('../services/campaignService');
     const dailyLimit=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
     const senders=senderOptions(user);
-    const [campaigns,pending,sending,sentToday,limitFailedCount]=await Promise.all([
-      Campaign.find({userId,state:{$in:['scheduled','running','paused','needs_review']}}).select('state reason').lean(),
+    const [campaigns,pending,sending,sentTodayLogs,sentTodayLedger,limitFailedCount]=await Promise.all([
+      Campaign.find({userId,state:{$in:['scheduled','running','paused','needs_review']}}).select('state reason snapshot').lean(),
       Dispatch.countDocuments({userId,status:'queued'}),Dispatch.countDocuments({userId,status:'sending'}),
-      MailLog.countDocuments({userId,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),Contact.countDocuments({userId,status:'failed'})
+      MailLog.countDocuments({userId,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),
+      DeliveryLedger.countDocuments({userId,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),
+      Contact.countDocuments({userId,status:'failed'})
     ]);
     const isPaused=campaigns.some(c=>['paused','needs_review'].includes(c.state));
-    const accounts=await Promise.all(senders.map(async s=>{const count=await MailLog.countDocuments({userId,senderEmail:s.email,status:{$in:['sent','delivered']},sentAt:{$gte:start}});return {_id:s.id,name:s.name,user:s.email,host:s.host,port:s.port,sentToday:count,dailyLimit,remaining:Math.max(0,dailyLimit-count),isActive:s.id===user.selectedSmtpId};}));
-    res.json({pending:pending+sending,size:pending,isPaused,pauseReason:isPaused?'CAMPAIGN_REVIEW':null,limitType:null,limitMessage:campaigns.find(c=>c.reason)?.reason||null,limitFailedCount,sentToday,dailyLimit,remaining:Math.max(0,dailyLimit-sentToday),activeSender:senders.find(s=>s.id===user.selectedSmtpId)?.email||senders[0]?.email||'',accounts,campaignsPath:'/campaigns',quotaDay:'UTC'});
+    const activeCampaign = campaigns.find(c => ['running', 'scheduled'].includes(c.state)) || campaigns[0];
+    const intervalSeconds = activeCampaign?.snapshot?.intervalSeconds || 180;
+    const sentToday = sentTodayLogs + sentTodayLedger;
+    const accounts=await Promise.all(senders.map(async s=>{
+      const [countLogs, countLedger] = await Promise.all([
+        MailLog.countDocuments({userId,senderEmail:s.email,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),
+        DeliveryLedger.countDocuments({userId,senderEmail:s.email,status:{$in:['sent','delivered']},sentAt:{$gte:start}})
+      ]);
+      const count = countLogs + countLedger;
+      return {_id:s.id,name:s.name,user:s.email,host:s.host,port:s.port,sentToday:count,dailyLimit,remaining:Math.max(0,dailyLimit-count),isActive:s.id===user.selectedSmtpId};
+    }));
+    res.json({
+      pending:pending+sending,
+      size:pending,
+      isPaused,
+      pauseReason:isPaused?'CAMPAIGN_REVIEW':null,
+      limitType:null,
+      limitMessage:campaigns.find(c=>c.reason)?.reason||null,
+      limitFailedCount,
+      sentToday,
+      dailyLimit,
+      remaining:Math.max(0,dailyLimit-sentToday),
+      activeSender:senders.find(s=>s.id===user.selectedSmtpId)?.email||senders[0]?.email||'',
+      accounts,
+      campaignsPath:'/campaigns',
+      quotaDay:'UTC',
+      intervalSeconds
+    });
   }catch(error){res.status(500).json({error:error.message});}
 };
 

@@ -133,7 +133,7 @@ async function rollback({ownerEmail,runId,digest}){
     const claimed=await Run.updateOne({_id:run._id,status:'applied',digest},{$set:{status:'rolling_back',mutating:true}},{session});if(!claimed.matchedCount)throw new Error('Operator rollback already claimed');
     for(const entry of run.execution.contactJournal||[]){
       const contact=await Contact.findOne({_id:entry._id,userId:entry.userId}).session(session).lean();if(!contact)continue;
-      const used=await require('../models/MailLog').exists({contactId:contact._id}).session(session)||await require('../models/OutreachDispatch').exists({contactId:contact._id}).session(session)||await require('../models/OutreachDraft').exists({contactId:contact._id}).session(session);
+      const used=await require('../models/MailLog').exists({contactId:contact._id}).session(session)||await require('../models/DeliveryLedger').exists({contactId:contact._id}).session(session)||await require('../models/OutreachDispatch').exists({contactId:contact._id}).session(session)||await require('../models/OutreachDraft').exists({contactId:contact._id}).session(session);
       if(used||directory.hash(contact)!==entry.afterHash){report.conflicts.push(`contact:${contact._id}:changed-or-used`);continue;}
       await Contact.deleteOne({_id:contact._id,userId:entry.userId,updatedAt:contact.updatedAt},{session});report.removedNewContacts++;
     }

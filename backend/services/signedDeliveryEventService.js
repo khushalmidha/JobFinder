@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const mongoose = require('mongoose');
 const Receipt = require('../models/DeliveryEventReceipt');
 const MailLog = require('../models/MailLog');
+const DeliveryLedger = require('../models/DeliveryLedger');
 const Contact = require('../models/Contact');
 const Suppression = require('../models/RecipientSuppression');
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -21,10 +22,27 @@ function authenticate(raw, headers, env = process.env, now = Date.now()) {
 }
 async function applyEvent({ event, userId, digest }) {
   const email = event.recipientEmail.trim().toLowerCase();
-  const candidates = await MailLog.find({ userId, providerMessageId: event.messageId, recipientEmail: exactEmail(email) }).limit(2).lean();
+  let candidates = await MailLog.find({ userId, providerMessageId: event.messageId, recipientEmail: exactEmail(email) }).limit(2).lean();
+  let candidateFromLedger = false;
+  if (candidates.length === 0) {
+    candidates = await DeliveryLedger.find({ userId, providerMessageId: event.messageId, recipientEmail: exactEmail(email) }).limit(2).lean();
+    candidateFromLedger = candidates.length > 0;
+  }
   if (candidates.length !== 1) throw fail('No unique owned sent-message match', 409);
+  const matched = candidates[0];
   let receipt;
-  try { receipt = await Receipt.create({ eventId: event.eventId, digest, userId, mailLogId: candidates[0]._id, recipientEmail: email, providerMessageId: event.messageId, eventType: String(event.eventType || '').slice(0, 100), enhancedStatus: String(event.enhancedStatus || '').slice(0, 30) }); }
+  try {
+    receipt = await Receipt.create({
+      eventId: event.eventId,
+      digest,
+      userId,
+      mailLogId: candidateFromLedger ? (matched.originalMailLogId || null) : matched._id,
+      recipientEmail: email,
+      providerMessageId: event.messageId,
+      eventType: String(event.eventType || '').slice(0, 100),
+      enhancedStatus: String(event.enhancedStatus || '').slice(0, 30)
+    });
+  }
   catch (error) {
     if (error.code !== 11000) throw error;
     const previous = await Receipt.findOne({ eventId: event.eventId }).lean();
@@ -40,7 +58,12 @@ async function applyEvent({ event, userId, digest }) {
     await Suppression.updateOne({ userId, email }, { $setOnInsert: { userId, email, reason, source: 'authenticated_provider_5.1.1', evidenceEventId: event.eventId } }, { upsert: true });
     await Contact.updateMany({ userId, email: exactEmail(email) }, { $set: { deliverabilityStatus: 'invalid', verificationStatus: 'invalid' } });
     await Contact.updateMany({ userId, email: exactEmail(email), suppressedAt: null }, { $set: { suppressedAt: new Date(), suppressionReason: reason } });
-    await MailLog.updateOne({ _id: candidates[0]._id, userId, status: { $ne: 'bounced' } }, { $set: { status: 'bounced', bounceReason: reason } });
+    if (candidateFromLedger) {
+      await DeliveryLedger.updateOne({ _id: matched._id, userId, status: { $ne: 'bounced' } }, { $set: { status: 'bounced', bounceReason: reason } });
+    } else {
+      await MailLog.updateOne({ _id: matched._id, userId, status: { $ne: 'bounced' } }, { $set: { status: 'bounced', bounceReason: reason } });
+      await DeliveryLedger.updateOne({ originalMailLogId: matched._id, userId, status: { $ne: 'bounced' } }, { $set: { status: 'bounced', bounceReason: reason } });
+    }
     outcome = 'confirmed_recipient_failure';
   }
   await Receipt.updateOne({ _id: receipt._id }, { $set: { state: 'completed', outcome } });

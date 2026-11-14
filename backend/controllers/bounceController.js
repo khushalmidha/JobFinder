@@ -3,6 +3,7 @@ const { createMailbox } = require('../services/secureMailboxService');
 const User = require('../models/User');
 const Contact = require('../models/Contact');
 const MailLog = require('../models/MailLog');
+const DeliveryLedger = require('../models/DeliveryLedger');
 const { parseDeliveryStatus } = require('../services/deliveryStatusParser');
 
 exports.scanBounces = async (req, res) => {
@@ -21,7 +22,10 @@ exports.scanBounces = async (req, res) => {
         if (attachment.contentType !== 'message/delivery-status') continue;
         for (const evidence of parseDeliveryStatus(attachment.content.toString('utf8'))) {
           if (!evidence.messageId) continue;
-          const logs = await MailLog.find({ userId: req.user._id, providerMessageId: evidence.messageId }).select('recipientEmail').limit(2).lean();
+          let logs = await MailLog.find({ userId: req.user._id, providerMessageId: evidence.messageId }).select('recipientEmail').limit(2).lean();
+          if (logs.length === 0) {
+            logs = await DeliveryLedger.find({ userId: req.user._id, providerMessageId: evidence.messageId }).select('recipientEmail').limit(2).lean();
+          }
           if (logs.length !== 1 || logs[0].recipientEmail.toLowerCase() !== evidence.recipientEmail) continue;
           candidates.push({ ...evidence, reviewRequired: true, mailboxVerified: false });
         }
