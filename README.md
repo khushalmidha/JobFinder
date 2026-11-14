@@ -67,13 +67,12 @@ ColdMail Pilot consists of two connected tools:
    - SMTP Credentials (e.g., Gmail App Password)
    - Default Email Template
 3. Go to **Import Contacts** to upload a CSV/Excel file of jobs. Gemini will automatically extract names, emails, companies, and roles.
-4. Go to **Dashboard** to select contacts and send bulk outreach.
-5. Use the **Browser Extension** while browsing to quickly paste text containing emails and send them on the fly.
+4. Use **Scheduled Campaigns** to select recipients and sender, preview exact personalized messages and explicitly approve the date/time/timezone. Real sending stays disabled until deliberately configured.
+5. Use **Outreach CRM** for durable follow-up reminders, reviewed drafts, reply/opt-out records and RecruiterGraph. Reminders do not send messages automatically.
+6. Use the **Browser Extension** to preview and fill supported job forms using your reviewed profile. Review fields and submit manually.
 
 ## Webhooks (Optional)
-If you use a transactional email provider like Resend or SendGrid instead of standard SMTP, you can configure their bounce webhooks to point to your backend:
-`POST /api/webhooks/mail-status`
-This will automatically mark contacts as 'bounced' in your dashboard if an email fails to deliver.
+`POST /api/webhooks/mail-status` is disabled by default and requires a trusted adapter using JobFinder's signed raw-payload protocol. Native provider payloads are not accepted directly. Only exact authenticated permanent-recipient evidence can invalidate an address; temporary, quota and policy failures remain inconclusive. See [CRM and delivery security](docs/OUTREACH_CRM_AND_MAIL_SECURITY.md) for configuration, limitations and rollback.
 
 ## Security
 - API Keys and SMTP Passwords are encrypted at rest in MongoDB using AES-256-CBC.

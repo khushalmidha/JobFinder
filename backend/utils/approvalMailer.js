@@ -7,6 +7,7 @@ const ADMIN_EMAIL = 'khushalmidha24@gmail.com';
  * Sends access request notification email to Khushal Midha with 1-click Approve / Reject links
  */
 async function sendAccessRequestEmail({ requesterName, requesterEmail, requesterReason, token, baseUrl }) {
+  if (process.env.ACCESS_NOTIFICATION_SENDING_ENABLED !== 'true') return { sent: false, reason: 'Access notification sending disabled' };
   try {
     const adminUser = await User.findOne({ 
       $or: [{ email: ADMIN_EMAIL }, { email: 'midhakhushal5@gmail.com' }] 
@@ -79,13 +80,15 @@ async function sendAccessRequestEmail({ requesterName, requesterEmail, requester
     if (adminUser?.smtpConfig?.user && adminUser?.smtpConfig?.pass) {
       const transporter = nodemailer.createTransport({
         host: adminUser.smtpConfig.host || 'smtp.gmail.com',
-        port: adminUser.smtpConfig.port || 465,
-        secure: adminUser.smtpConfig.port === 465,
+        port: Number(adminUser.smtpConfig.port) || 465,
+        secure: (Number(adminUser.smtpConfig.port) || 465) === 465,
+        requireTLS: true,
+        connectionTimeout: 5000, greetingTimeout: 5000, socketTimeout: 10000,
         auth: {
           user: adminUser.smtpConfig.user,
           pass: adminUser.smtpConfig.pass,
         },
-        tls: { rejectUnauthorized: false }
+        tls: { rejectUnauthorized: true }
       });
 
       await transporter.sendMail({
@@ -109,6 +112,7 @@ async function sendAccessRequestEmail({ requesterName, requesterEmail, requester
  * Sends confirmation email to requester once Khushal approves
  */
 async function sendApprovalGrantedEmail({ requesterEmail, requesterName, portalUrl }) {
+  if (process.env.ACCESS_NOTIFICATION_SENDING_ENABLED !== 'true') return { sent: false, reason: 'Access notification sending disabled' };
   try {
     const adminUser = await User.findOne({ 
       $or: [{ email: ADMIN_EMAIL }, { email: 'midhakhushal5@gmail.com' }] 
@@ -141,13 +145,15 @@ async function sendApprovalGrantedEmail({ requesterEmail, requesterName, portalU
     if (adminUser?.smtpConfig?.user && adminUser?.smtpConfig?.pass) {
       const transporter = nodemailer.createTransport({
         host: adminUser.smtpConfig.host || 'smtp.gmail.com',
-        port: adminUser.smtpConfig.port || 465,
-        secure: adminUser.smtpConfig.port === 465,
+        port: Number(adminUser.smtpConfig.port) || 465,
+        secure: (Number(adminUser.smtpConfig.port) || 465) === 465,
+        requireTLS: true,
+        connectionTimeout: 5000, greetingTimeout: 5000, socketTimeout: 10000,
         auth: {
           user: adminUser.smtpConfig.user,
           pass: adminUser.smtpConfig.pass,
         },
-        tls: { rejectUnauthorized: false }
+        tls: { rejectUnauthorized: true }
       });
 
       await transporter.sendMail({

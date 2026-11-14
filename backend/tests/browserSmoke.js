@@ -28,6 +28,7 @@ async function main() {
     }));
     app.use('/api/auth',require('../routes/auth'));
     app.use('/api/campaigns',require('../routes/campaigns'));app.use('/api/company-imports',require('../routes/companyImport'));
+    app.use('/api/crm',require('../routes/crm'));
     await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime'].map(m=>require(`../models/${m}`).init()));
     app.all('/submitted',(_req,res)=>{submissions++;res.send('Unexpected submission');});
     app.get('/fixture',(_req,res)=>res.type('html').send(`<!doctype html><title>Synthetic form QA</title><h1>Local Workday / Google-style fixture</h1><p>No real employer or applicant data.</p><form action="/submitted"><label>First name <input id="first" data-automation-id="legalNameSection_firstName"></label><label>Expected salary <input id="salary"></label><button type="button" role="combobox" aria-label="Country" aria-controls="countries">Select</button><div id="countries" role="listbox" hidden><div role="option">India</div></div><div role="combobox" aria-label="State" aria-controls="states">Canada</div><div id="states" hidden><div role="option">Karnataka</div></div><label><input id="consent" type="checkbox">I consent to use my email</label><button>Submit application</button></form><script>window.blocked=0;const trigger=document.querySelector('button[role=combobox]');trigger.onclick=()=>{document.querySelector('#countries').hidden=false};document.querySelector('[role=option]').onclick=()=>{trigger.setAttribute('data-value','India');trigger.textContent='India';for(const method of ['submit','requestSubmit']){try{document.querySelector('form')[method]()}catch{window.blocked++}}};</script>`));
@@ -133,6 +134,39 @@ async function main() {
     assert.equal(await require('../models/AdminRoleMigration').countDocuments(),0);
     await page.screenshot({path:path.join(screenshots,'account-verification-simulation.png'),fullPage:true});
     console.log('PASS: account email verification Settings UI with synthetic trusted sender, one-use code and no automatic administrator promotion; real verification delivery=0');
+    process.env.OUTREACH_SENDING_ENABLED='false';process.env.OUTREACH_WORKER_ENABLED='false';
+    await page.goto(base+'/crm');await page.getByRole('heading',{name:'Outreach CRM',exact:true}).waitFor();
+    await page.getByLabel('Find your contact',{exact:true}).fill('careers@employer.example');
+    await page.getByRole('button',{name:'Search contacts',exact:true}).click();
+    const crmContact=await Contact.findOne({userId:owner,email:'careers@employer.example'});
+    await page.getByLabel('Contact',{exact:true}).selectOption(String(crmContact._id));
+    const reminderDate=await page.evaluate(()=>{const d=new Date(Date.now()+3600000);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16);});
+    await page.getByLabel('Reminder date and time',{exact:true}).fill(reminderDate);
+    await page.getByLabel('Follow-up subject',{exact:true}).fill('Synthetic follow-up subject');
+    await page.getByLabel('Follow-up body',{exact:true}).fill('Synthetic reminder draft. No automatic send.');
+    await page.getByRole('button',{name:'Save reminder',exact:true}).click();
+    await page.getByText('Reminder saved. This does not send an email.',{exact:true}).waitFor();
+    const Reminder=require('../models/OutreachReminder');assert.equal(await Reminder.countDocuments({userId:owner,status:'open'}),1);
+    await page.reload();await page.getByRole('button',{name:'Review draft',exact:true}).click();
+    assert.equal(await page.getByLabel('Reviewed body',{exact:true}).inputValue(),'Synthetic reminder draft. No automatic send.');
+    await page.getByRole('button',{name:'Close draft',exact:true}).click();
+    await page.getByLabel('Find your contact',{exact:true}).fill('careers@employer.example');await page.getByRole('button',{name:'Search contacts',exact:true}).click();
+    await page.getByLabel('Contact',{exact:true}).selectOption(String(crmContact._id));
+    await page.getByLabel('Received reply (record manually)',{exact:true}).fill('Please use the employer careers portal.');
+    await page.getByRole('button',{name:'Record reply',exact:true}).click();
+    await page.getByText('Reply recorded; open reminders for this recipient cancelled.',{exact:true}).waitFor();
+    assert.equal(await Reminder.countDocuments({userId:owner,status:'cancelled'}),1);
+    assert.equal(await page.getByRole('button',{name:'Record opt-out',exact:true}).isDisabled(),true);
+    await page.getByLabel('I confirm this recipient asked to stop receiving outreach.',{exact:true}).check();
+    await page.getByRole('button',{name:'Record opt-out',exact:true}).click();
+    await page.getByText('Recipient opted out. Open reminders cancelled and future sending blocked.',{exact:true}).waitFor();
+    assert.ok((await Contact.findById(crmContact._id)).optOutAt);
+    await page.getByRole('heading',{name:'RecruiterGraph',exact:true}).waitFor();
+    assert.ok((await page.locator('body').innerText()).includes('Synthetic Demo Employer'));
+    await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    await page.screenshot({path:path.join(screenshots,'outreach-crm-simulation.png'),fullPage:true});
+    assert.equal(simulatedSends,1);
+    console.log('PASS: CRM real browser reminder persistence/draft review/manual reply/confirmed opt-out/RecruiterGraph/mobile; real mail=0');
   } catch(error) {
     if(page){await page.screenshot({path:path.join(screenshots,'browser-failure.png'),fullPage:true}).catch(()=>{});console.error('Synthetic failing page:',await page.locator('body').innerText().catch(()=>''));}
     throw error;

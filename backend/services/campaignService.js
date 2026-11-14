@@ -4,6 +4,7 @@ const User=require('../models/User'), Contact=require('../models/Contact'), Comp
 const Campaign=require('../models/OutreachCampaign'), Dispatch=require('../models/OutreachDispatch'), MailLog=require('../models/MailLog');
 const {contactBlockReason}=require('./outreachResearchService');
 const {qualifyCompany}=require('./salaryEvidenceService');
+const RecipientSuppression=require('../models/RecipientSuppression');
 const {localTimeToUtc}=require('./campaignTimeService');
 const normalizeEmail=value=>String(value||'').trim().toLowerCase();
 const validEmail=value=>/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63}$/i.test(value) && !value.includes('..');
@@ -29,6 +30,7 @@ async function duplicateReason(userId,contactId,email,excludeDispatchId) {
 async function recipientReason(user,contact,row,now=new Date(),dispatchId) {
   if(!contact || String(contact.userId)!==String(user._id))return 'Owned contact not found';
   if(!validEmail(normalizeEmail(contact.email)))return 'Unsupported or invalid recipient syntax';
+  if(await RecipientSuppression.exists({userId:user._id,email:normalizeEmail(contact.email)}))return 'Recipient has a persistent suppression record';
   const blocked=contactBlockReason(contact);if(blocked)return blocked;
   if(!['publicly_sourced','vendor_verified'].includes(contact.verificationStatus))return 'Individual recruiting contact requires public or provider evidence';
   if((user.blockedCompanies||[]).some(c=>c.toLowerCase()===contact.company.toLowerCase()))return 'Company is on your do-not-contact list';
