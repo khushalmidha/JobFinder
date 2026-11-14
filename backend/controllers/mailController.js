@@ -31,7 +31,7 @@ exports.getQueueStatus = async (req,res) => {
     if(!user)return res.status(404).json({error:'User not found'});
     const start=new Date();start.setUTCHours(0,0,0,0);
     const {senderOptions,configuredLimit}=require('../services/campaignService');
-    const dailyLimit=Math.min(user.dailyEmailLimit||10,configuredLimit('OUTREACH_MAX_DAILY',10));
+    const dailyLimit=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
     const senders=senderOptions(user);
     const [campaigns,pending,sending,sentToday,limitFailedCount]=await Promise.all([
       Campaign.find({userId,state:{$in:['scheduled','running','paused','needs_review']}}).select('state reason').lean(),

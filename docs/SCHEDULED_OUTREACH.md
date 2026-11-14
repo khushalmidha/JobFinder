@@ -14,7 +14,7 @@ Dry run renders the exact recipient messages and exclusion reasons. Saving a dra
 
 MongoDB stores campaigns, dispatches and a single shared runtime lane. Cron wakes the worker every 30 seconds; it does not store schedules. A global atomic lease serializes attempts across instances, persistent cooldowns prevent bursts, and indexed unique campaign/recipient/revision records prevent duplicate materialization. The worker checks current approval/content, sender identity and ownership, suppression across duplicate owned contact rows, replies, invalid/inferred addresses, do-not-contact companies, current salary evidence or recorded override, historical sends, and daily global/user/sender/campaign budgets before each boundary. A persisted boundary distinguishes unstarted work from a potentially in-flight request.
 
-Default limits are ten attempts per UTC day and at least 180 seconds between attempts. Shared caps can spread a campaign over several days. Attempts with uncertain outcomes consume quota conservatively. Provider-specific limits must also be respected in the configured caps; accounts are never rotated to evade limits. Older successful MailLog history counts toward quotas and duplicate exclusion. Legacy `/mail/send` and automatic account-switch/resume paths now direct users to the durable campaign approval flow. Legacy logs/status remain available, with status sourced from the durable queue.
+The owner-configured default is 450 attempts per UTC day and at least 180 seconds between attempts. Shared caps can spread a campaign over several days. Attempts with uncertain outcomes consume quota conservatively. Provider-specific limits must also be respected in the configured caps; accounts are never rotated to evade limits. Older successful MailLog history counts toward quotas and duplicate exclusion. Legacy `/mail/send` and automatic account-switch/resume paths now direct users to the durable campaign approval flow. Legacy logs/status remain available, with status sourced from the durable queue.
 
 Both `OUTREACH_SENDING_ENABLED=true` and `OUTREACH_WORKER_ENABLED=true` are required for actual SMTP. Defaults remain false; approving a campaign does not alter them. The production SMTP transport uses saved encrypted credentials, public IPv4 DNS pinning, verified TLS, port 465 or 587 with STARTTLS, no attachments/URL loading, and bounded SMTP connection/socket waits. No sender credential is saved in campaign or dispatch documents. Scheduled campaigns currently support saved SMTP accounts; Brevo HTTP sending is not integrated into this new worker.
 
@@ -31,8 +31,8 @@ Keep these defaults until real delivery is deliberately authorized and tested:
 ```dotenv
 OUTREACH_SENDING_ENABLED=false
 OUTREACH_WORKER_ENABLED=false
-OUTREACH_MAX_DAILY=10
-OUTREACH_GLOBAL_MAX_DAILY=10
+OUTREACH_MAX_DAILY=450
+OUTREACH_GLOBAL_MAX_DAILY=450
 OUTREACH_MISSED_GRACE_MINUTES=15
 ```
 
