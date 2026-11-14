@@ -24,9 +24,9 @@ jobs:
         working-directory: extension
       - run: npm ci && npm run build && npm run lint
         working-directory: web
-      - run: npm test
-        working-directory: backend
       - run: npx playwright install --with-deps chromium
+        working-directory: backend
+      - run: npm test
         working-directory: backend
       - run: npm run test:browser
         working-directory: backend
