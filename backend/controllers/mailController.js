@@ -57,22 +57,33 @@ exports.getQueueStatus = async (req,res) => {
     const {senderOptions,configuredLimit}=require('../services/campaignService');
     const dailyLimit=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
     const senders=senderOptions(user);
-    const [campaigns,pending,sending,sentTodayLogs,sentTodayLedger,limitFailedCount]=await Promise.all([
+    const [campaigns,pending,sending,activeLogIds,limitFailedCount]=await Promise.all([
       Campaign.find({userId,state:{$in:['scheduled','running','paused','needs_review']}}).select('state reason snapshot').lean(),
       Dispatch.countDocuments({userId,status:'queued'}),Dispatch.countDocuments({userId,status:'sending'}),
-      MailLog.countDocuments({userId,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),
-      DeliveryLedger.countDocuments({userId,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),
+      MailLog.distinct('_id', {userId,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),
       Contact.countDocuments({userId,status:'failed'})
     ]);
+    const sentTodayLogs = activeLogIds.length;
+    const sentTodayLedger = await DeliveryLedger.countDocuments({
+      userId,
+      status: {$in:['sent','delivered']},
+      sentAt: {$gte:start},
+      originalMailLogId: {$nin: activeLogIds}
+    });
     const isPaused=campaigns.some(c=>['paused','needs_review'].includes(c.state));
     const activeCampaign = campaigns.find(c => ['running', 'scheduled'].includes(c.state)) || campaigns[0];
     const intervalSeconds = activeCampaign?.snapshot?.intervalSeconds || 180;
     const sentToday = sentTodayLogs + sentTodayLedger;
     const accounts=await Promise.all(senders.map(async s=>{
-      const [countLogs, countLedger] = await Promise.all([
-        MailLog.countDocuments({userId,senderEmail:s.email,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),
-        DeliveryLedger.countDocuments({userId,senderEmail:s.email,status:{$in:['sent','delivered']},sentAt:{$gte:start}})
-      ]);
+      const activeSenderLogIds = await MailLog.distinct('_id', {userId,senderEmail:s.email,status:{$in:['sent','delivered']},sentAt:{$gte:start}});
+      const countLogs = activeSenderLogIds.length;
+      const countLedger = await DeliveryLedger.countDocuments({
+        userId,
+        senderEmail: s.email,
+        status: {$in:['sent','delivered']},
+        sentAt: {$gte:start},
+        originalMailLogId: {$nin: activeSenderLogIds}
+      });
       const count = countLogs + countLedger;
       return {_id:s.id,name:s.name,user:s.email,host:s.host,port:s.port,sentToday:count,dailyLimit,remaining:Math.max(0,dailyLimit-count),isActive:s.id===user.selectedSmtpId};
     }));

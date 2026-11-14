@@ -24,14 +24,19 @@ async function recoverExpired(now){
 }
 async function quotaAvailable(campaign,user,now){
   const start=dayStart(now),legacy={sentAt:{$gte:start},status:{$in:['sent','delivered']},dispatchId:{$exists:false}};
-  const [global,legacyGlobal,owner,legacyOwner,account,legacyAccount,perCampaign,ledgerGlobal,ledgerOwner,ledgerAccount]=await Promise.all([
-    Dispatch.countDocuments({startedAt:{$gte:start}}),MailLog.countDocuments(legacy),
-    Dispatch.countDocuments({userId:user._id,startedAt:{$gte:start}}),MailLog.countDocuments({...legacy,userId:user._id}),
-    Dispatch.countDocuments({senderEmail:campaign.snapshot.senderEmail,startedAt:{$gte:start}}),MailLog.countDocuments({...legacy,senderEmail:campaign.snapshot.senderEmail}),
+  const legacyLogIds = await MailLog.distinct('_id', legacy);
+  const legacyGlobal = legacyLogIds.length;
+  const legacyOwner = await MailLog.countDocuments({...legacy,userId:user._id});
+  const legacyAccount = await MailLog.countDocuments({...legacy,senderEmail:campaign.snapshot.senderEmail});
+  const dedupedLedger = {...legacy, originalMailLogId: {$nin: legacyLogIds}};
+  const [global,owner,account,perCampaign,ledgerGlobal,ledgerOwner,ledgerAccount]=await Promise.all([
+    Dispatch.countDocuments({startedAt:{$gte:start}}),
+    Dispatch.countDocuments({userId:user._id,startedAt:{$gte:start}}),
+    Dispatch.countDocuments({senderEmail:campaign.snapshot.senderEmail,startedAt:{$gte:start}}),
     Dispatch.countDocuments({campaignId:campaign._id,startedAt:{$gte:start}}),
-    DeliveryLedger.countDocuments(legacy),
-    DeliveryLedger.countDocuments({...legacy,userId:user._id}),
-    DeliveryLedger.countDocuments({...legacy,senderEmail:campaign.snapshot.senderEmail})
+    DeliveryLedger.countDocuments(dedupedLedger),
+    DeliveryLedger.countDocuments({...dedupedLedger,userId:user._id}),
+    DeliveryLedger.countDocuments({...dedupedLedger,senderEmail:campaign.snapshot.senderEmail})
   ]);
   if(global+legacyGlobal+ledgerGlobal>=configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450))return 'Global daily cap reached (UTC day)';
   const cap=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));

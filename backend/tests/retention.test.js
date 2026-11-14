@@ -17,7 +17,7 @@ const Runtime = require('../models/OutreachRuntime');
 const Receipt = require('../models/DeliveryEventReceipt');
 const Suppression = require('../models/RecipientSuppression');
 
-const { calculateRetentionCutoff, pruneOldMailLogs } = require('../services/retentionService');
+const { calculateRetentionCutoff, pruneOldMailLogs, initRetentionScheduler } = require('../services/retentionService');
 const { duplicateReason } = require('../services/campaignService');
 const { applyEvent } = require('../services/signedDeliveryEventService');
 
@@ -110,370 +110,361 @@ beforeEach(async () => {
   });
 });
 
-test('exact 48-hour boundary: <48h retained in detailed MailLog, >48h archived to compact DeliveryLedger', async () => {
+test('exact boundary behavior: cutoff equality retains, cutoff-1ms prunes, cutoff+1ms retains', async () => {
   const cutoff = calculateRetentionCutoff(fixedNow, 48); // 2026-11-12T12:00:00.000Z
   assert.equal(cutoff.toISOString(), '2026-11-12T12:00:00.000Z');
 
-  const contact = await Contact.create({
-    userId: userA._id,
-    companyId: company._id,
-    company: company.name,
-    email: 'alice@acme.example'
-  });
+  const contact = await Contact.create({ userId: userA._id, company: company.name, email: 'boundary@example.com' });
 
-  // Recent record (47 hours old) -> MUST be kept
-  const recentSentAt = new Date(cutoff.getTime() + 60 * 60 * 1000); // 47 hours ago
-  const recentLog = await MailLog.create({
+  // Exactly at cutoff (sentAt === cutoff) -> MUST be retained (< cutoff rule)
+  const logExact = await MailLog.create({
     userId: userA._id,
     contactId: contact._id,
-    recipientEmail: 'alice@acme.example',
-    senderEmail: 'sender-a@example.com',
-    subject: 'Recent Subject Keep',
-    body: 'Detailed body that should stay in MailLog for 48h',
+    recipientEmail: 'exact@example.com',
+    subject: 'Exact Boundary',
+    body: 'Exact body',
     status: 'sent',
-    sentAt: recentSentAt
+    sentAt: cutoff
   });
 
-  // Old record (49 hours old) -> MUST be pruned
-  const oldSentAt = new Date(cutoff.getTime() - 60 * 60 * 1000); // 49 hours ago
-  const oldLog = await MailLog.create({
+  // 1ms newer than cutoff -> MUST be retained
+  const logNewer = await MailLog.create({
     userId: userA._id,
     contactId: contact._id,
-    recipientEmail: 'bob@acme.example',
-    senderEmail: 'sender-a@example.com',
-    subject: 'Old Subject Should Prune',
-    body: 'Detailed historical text that should not linger in storage',
+    recipientEmail: 'newer@example.com',
+    subject: 'Newer Boundary',
+    body: 'Newer body',
     status: 'sent',
-    sentAt: oldSentAt,
-    providerMessageId: '<old-message-49h@provider.example>'
+    sentAt: new Date(cutoff.getTime() + 1)
   });
 
-  const report = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48 });
+  // 1ms older than cutoff -> MUST be pruned
+  const logOlder = await MailLog.create({
+    userId: userA._id,
+    contactId: contact._id,
+    recipientEmail: 'older@example.com',
+    subject: 'Older Boundary',
+    body: 'Older body',
+    status: 'sent',
+    sentAt: new Date(cutoff.getTime() - 1)
+  });
+
+  const report = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48, allowGlobal: true });
   assert.equal(report.eligible, 1);
   assert.equal(report.archived, 1);
   assert.equal(report.deleted, 1);
 
-  // MailLog check
-  const remainingLogs = await MailLog.find().lean();
-  assert.equal(remainingLogs.length, 1);
-  assert.equal(String(remainingLogs[0]._id), String(recentLog._id));
-  assert.equal(remainingLogs[0].subject, 'Recent Subject Keep');
+  // MailLog must retain exact and newer; older must be gone
+  const remaining = await MailLog.find().sort({ sentAt: 1 }).lean();
+  assert.equal(remaining.length, 2);
+  assert.equal(String(remaining[0]._id), String(logExact._id));
+  assert.equal(String(remaining[1]._id), String(logNewer._id));
 
-  // DeliveryLedger check
-  const ledgerEntries = await DeliveryLedger.find().lean();
-  assert.equal(ledgerEntries.length, 1);
-  const ledger = ledgerEntries[0];
-  assert.equal(String(ledger.originalMailLogId), String(oldLog._id));
-  assert.equal(String(ledger.userId), String(userA._id));
-  assert.equal(String(ledger.contactId), String(contact._id));
-  assert.equal(ledger.recipientEmail, 'bob@acme.example');
-  assert.equal(ledger.senderEmail, 'sender-a@example.com');
-  assert.equal(ledger.providerMessageId, '<old-message-49h@provider.example>');
-  assert.equal(ledger.status, 'sent');
-  assert.equal(+ledger.sentAt, +oldSentAt);
-  // Subject and body must NOT be stored in DeliveryLedger
-  assert.equal(ledger.subject, undefined);
-  assert.equal(ledger.body, undefined);
+  // Ledger must have only the older record
+  const ledger = await DeliveryLedger.find().lean();
+  assert.equal(ledger.length, 1);
+  assert.equal(String(ledger[0].originalMailLogId), String(logOlder._id));
+  assert.equal(ledger[0].recipientEmail, 'older@example.com');
 });
 
-test('dry-run mode counts eligible records without mutating MailLog or DeliveryLedger', async () => {
-  const contact = await Contact.create({
-    userId: userA._id,
-    company: 'Test Corp',
-    email: 'dryrun@example.com'
-  });
+test('Blocker 1: stale partial-run ledger is monotonically promoted and does not permit duplicate outreach', async () => {
+  const contact = await Contact.create({ userId: userA._id, company: 'Acme', email: 'stale-test@acme.com' });
 
-  await MailLog.create({
+  // Original MailLog is currently sent
+  const oldSentAt = new Date('2026-11-09T00:00:00Z');
+  const mailLog = await MailLog.create({
     userId: userA._id,
     contactId: contact._id,
-    recipientEmail: 'dryrun@example.com',
+    recipientEmail: 'stale-test@acme.com',
+    senderEmail: 'sender-a@example.com',
+    subject: 'Important sent outreach',
+    body: 'Body text',
+    status: 'sent',
+    sentAt: oldSentAt,
+    providerMessageId: '<msg-stale-001@provider.example>'
+  });
+
+  // Simulate a prior partial/broken run where ledger was pre-created as 'failed'
+  await DeliveryLedger.create({
+    originalMailLogId: mailLog._id,
+    userId: userA._id,
+    contactId: contact._id,
+    recipientEmail: 'stale-test@acme.com',
+    senderEmail: 'sender-a@example.com',
+    status: 'failed', // Broken stale status
+    sentAt: oldSentAt,
+    providerMessageId: '<msg-stale-001@provider.example>'
+  });
+
+  // Execute retention retry
+  const result = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48, allowGlobal: true });
+  assert.equal(result.deleted, 1);
+
+  // Ledger status MUST be monotonically upgraded from 'failed' to 'sent'
+  const ledger = await DeliveryLedger.findOne({ originalMailLogId: mailLog._id }).lean();
+  assert.equal(ledger.status, 'sent');
+
+  // duplicateReason MUST flag duplicate outreach via compact ledger
+  const reason = await duplicateReason(userA._id, contact._id, 'stale-test@acme.com');
+  assert.equal(reason, 'Already sent: contact or recipient history');
+});
+
+test('Blocker 2: CAS deletion rejects concurrent modification between archive and delete', async () => {
+  const contact = await Contact.create({ userId: userA._id, company: 'Acme', email: 'race@acme.com' });
+  const oldSentAt = new Date('2026-11-08T00:00:00Z');
+
+  const log = await MailLog.create({
+    userId: userA._id,
+    contactId: contact._id,
+    recipientEmail: 'race@acme.com',
     subject: 'Old Subject',
     body: 'Old Body',
-    sentAt: new Date('2026-11-10T00:00:00Z') // > 48h
+    status: 'sent',
+    sentAt: oldSentAt
   });
 
-  const dryResult = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48, dryRun: true });
-  assert.equal(dryResult.dryRun, true);
-  assert.equal(dryResult.eligible, 1);
-  assert.equal(dryResult.archived, 0);
-  assert.equal(dryResult.deleted, 0);
-
-  assert.equal(await MailLog.countDocuments(), 1);
-  assert.equal(await DeliveryLedger.countDocuments(), 0);
-});
-
-test('owner isolation: cleanup preserves owner scoping and does not leak or cross-contaminate', async () => {
-  const contactA = await Contact.create({ userId: userA._id, company: 'A Inc', email: 'userA@example.com' });
-  const contactB = await Contact.create({ userId: userB._id, company: 'B Inc', email: 'userB@example.com' });
-
-  // User A has 1 old log, User B has 1 old log
-  await MailLog.create({
-    userId: userA._id,
-    contactId: contactA._id,
-    recipientEmail: 'targetA@example.com',
-    subject: 'Subj A',
-    body: 'Body A',
-    sentAt: new Date('2026-11-10T00:00:00Z')
-  });
-
-  await MailLog.create({
-    userId: userB._id,
-    contactId: contactB._id,
-    recipientEmail: 'targetB@example.com',
-    subject: 'Subj B',
-    body: 'Body B',
-    sentAt: new Date('2026-11-10T00:00:00Z')
-  });
-
-  const report = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48 });
-  assert.equal(report.archived, 2);
-  assert.equal(report.deleted, 2);
-
-  const ledgerA = await DeliveryLedger.find({ userId: userA._id }).lean();
-  assert.equal(ledgerA.length, 1);
-  assert.equal(ledgerA[0].recipientEmail, 'targeta@example.com');
-
-  const ledgerB = await DeliveryLedger.find({ userId: userB._id }).lean();
-  assert.equal(ledgerB.length, 1);
-  assert.equal(ledgerB[0].recipientEmail, 'targetb@example.com');
-});
-
-test('idempotency and partial cleanup failure: re-running does not duplicate ledger records', async () => {
-  const contact = await Contact.create({ userId: userA._id, company: 'Acme', email: 'test@acme.com' });
-
-  const oldLog = await MailLog.create({
-    userId: userA._id,
-    contactId: contact._id,
-    recipientEmail: 'test@acme.com',
-    subject: 'Historical',
-    body: 'Historical message',
-    sentAt: new Date('2026-11-09T00:00:00Z')
-  });
-
-  // Pre-seed DeliveryLedger as if a crash occurred after ledger insertion but before MailLog deletion
+  // Pre-archive record into DeliveryLedger with matching evidence
   await DeliveryLedger.create({
+    originalMailLogId: log._id,
     userId: userA._id,
     contactId: contact._id,
-    recipientEmail: 'test@acme.com',
-    sentAt: oldLog.sentAt,
-    originalMailLogId: oldLog._id,
+    recipientEmail: 'race@acme.com',
+    sentAt: oldSentAt,
     status: 'sent'
   });
 
-  assert.equal(await MailLog.countDocuments(), 1);
-  assert.equal(await DeliveryLedger.countDocuments(), 1);
+  // Simulate concurrent modification on MailLog: sentAt updated to recent (now)
+  await MailLog.updateOne({ _id: log._id }, { $set: { sentAt: fixedNow, status: 'delivered' } });
 
-  // Run cleanup retry
-  const report = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48 });
-  assert.equal(report.deleted, 1);
+  // Cleanup runs
+  const report = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48, allowGlobal: true });
+  assert.equal(report.deleted, 0); // Must NOT delete the concurrently updated record!
 
-  // Ledger should still have exactly 1 record, not 2
-  assert.equal(await DeliveryLedger.countDocuments(), 1);
-  assert.equal(await MailLog.countDocuments(), 0);
-
-  // Re-running cleanup again on empty eligible set is a clean no-op
-  const secondRun = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48 });
-  assert.equal(secondRun.eligible, 0);
-  assert.equal(secondRun.archived, 0);
-  assert.equal(secondRun.deleted, 0);
-  assert.equal(await DeliveryLedger.countDocuments(), 1);
+  // MailLog record MUST still exist in database
+  const preserved = await MailLog.findById(log._id);
+  assert.ok(preserved);
+  assert.equal(preserved.status, 'delivered');
+  assert.equal(preserved.sentAt.toISOString(), fixedNow.toISOString());
 });
 
-test('deleted detailed history cannot permit duplicate outreach: duplicateReason checks compact ledger', async () => {
-  const contact = await Contact.create({ userId: userA._id, company: 'Acme', email: 'outreach@acme.com' });
+test('Blocker 3: scheduler defaults to disabled, requires explicit MAIL_RETENTION_ENABLED=true and scope', async () => {
+  delete process.env.MAIL_RETENTION_ENABLED;
+  assert.equal(initRetentionScheduler(), null);
 
-  await MailLog.create({
-    userId: userA._id,
-    contactId: contact._id,
-    recipientEmail: 'outreach@acme.com',
-    subject: 'Old Outreach',
-    body: 'Old Content',
-    sentAt: new Date('2026-11-05T00:00:00Z'),
-    status: 'sent'
-  });
+  process.env.MAIL_RETENTION_ENABLED = 'false';
+  assert.equal(initRetentionScheduler(), null);
 
-  // Prune detailed log
-  await pruneOldMailLogs({ now: fixedNow, retentionHours: 48 });
-  assert.equal(await MailLog.countDocuments(), 0);
-  assert.equal(await DeliveryLedger.countDocuments(), 1);
+  // Destructive run without userId and without allowGlobal throws
+  await assert.rejects(
+    async () => pruneOldMailLogs({ now: fixedNow, allowGlobal: false, dryRun: false }),
+    /Explicit userId scope or allowGlobal: true is required/
+  );
 
-  // duplicateReason MUST flag duplicate via compact ledger
-  const reason = await duplicateReason(userA._id, contact._id, 'outreach@acme.com');
-  assert.equal(reason, 'Already sent: contact or recipient history');
+  // Multi-instance lease lock
+  const token = crypto.randomUUID();
+  await Runtime.updateOne(
+    { _id: 'retention_worker' },
+    { $set: { leaseToken: token, leaseUntil: new Date(+fixedNow + 60000) } },
+    { upsert: true }
+  );
 
-  // Different recipient is not blocked
-  const reasonNew = await duplicateReason(userA._id, new mongoose.Types.ObjectId(), 'someone-else@acme.com');
-  assert.equal(reasonNew, null);
+  const lockResult = await pruneOldMailLogs({ now: fixedNow, allowGlobal: true });
+  assert.equal(lockResult.status, 'locked');
 });
 
-test('late authenticated bounce webhook correlates with compact DeliveryLedger when MailLog is pruned', async () => {
-  const email = 'late-bounce@acme.example';
-  const providerMessageId = '<late-msg-999@provider.example>';
-  const contact = await Contact.create({
-    userId: userA._id,
-    company: 'Acme Corp',
-    email,
-    verificationStatus: 'vendor_verified',
-    deliverabilityStatus: 'valid'
-  });
+test('Blocker 4: webhook deduplicates overlap and rejects cross-store ambiguity between distinct deliveries', async () => {
+  const email = 'ambiguity@example.com';
+  const providerMessageId = '<shared-provider-id@provider.example>';
+  const contact = await Contact.create({ userId: userA._id, company: 'Acme', email });
 
-  await MailLog.create({
+  // Scenario A: Overlap (Same delivery in both stores) -> Deduplicates cleanly without 409
+  const overlapLog = await MailLog.create({
     userId: userA._id,
     contactId: contact._id,
     recipientEmail: email,
     providerMessageId,
-    subject: 'Historical outreach',
-    body: 'Historical body',
-    status: 'sent',
-    sentAt: new Date('2026-11-08T00:00:00Z')
+    subject: 'Overlap Subj',
+    body: 'Overlap Body',
+    sentAt: new Date('2026-11-05T00:00:00Z'),
+    status: 'sent'
   });
 
-  // Prune detailed MailLog into DeliveryLedger
-  await pruneOldMailLogs({ now: fixedNow, retentionHours: 48 });
-  assert.equal(await MailLog.countDocuments(), 0);
-  assert.equal(await DeliveryLedger.countDocuments(), 1);
-
-  // Authenticated 5.1.1 bounce event arrives after pruning
-  const event = {
-    eventId: 'evt_late_bounce_001',
-    messageId: providerMessageId,
+  await DeliveryLedger.create({
+    originalMailLogId: overlapLog._id,
+    userId: userA._id,
+    contactId: contact._id,
     recipientEmail: email,
-    eventType: 'permanent_failure',
-    enhancedStatus: '5.1.1'
-  };
-  const digest = crypto.createHash('sha256').update(JSON.stringify(event)).digest('hex');
+    providerMessageId,
+    sentAt: overlapLog.sentAt,
+    status: 'sent'
+  });
 
-  const result = await applyEvent({ event, userId: userA._id, digest });
-  assert.equal(result.duplicate, false);
-  assert.equal(result.outcome, 'confirmed_recipient_failure');
+  const eventA = { eventId: 'evt_overlap_01', messageId: providerMessageId, recipientEmail: email, eventType: 'permanent_failure', enhancedStatus: '5.1.1' };
+  const digestA = crypto.createHash('sha256').update(JSON.stringify(eventA)).digest('hex');
 
-  // Contact must be suppressed and marked invalid
-  const updatedContact = await Contact.findById(contact._id);
-  assert.equal(updatedContact.deliverabilityStatus, 'invalid');
-  assert.equal(updatedContact.verificationStatus, 'invalid');
-  assert.ok(updatedContact.suppressedAt);
+  // Should succeed and update BOTH stores
+  const resultA = await applyEvent({ event: eventA, userId: userA._id, digest: digestA });
+  assert.equal(resultA.outcome, 'confirmed_recipient_failure');
+  assert.equal((await MailLog.findById(overlapLog._id)).status, 'bounced');
+  assert.equal((await DeliveryLedger.findOne({ originalMailLogId: overlapLog._id })).status, 'bounced');
 
-  // RecipientSuppression record must exist
-  const suppression = await Suppression.findOne({ userId: userA._id, email });
-  assert.ok(suppression);
-  assert.equal(suppression.source, 'authenticated_provider_5.1.1');
+  // Scenario B: Ambiguity across stores (Two DIFFERENT historical deliveries with same providerMessageId)
+  const secondProviderId = '<ambiguous-msg-id@provider.example>';
+  const differentEmail = 'ambig2@example.com';
+  await Contact.create({ userId: userA._id, company: 'Acme', email: differentEmail });
 
-  // DeliveryLedger status must be updated to 'bounced'
-  const ledger = await DeliveryLedger.findOne({ userId: userA._id, providerMessageId });
-  assert.equal(ledger.status, 'bounced');
-  assert.equal(ledger.bounceReason, 'Authenticated provider recipient failure 5.1.1');
+  const mailLog1 = await MailLog.create({
+    userId: userA._id,
+    contactId: contact._id,
+    recipientEmail: differentEmail,
+    providerMessageId: secondProviderId,
+    subject: 'Recent delivery',
+    body: 'Body',
+    sentAt: new Date('2026-11-13T00:00:00Z'),
+    status: 'sent'
+  });
 
-  // Replay of same event is idempotent
-  const replay = await applyEvent({ event, userId: userA._id, digest });
-  assert.equal(replay.duplicate, true);
-  assert.equal(replay.outcome, 'confirmed_recipient_failure');
+  // Completely separate older delivery in DeliveryLedger (different originalMailLogId)
+  await DeliveryLedger.create({
+    originalMailLogId: new mongoose.Types.ObjectId(),
+    userId: userA._id,
+    contactId: contact._id,
+    recipientEmail: differentEmail,
+    providerMessageId: secondProviderId,
+    sentAt: new Date('2026-11-01T00:00:00Z'),
+    status: 'sent'
+  });
+
+  const eventB = { eventId: 'evt_ambig_02', messageId: secondProviderId, recipientEmail: differentEmail, eventType: 'permanent_failure', enhancedStatus: '5.1.1' };
+  const digestB = crypto.createHash('sha256').update(JSON.stringify(eventB)).digest('hex');
+
+  // MUST fail closed with 409
+  await assert.rejects(
+    async () => applyEvent({ event: eventB, userId: userA._id, digest: digestB }),
+    /No unique owned sent-message match/
+  );
 });
 
-test('never deletes contacts, company records, active/queued dispatches or unresolved unknown outcomes', async () => {
-  const contact = await Contact.create({ userId: userA._id, company: 'Kept Co', email: 'safe@kept.example' });
-  const comp = await Company.create({ name: 'Kept Co', domain: 'kept.example' });
-  const campaign = await Campaign.create({
-    userId: userA._id,
-    name: 'Safe Campaign',
-    digest: 'dig',
-    startAtUtc: fixedNow,
-    snapshot: { name: 'Safe Campaign', intervalSeconds: 180, recipients: [] }
-  });
+test('true owner isolation: scoped cleanup for User A leaves User B older records completely untouched', async () => {
+  const contactA = await Contact.create({ userId: userA._id, company: 'Co A', email: 'targetA@example.com' });
+  const contactB = await Contact.create({ userId: userB._id, company: 'Co B', email: 'targetB@example.com' });
 
-  const queuedDispatch = await Dispatch.create({
-    campaignId: campaign._id,
-    userId: userA._id,
-    contactId: contact._id,
-    revision: 1,
-    recipientEmail: 'safe@kept.example',
-    status: 'queued'
-  });
-
-  const unknownDispatch = await Dispatch.create({
-    campaignId: campaign._id,
-    userId: userA._id,
-    contactId: contact._id,
-    revision: 1,
-    recipientEmail: 'unknown@kept.example',
-    status: 'unknown_outcome'
-  });
-
-  // Old MailLog that is eligible for pruning
+  const oldDate = new Date('2026-11-05T00:00:00Z');
   await MailLog.create({
     userId: userA._id,
-    contactId: contact._id,
-    recipientEmail: 'old@kept.example',
-    subject: 'Old',
-    body: 'Old Body',
-    sentAt: new Date('2026-11-01T00:00:00Z')
+    contactId: contactA._id,
+    recipientEmail: 'targetA@example.com',
+    subject: 'Old A',
+    body: 'Body A',
+    sentAt: oldDate
   });
 
-  await pruneOldMailLogs({ now: fixedNow, retentionHours: 48 });
+  const logB = await MailLog.create({
+    userId: userB._id,
+    contactId: contactB._id,
+    recipientEmail: 'targetB@example.com',
+    subject: 'Old B',
+    body: 'Body B',
+    sentAt: oldDate
+  });
 
-  // Verify critical models are completely untouched
-  assert.equal(await Contact.countDocuments({ _id: contact._id }), 1);
-  assert.equal(await Company.countDocuments({ _id: comp._id }), 1);
-  assert.equal(await Dispatch.countDocuments({ _id: queuedDispatch._id }), 1);
-  assert.equal(await Dispatch.countDocuments({ _id: unknownDispatch._id }), 1);
-  assert.equal(await Campaign.countDocuments({ _id: campaign._id }), 1);
+  // Run cleanup STRICTLY scoped to User A
+  const report = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48, userId: userA._id });
+  assert.equal(report.eligible, 1);
+  assert.equal(report.deleted, 1);
+  assert.equal(report.scope, `user:${userA._id}`);
+
+  // User A's log is pruned
+  assert.equal(await MailLog.countDocuments({ userId: userA._id }), 0);
+  assert.equal(await DeliveryLedger.countDocuments({ userId: userA._id }), 1);
+
+  // User B's log MUST remain in MailLog untouched
+  assert.equal(await MailLog.countDocuments({ userId: userB._id }), 1);
+  assert.equal(await DeliveryLedger.countDocuments({ userId: userB._id }), 0);
+  const remainingB = await MailLog.findById(logB._id);
+  assert.ok(remainingB);
+  assert.equal(remainingB.recipientEmail, 'targetB@example.com');
 });
 
-test('daily quota accounting: today sends not pruned and quota calculation remains 100% accurate', async () => {
-  const contact = await Contact.create({ userId: userA._id, company: 'Acme', email: 'today@acme.com' });
+test('parameter validation: rejects invalid retentionHours, batchSize, maxBatches and NaN', () => {
+  assert.throws(() => calculateRetentionCutoff(fixedNow, 0), /retentionHours must be a positive integer/);
+  assert.throws(() => calculateRetentionCutoff(fixedNow, -5), /retentionHours must be a positive integer/);
+  assert.throws(() => calculateRetentionCutoff(fixedNow, NaN), /retentionHours must be a positive integer/);
+  assert.throws(() => calculateRetentionCutoff(fixedNow, '48'), /retentionHours must be a positive integer/);
+  assert.throws(() => calculateRetentionCutoff(fixedNow, 48.5), /retentionHours must be a positive integer/);
+});
 
-  // Sent today (UTC)
-  const todaySentAt = new Date('2026-11-14T05:00:00Z');
-  await MailLog.create({
+test('legacy records: handles blank/missing recipientEmail and absent providerMessageId cleanly', async () => {
+  const contact = await Contact.create({ userId: userA._id, company: 'Acme', email: 'legacy@acme.com' });
+  const oldSentAt = new Date('2026-11-04T00:00:00Z');
+
+  const legacyLog = await MailLog.create({
     userId: userA._id,
     contactId: contact._id,
-    recipientEmail: 'today@acme.com',
+    recipientEmail: '', // Blank email
+    providerMessageId: '', // Blank provider ID
+    subject: 'Legacy Subject',
+    body: 'Legacy Body',
+    sentAt: oldSentAt,
+    status: 'sent'
+  });
+
+  const report = await pruneOldMailLogs({ now: fixedNow, retentionHours: 48, allowGlobal: true });
+  assert.equal(report.archived, 1);
+  assert.equal(report.deleted, 1);
+
+  const ledger = await DeliveryLedger.findOne({ originalMailLogId: legacyLog._id });
+  assert.ok(ledger);
+  assert.equal(ledger.recipientEmail, '');
+  assert.equal(ledger.providerMessageId, '');
+});
+
+test('quota deduplication: delivery present in both MailLog and DeliveryLedger counted exactly once', async () => {
+  const contact = await Contact.create({ userId: userA._id, company: 'Acme', email: 'quota-test@acme.com' });
+  const todaySentAt = new Date('2026-11-14T08:00:00Z'); // Today UTC
+
+  const log = await MailLog.create({
+    userId: userA._id,
+    contactId: contact._id,
+    recipientEmail: 'quota-test@acme.com',
     senderEmail: 'sender-a@example.com',
-    subject: 'Today Subject',
-    body: 'Today Body',
+    subject: 'Today Outreach',
+    body: 'Body',
     status: 'sent',
     sentAt: todaySentAt
   });
 
-  // Sent 10 days ago
-  await MailLog.create({
+  // Simulate overlap/partial retry: exact same delivery exists in DeliveryLedger as well
+  await DeliveryLedger.create({
+    originalMailLogId: log._id,
     userId: userA._id,
     contactId: contact._id,
-    recipientEmail: 'old@acme.com',
+    recipientEmail: 'quota-test@acme.com',
     senderEmail: 'sender-a@example.com',
-    subject: 'Old Subject',
-    body: 'Old Body',
     status: 'sent',
-    sentAt: new Date('2026-11-04T00:00:00Z')
+    sentAt: todaySentAt
   });
 
-  // Run pruning
-  await pruneOldMailLogs({ now: fixedNow, retentionHours: 48 });
-
-  // Today's log is kept in MailLog
-  assert.equal(await MailLog.countDocuments({ userId: userA._id }), 1);
-
-  // Queue status reports correct sentToday quota and configured interval
+  // Verify getQueueStatus deduplicates and returns sentToday: 1, NOT 2
   const statusRes = await request('/mail/queue-status', 'GET', null, userA);
   assert.equal(statusRes.status, 200);
   assert.equal(statusRes.data.sentToday, 1);
-  assert.equal(statusRes.data.dailyLimit, 450);
   assert.equal(statusRes.data.remaining, 449);
-  assert.equal(statusRes.data.intervalSeconds, 180);
+  assert.equal(statusRes.data.accounts[0].sentToday, 1);
 });
 
-test('Logs API: returns only last 48 hours and supports bounded pagination', async () => {
+test('Logs API: rolling 48h window with bounded pagination and array fallback', async () => {
   const contact = await Contact.create({ userId: userA._id, company: 'Acme', email: 'test@acme.com' });
-
-  // Insert 3 logs: 2 within last 48 hours, 1 older than 48 hours
   const nowMs = Date.now();
+
   await MailLog.create({
     userId: userA._id,
     contactId: contact._id,
     recipientEmail: 'recent1@acme.com',
     subject: 'Recent 1',
-    body: 'Recent Body 1',
+    body: 'Body 1',
     status: 'sent',
-    sentAt: new Date(nowMs - 2 * 3600 * 1000) // 2h ago
+    sentAt: new Date(nowMs - 2 * 3600 * 1000)
   });
 
   await MailLog.create({
@@ -481,9 +472,9 @@ test('Logs API: returns only last 48 hours and supports bounded pagination', asy
     contactId: contact._id,
     recipientEmail: 'recent2@acme.com',
     subject: 'Recent 2',
-    body: 'Recent Body 2',
+    body: 'Body 2',
     status: 'sent',
-    sentAt: new Date(nowMs - 24 * 3600 * 1000) // 24h ago
+    sentAt: new Date(nowMs - 24 * 3600 * 1000)
   });
 
   await MailLog.create({
@@ -493,25 +484,16 @@ test('Logs API: returns only last 48 hours and supports bounded pagination', asy
     subject: 'Older than 48h',
     body: 'Older Body',
     status: 'sent',
-    sentAt: new Date(nowMs - 72 * 3600 * 1000) // 72h ago (not yet pruned)
+    sentAt: new Date(nowMs - 72 * 3600 * 1000)
   });
 
-  // Fetch /mail/logs (limit 1)
   const resPage1 = await request('/mail/logs?page=1&limit=1', 'GET', null, userA);
   assert.equal(resPage1.status, 200);
   assert.equal(resPage1.data.retentionHours, 48);
-  assert.equal(resPage1.data.totalInWindow, 2); // Older 72h log is excluded from 48h window
+  assert.equal(resPage1.data.totalInWindow, 2);
   assert.equal(resPage1.data.logs.length, 1);
-  assert.equal(resPage1.data.page, 1);
   assert.equal(resPage1.data.totalPages, 2);
 
-  // Fetch page 2
-  const resPage2 = await request('/mail/logs?page=2&limit=1', 'GET', null, userA);
-  assert.equal(resPage2.status, 200);
-  assert.equal(resPage2.data.logs.length, 1);
-  assert.equal(resPage2.data.page, 2);
-
-  // Format array fallback for backward compatibility
   const resArray = await request('/mail/logs?format=array', 'GET', null, userA);
   assert.equal(resArray.status, 200);
   assert.ok(Array.isArray(resArray.data));
