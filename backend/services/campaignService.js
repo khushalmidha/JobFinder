@@ -59,15 +59,16 @@ async function previewCampaign(userId,input,now=new Date()) {
   if(!Number.isInteger(intervalSeconds)||intervalSeconds<180||intervalSeconds>86400)throw new Error('Use an interval between 180 and 86400 seconds');
   if(!Array.isArray(input.recipients)||input.recipients.length<1||input.recipients.length>1000)throw new Error('Select 1 to 1000 recipients');
   const blocked=[],recipients=[],emails=new Set();
-  const contacts=await Contact.find({userId,_id:{$in:input.recipients.map(r=>objectId(r.contactId))}}).lean();
+  const validIds=input.recipients.map(r=>mongoose.isValidObjectId(r.contactId)?r.contactId:null).filter(Boolean);
+  const contacts=validIds.length?await Contact.find({userId,_id:{$in:validIds}}).lean():[];
   const map=new Map(contacts.map(c=>[String(c._id),c]));
   for(const row of input.recipients){
-    const contact=map.get(String(row.contactId)),email=normalizeEmail(contact?.email);
+    const contact=map.get(String(row.contactId)),email=contact?.email?normalizeEmail(contact.email):null;
     let reason=await recipientReason(user,contact,row,now);
-    if(!reason && emails.has(email))reason='Duplicate recipient in selection';
+    if(!reason && email && emails.has(email))reason='Duplicate recipient in selection';
     if(typeof row.subject!=='string'||!row.subject.trim()||/[\r\n]/.test(row.subject)||row.subject.length>200||typeof row.body!=='string'||!row.body.trim()||row.body.length>10000)reason='Valid subject (up to 200 characters) and body (up to 10000) required';
-    if(reason){blocked.push({contactId:String(row.contactId),email,reason});continue;}
-    emails.add(email);
+    if(reason){blocked.push({contactId:String(row.contactId),email:contact?email:null,reason});continue;}
+    if(email)emails.add(email);
     recipients.push({contactId:String(contact._id),recipientEmail:email,company:contact.company,subject:row.subject,body:row.body,overrideSalary:row.overrideSalary===true});
   }
   const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients};

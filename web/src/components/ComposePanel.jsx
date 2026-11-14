@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { X, Send, Mail, FileText, CheckCircle2, AlertCircle, ChevronDown, Star, Sparkles, Settings as SettingsIcon, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { X, Send, Mail, FileText, CheckCircle2, AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Star, Sparkles, Settings as SettingsIcon, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onSuccess }) => {
   const [loadingSettings, setLoadingSettings] = useState(true);
@@ -10,7 +10,6 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   const [smtpAccounts, setSmtpAccounts] = useState([]);
   const [selectedSmtpId, setSelectedSmtpId] = useState('');
   const [hasBrevo, setHasBrevo] = useState(false);
-  const [useBrevoDirect, setUseBrevoDirect] = useState(false);
 
   const [subjectOverride, setSubjectOverride] = useState('');
   const [bodyOverride, setBodyOverride] = useState('');
@@ -22,6 +21,10 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [approvalChecked, setApprovalChecked] = useState(false);
   const [approving, setApproving] = useState(false);
+
+  // Recipient Review Pagination & Inspection
+  const [recipientPage, setRecipientPage] = useState(0);
+  const [expandedRecipientIndices, setExpandedRecipientIndices] = useState({});
 
   // Interactive Popup Modal when no SMTP account is chosen
   const [showSmtpModal, setShowSmtpModal] = useState(false);
@@ -65,7 +68,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
             }] : []);
         setSmtpAccounts(smtps);
 
-        // Brevo check
+        // Brevo check (for informational status only; durable worker requires SMTP)
         const brevoAvailable = !!data.brevoApiKey;
         setHasBrevo(brevoAvailable);
 
@@ -86,6 +89,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   const handleTemplateSelect = (templateId) => {
     setSelectedTemplateId(templateId);
     setPreviewData(null);
+    setApprovalChecked(false);
     const tmpl = templates.find(t => t._id === templateId);
     if (tmpl) {
       setSubjectOverride(tmpl.subject || '');
@@ -97,7 +101,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     const effectiveSmtpId = smtpIdToUse !== null ? smtpIdToUse : selectedSmtpId;
 
     // Check if an SMTP connection is selected
-    if (!useBrevoDirect && !effectiveSmtpId) {
+    if (!effectiveSmtpId) {
       setShowSmtpModal(true);
       return;
     }
@@ -105,7 +109,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     const payload = { 
       contactIds: selectedIds,
       templateId: selectedTemplateId || undefined,
-      smtpId: useBrevoDirect ? undefined : effectiveSmtpId,
+      smtpId: effectiveSmtpId,
       subjectOverride: subjectOverride || undefined,
       bodyOverride: bodyOverride || undefined,
       jobLinkOverride: jobLinkOverride || undefined,
@@ -118,6 +122,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
 
       const { data } = await api.post('/mail/preview', payload);
       setPreviewData(data);
+      setRecipientPage(0);
+      setExpandedRecipientIndices({});
       setShowReviewModal(true);
       setApprovalChecked(false);
     } catch (err) {
@@ -163,7 +169,18 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     }
   };
 
+  const toggleExpandRecipient = (idx) => {
+    setExpandedRecipientIndices(prev => ({
+      ...prev,
+      [idx]: !prev[idx]
+    }));
+  };
+
   const selectedSmtpAccount = smtpAccounts.find(s => s._id === selectedSmtpId);
+  const eligibleRecipients = previewData?.snapshot?.recipients || [];
+  const pageSize = 5;
+  const totalPages = Math.ceil(eligibleRecipients.length / pageSize);
+  const currentRecipients = eligibleRecipients.slice(recipientPage * pageSize, (recipientPage + 1) * pageSize);
 
   return (
     <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex justify-end z-50">
@@ -225,7 +242,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
               )}
             </div>
 
-            {smtpAccounts.length === 0 && !hasBrevo ? (
+            {smtpAccounts.length === 0 ? (
               <div className="p-3 bg-red-950/30 border border-red-800/40 rounded-lg text-xs text-red-400 flex items-center justify-between">
                 <span>No SMTP accounts configured in Settings!</span>
                 <a 
@@ -238,14 +255,15 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                 {smtpAccounts.map((acc) => {
-                  const isChosen = !useBrevoDirect && selectedSmtpId === acc._id;
+                  const isChosen = selectedSmtpId === acc._id;
                   return (
                     <button
                       key={acc._id}
                       type="button"
                       onClick={() => {
-                        setUseBrevoDirect(false);
                         setSelectedSmtpId(acc._id);
+                        setPreviewData(null);
+                        setApprovalChecked(false);
                       }}
                       className={`p-3 rounded-lg border text-left transition flex items-start justify-between gap-2 ${
                         isChosen
@@ -272,31 +290,18 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     </button>
                   );
                 })}
+              </div>
+            )}
 
-                {hasBrevo && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUseBrevoDirect(true);
-                      setSelectedSmtpId('');
-                    }}
-                    className={`p-3 rounded-lg border text-left transition flex items-start justify-between gap-2 ${
-                      useBrevoDirect
-                        ? 'bg-zinc-800 border-yellow-500/60'
-                        : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700'
-                    }`}
-                  >
-                    <div>
-                      <p className="text-xs font-bold text-zinc-100">Brevo API</p>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">Cloud Delivery via HTTPS</p>
-                    </div>
-                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                      useBrevoDirect ? 'border-yellow-500 bg-yellow-500 text-zinc-950' : 'border-zinc-700'
-                    }`}>
-                      {useBrevoDirect && <CheckCircle2 className="w-3.5 h-3.5" />}
-                    </div>
-                  </button>
-                )}
+            {hasBrevo && (
+              <div className="mt-3 p-2.5 rounded-lg border border-zinc-800 bg-zinc-950/40 text-xs text-zinc-500 flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-zinc-400">Brevo API:</span>
+                  <span className="ml-1 text-[11px] text-zinc-500">Not supported for durable campaign worker dispatch (SMTP only).</span>
+                </div>
+                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded font-medium">
+                  Disabled
+                </span>
               </div>
             )}
           </div>
@@ -345,7 +350,11 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
               <input 
                 type="text" 
                 value={subjectOverride}
-                onChange={e => setSubjectOverride(e.target.value)}
+                onChange={e => {
+                  setSubjectOverride(e.target.value);
+                  setPreviewData(null);
+                  setApprovalChecked(false);
+                }}
                 placeholder="e.g. Application for Software Engineer at {{companyName}}"
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-sm focus:ring-2 focus:ring-yellow-500 outline-none text-zinc-200"
               />
@@ -362,7 +371,11 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
               </div>
               <textarea 
                 value={bodyOverride}
-                onChange={e => setBodyOverride(e.target.value)}
+                onChange={e => {
+                  setBodyOverride(e.target.value);
+                  setPreviewData(null);
+                  setApprovalChecked(false);
+                }}
                 rows={12}
                 placeholder="Greetings,\n\nI am {{userName}}..."
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-sm focus:ring-2 focus:ring-yellow-500 outline-none resize-y font-mono text-zinc-200 leading-relaxed"
@@ -380,16 +393,14 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
           <div className="text-xs text-zinc-400">
             {selectedSmtpAccount ? (
               <span>Sending from <strong className="text-zinc-200">{selectedSmtpAccount.user}</strong></span>
-            ) : useBrevoDirect ? (
-              <span>Sending via <strong className="text-zinc-200">Brevo API</strong></span>
             ) : (
-              <span className="text-amber-400 font-semibold">⚠️ No sender account chosen</span>
+              <span className="text-amber-400 font-semibold">⚠️ No SMTP sender chosen</span>
             )}
           </div>
 
           <div className="flex items-center gap-3">
             <button 
-              onClick={onClose}
+              onClick={onClose} 
               className="px-5 py-2.5 text-zinc-400 font-medium hover:bg-zinc-800 hover:text-zinc-200 rounded-xl transition"
             >
               Cancel
@@ -412,7 +423,6 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
 
       {/* ========================================================
           POPUP MODAL: SELECT SMTP CONNECTION
-          (Prompted if no account was selected before clicking Send)
           ======================================================== */}
       {showSmtpModal && (
         <div className="fixed inset-0 bg-zinc-950/85 backdrop-blur-md z-60 flex items-center justify-center p-4">
@@ -439,12 +449,12 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
               You haven't selected an active email connection for this batch. Pick one of your configured SMTP accounts below to proceed:
             </p>
 
-            {smtpAccounts.length === 0 && !hasBrevo ? (
+            {smtpAccounts.length === 0 ? (
               <div className="text-center py-6 bg-zinc-950/60 rounded-xl border border-zinc-800 p-4">
                 <AlertCircle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
                 <p className="text-sm font-semibold text-zinc-200">No SMTP Accounts Configured</p>
                 <p className="text-xs text-zinc-400 mt-1 mb-4">
-                  Please add your Gmail or custom SMTP credentials in Settings first.
+                  Please add your Gmail or custom SMTP credentials in Settings first. Brevo API is not supported for durable campaign worker dispatch.
                 </p>
                 <a
                   href="/settings"
@@ -461,7 +471,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     type="button"
                     onClick={() => {
                       setSelectedSmtpId(acc._id);
-                      setUseBrevoDirect(false);
+                      setPreviewData(null);
+                      setApprovalChecked(false);
                       setShowSmtpModal(false);
                       handlePreview(acc._id);
                     }}
@@ -481,30 +492,6 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     </div>
                   </button>
                 ))}
-
-                {hasBrevo && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUseBrevoDirect(true);
-                      setSelectedSmtpId('');
-                      setShowSmtpModal(false);
-                      handlePreview('brevo');
-                    }}
-                    className="w-full p-3.5 rounded-xl border border-zinc-800 hover:border-yellow-500/50 bg-zinc-950/60 hover:bg-zinc-800/60 text-left transition flex items-center justify-between group"
-                  >
-                    <div>
-                      <h4 className="text-xs font-bold text-zinc-100 group-hover:text-yellow-400 transition">
-                        Brevo API
-                      </h4>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">Cloud Delivery via HTTPS</p>
-                    </div>
-                    <div className="bg-yellow-500/10 group-hover:bg-yellow-500 text-yellow-400 group-hover:text-zinc-950 text-xs font-bold px-3 py-1.5 rounded-lg border border-yellow-500/30 transition flex items-center gap-1 shrink-0">
-                      <ShieldCheck className="w-3 h-3" />
-                      Select & Review
-                    </div>
-                  </button>
-                )}
               </div>
             )}
 
@@ -526,7 +513,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
           ======================================================== */}
       {showReviewModal && previewData && (
         <div className="fixed inset-0 bg-zinc-950/90 backdrop-blur-md z-60 flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-700/80 rounded-2xl p-6 max-w-xl w-full shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+          <div className="bg-zinc-900 border border-zinc-700/80 rounded-2xl p-6 max-w-2xl w-full shadow-2xl animate-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-yellow-500/10 rounded-lg text-yellow-500 border border-yellow-500/20">
@@ -546,31 +533,57 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
             </div>
 
             <div className="py-4 space-y-4 overflow-y-auto pr-1 flex-1">
-              {/* Sender & Schedule Banner */}
-              <div className="p-3 bg-zinc-950/80 rounded-xl border border-zinc-800 text-xs space-y-1">
-                <div className="flex justify-between">
+              {/* Sender & Interval & Flag Status Banner */}
+              <div className="p-3.5 bg-zinc-950/85 rounded-xl border border-zinc-800 text-xs space-y-2">
+                <div className="flex justify-between items-center">
                   <span className="text-zinc-400">Sender Account:</span>
                   <span className="font-semibold text-zinc-200">{previewData.snapshot?.senderName} &lt;{previewData.snapshot?.senderEmail}&gt;</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-zinc-400">Execution Mode:</span>
                   <span className="text-yellow-400 font-semibold">Immediate durable dispatch queue</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400">Configured Cooldown:</span>
+                  <span className="font-mono text-zinc-300 font-semibold">{previewData.intervalSeconds || previewData.snapshot?.intervalSeconds || 180}s interval between sends</span>
+                </div>
+                <div className="flex justify-between items-center">
                   <span className="text-zinc-400">Daily Quota Cap:</span>
                   <span className="text-zinc-300">{previewData.snapshot?.dailyLimit} emails/day (UTC)</span>
+                </div>
+
+                <div className="pt-2 border-t border-zinc-800/80 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-zinc-400">Outbound Sending Gate:</span>
+                    <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${previewData.sendingEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`}>
+                      {previewData.sendingEnabled ? 'ENABLED' : 'DISABLED (OUTREACH_SENDING_ENABLED=false)'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-zinc-400">Worker Status:</span>
+                    <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${previewData.workerEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>
+                      {previewData.workerEnabled ? 'RUNNING' : 'STANDBY / DISABLED (OUTREACH_WORKER_ENABLED=false)'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-zinc-500 leading-normal pt-1">
+                    Immediate outreach queues for the next worker poll cycle subject to cooldown interval, not an instant SMTP guarantee.
+                  </p>
                 </div>
               </div>
 
               {/* Counts summary */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-emerald-950/30 border border-emerald-800/50 rounded-xl text-center">
-                  <p className="text-xs text-emerald-400 font-medium">Eligible Recipients</p>
-                  <p className="text-2xl font-black text-emerald-300 mt-0.5">{previewData.eligibleCount}</p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-2.5 bg-zinc-950/60 border border-zinc-800 rounded-xl text-center">
+                  <p className="text-[11px] text-zinc-400 font-medium">Selected</p>
+                  <p className="text-xl font-black text-zinc-200 mt-0.5">{previewData.selectedCount || (previewData.eligibleCount + previewData.blockedCount)}</p>
                 </div>
-                <div className="p-3 bg-zinc-950/60 border border-zinc-800 rounded-xl text-center">
-                  <p className="text-xs text-zinc-400 font-medium">Excluded Contacts</p>
-                  <p className="text-2xl font-black text-zinc-300 mt-0.5">{previewData.blockedCount}</p>
+                <div className="p-2.5 bg-emerald-950/30 border border-emerald-800/50 rounded-xl text-center">
+                  <p className="text-[11px] text-emerald-400 font-medium">Eligible</p>
+                  <p className="text-xl font-black text-emerald-300 mt-0.5">{previewData.eligibleCount}</p>
+                </div>
+                <div className="p-2.5 bg-zinc-950/60 border border-zinc-800 rounded-xl text-center">
+                  <p className="text-[11px] text-zinc-400 font-medium">Excluded</p>
+                  <p className="text-xl font-black text-zinc-400 mt-0.5">{previewData.blockedCount}</p>
                 </div>
               </div>
 
@@ -583,23 +596,100 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                   </div>
                   <div className="max-h-28 overflow-y-auto space-y-1 text-[11px]">
                     {previewData.blocked.map((b, idx) => (
-                      <div key={idx} className="flex justify-between text-zinc-400 border-b border-zinc-800/50 pb-1">
-                        <span className="font-mono text-zinc-300">{b.email || 'Contact'}</span>
-                        <span className="text-amber-300/80">{b.reason}</span>
+                      <div key={idx} className="flex justify-between items-center text-zinc-400 border-b border-zinc-800/50 pb-1">
+                        <span className="font-mono text-zinc-300 truncate max-w-[200px]">{b.email || b.contactId || 'Unavailable'}</span>
+                        <span className="text-amber-300/80 text-[10px]">{b.reason}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Sample Message Preview */}
-              {previewData.snapshot?.recipients && previewData.snapshot.recipients[0] && (
-                <div className="p-3 bg-zinc-950/60 border border-zinc-800 rounded-xl space-y-1.5">
-                  <p className="text-xs font-semibold text-zinc-300">Message Preview for {previewData.snapshot.recipients[0].company || 'First Recipient'}:</p>
-                  <p className="text-xs text-yellow-400 font-medium">Subject: {previewData.snapshot.recipients[0].subject}</p>
-                  <p className="text-[11px] text-zinc-400 whitespace-pre-wrap max-h-24 overflow-y-auto font-sans leading-relaxed">
-                    {previewData.snapshot.recipients[0].body}
-                  </p>
+              {/* Complete Eligible Recipient List with Pagination & Inspection */}
+              {eligibleRecipients.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                      Frozen Eligible Recipients ({eligibleRecipients.length})
+                    </span>
+                    {totalPages > 1 && (
+                      <div className="flex items-center gap-2 text-xs text-zinc-400">
+                        <button
+                          type="button"
+                          onClick={() => setRecipientPage(p => Math.max(0, p - 1))}
+                          disabled={recipientPage === 0}
+                          className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 flex items-center"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <span>
+                          Page {recipientPage + 1} of {totalPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setRecipientPage(p => Math.min(totalPages - 1, p + 1))}
+                          disabled={recipientPage >= totalPages - 1}
+                          className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 flex items-center"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                    {currentRecipients.map((r, pageIdx) => {
+                      const globalIdx = recipientPage * pageSize + pageIdx;
+                      const isExpanded = !!expandedRecipientIndices[globalIdx];
+                      return (
+                        <div key={globalIdx} className="p-3 bg-zinc-950/80 border border-zinc-800 rounded-xl space-y-1.5 text-xs">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 truncate">
+                              <span className="font-mono text-zinc-200 font-semibold truncate">{r.recipientEmail}</span>
+                              {r.company && (
+                                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded truncate">
+                                  {r.company}
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandRecipient(globalIdx)}
+                              className="text-[11px] text-yellow-500 hover:text-yellow-400 shrink-0 font-medium"
+                            >
+                              {isExpanded ? 'Collapse' : 'Inspect Message'}
+                            </button>
+                          </div>
+
+                          <div>
+                            <span className="text-[11px] text-zinc-400">Subject: </span>
+                            <span className="text-yellow-400 font-medium">{r.subject}</span>
+                          </div>
+
+                          {isExpanded ? (
+                            <div className="mt-2 pt-2 border-t border-zinc-800">
+                              <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 font-semibold">Personalized Body:</p>
+                              <pre className="text-zinc-300 font-sans text-xs whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-800/60">
+                                {r.body}
+                              </pre>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-zinc-400 line-clamp-1 italic">
+                              {r.body}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Error banner inside Review Modal if approval or check fails */}
+              {error && (
+                <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-xl text-xs text-red-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span className="leading-snug">{error}</span>
                 </div>
               )}
 
@@ -613,7 +703,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     className="mt-0.5 rounded border-zinc-700 text-yellow-500 focus:ring-yellow-500/20"
                   />
                   <span className="text-xs text-zinc-200 leading-snug">
-                    I have reviewed the exact recipients, subject, body, exclusions, and sender account. I explicitly approve queueing this immediate outreach through the durable campaign worker.
+                    I have reviewed all {previewData.eligibleCount} frozen recipient messages, personalized subjects, bodies, exclusions, sender account, and cooldown interval. I explicitly approve queueing this immediate outreach through the durable campaign worker.
                   </span>
                 </label>
               ) : (

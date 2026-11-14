@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const dns = require('dns');
 const User = require('../models/User');
@@ -15,7 +16,8 @@ exports.previewImmediate = async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found.' });
 
     const {
-      contactIds,
+      contactIds: rawContactIds,
+      useBrevoDirect,
       smtpId,
       templateId,
       subjectOverride,
@@ -28,14 +30,21 @@ exports.previewImmediate = async (req, res) => {
       name
     } = req.body || {};
 
-    if (!Array.isArray(contactIds) || contactIds.length === 0) {
+    // 1. Explicitly chosen provider must never silently fall back; Brevo API is not supported for durable worker
+    if (useBrevoDirect === true || smtpId === 'brevo') {
+      return res.status(400).json({
+        error: 'Durable outreach requires an SMTP connection. Brevo API is not currently supported by the campaign worker.'
+      });
+    }
+
+    if (!Array.isArray(rawContactIds) || rawContactIds.length === 0) {
       return res.status(400).json({ error: 'Select at least one contact to preview.' });
     }
-    if (contactIds.length > 1000) {
+    if (rawContactIds.length > 1000) {
       return res.status(400).json({ error: 'Select between 1 and 1000 recipients.' });
     }
 
-    // Resolve template defaults if overrides are not directly provided
+    // 2. Resolve template defaults if overrides are not directly provided
     let defaultSubject = '';
     let defaultBody = '';
     if (templateId && Array.isArray(user.emailTemplates)) {
@@ -57,21 +66,52 @@ exports.previewImmediate = async (req, res) => {
       return res.status(400).json({ error: 'Subject and body are required.' });
     }
 
-    // Resolve sender
-    const senderIdToUse = smtpId || user.selectedSmtpId || (user.smtpConfigs?.[0]?._id ? String(user.smtpConfigs[0]._id) : (user.smtpConfig?.user ? 'legacy-smtp' : ''));
+    // 3. Resolve sender: explicitly chosen sender or user default; never silently fallback from an explicit invalid id
+    const senderIdToUse = (typeof smtpId === 'string' && smtpId.trim())
+      ? smtpId.trim()
+      : (user.selectedSmtpId || (user.smtpConfigs?.[0]?._id ? String(user.smtpConfigs[0]._id) : (user.smtpConfig?.user ? 'legacy-smtp' : '')));
     if (!senderIdToUse) {
       return res.status(400).json({ error: 'Choose an existing owned SMTP sender with complete credentials' });
     }
 
-    // Fetch owned contacts
-    const validContactIds = contactIds.map(id => campaignService.objectId(id));
-    const contacts = await Contact.find({ _id: { $in: validContactIds }, userId }).lean();
+    const sender = campaignService.resolveSender(user, senderIdToUse);
+
+    // 4. Fetch and account for every selected contact
+    const validObjectIds = rawContactIds.filter(id => mongoose.isValidObjectId(id));
+    const contacts = validObjectIds.length > 0
+      ? await Contact.find({ _id: { $in: validObjectIds }, userId }).lean()
+      : [];
     const contactMap = new Map(contacts.map(c => [String(c._id), c]));
 
+    const processedContactIds = new Set();
     const recipients = [];
-    for (const id of contactIds) {
-      const c = contactMap.get(String(id));
-      if (!c) continue;
+    const initialBlocked = [];
+
+    for (const rawId of rawContactIds) {
+      const idStr = String(rawId || '').trim();
+      if (!idStr) continue;
+
+      if (processedContactIds.has(idStr)) {
+        initialBlocked.push({
+          contactId: idStr,
+          email: contactMap.get(idStr)?.email ? campaignService.normalizeEmail(contactMap.get(idStr).email) : null,
+          reason: 'Duplicate recipient in selection'
+        });
+        continue;
+      }
+      processedContactIds.add(idStr);
+
+      const c = contactMap.get(idStr);
+      if (!c || String(c.userId) !== String(userId)) {
+        // Report unavailable or non-owned contacts without leaking another owner's contact data
+        initialBlocked.push({
+          contactId: idStr,
+          email: null,
+          reason: 'Owned contact not found or unavailable'
+        });
+        continue;
+      }
+
       const subject = renderTemplateText(rawSubject, { user, contact: c, jobLinkOverride, roleOverride }).replace(/[\r\n]+/g, ' ').trim();
       const body = renderTemplateText(rawBody, { user, contact: c, jobLinkOverride, roleOverride }).trim();
       recipients.push({
@@ -82,17 +122,48 @@ exports.previewImmediate = async (req, res) => {
       });
     }
 
+    const now = new Date();
+    const sendingEnabled = process.env.OUTREACH_SENDING_ENABLED === 'true';
+    const workerEnabled = process.env.OUTREACH_WORKER_ENABLED === 'true';
+    const effectiveInterval = (Number.isInteger(intervalSeconds) && intervalSeconds >= 180 && intervalSeconds <= 86400) ? intervalSeconds : 180;
+
     if (recipients.length === 0) {
-      return res.status(400).json({ error: 'No valid owned contacts found to preview.' });
+      return res.json({
+        campaignId: null,
+        digest: null,
+        snapshot: {
+          name: name || 'Immediate batch outreach',
+          senderId: sender.id,
+          senderEmail: sender.email,
+          senderName: sender.name,
+          senderHost: sender.host,
+          senderPort: sender.port,
+          provider: sender.provider,
+          startAtUtc: now.toISOString(),
+          immediate: true,
+          dailyLimit: dailyLimit || Math.min(user.dailyEmailLimit || 450, 450),
+          intervalSeconds: effectiveInterval,
+          recipients: []
+        },
+        blocked: initialBlocked,
+        eligibleCount: 0,
+        blockedCount: initialBlocked.length,
+        selectedCount: rawContactIds.length,
+        sendingEnabled,
+        workerEnabled,
+        intervalSeconds: effectiveInterval,
+        startAtUtc: now.toISOString(),
+        estimatedMinutes: 0,
+        minimumDays: 0
+      });
     }
 
-    const now = new Date();
     const campaignInput = {
       name: name || 'Immediate batch outreach',
-      senderId: senderIdToUse,
+      senderId: sender.id,
       immediate: true,
       dailyLimit,
-      intervalSeconds,
+      intervalSeconds: effectiveInterval,
       recipients
     };
 
@@ -102,13 +173,19 @@ exports.previewImmediate = async (req, res) => {
       draft = await campaignService.saveCampaign(userId, { ...campaignInput, recipients: preview.snapshot.recipients }, null, now);
     }
 
+    const allBlocked = [...initialBlocked, ...preview.blocked];
+
     res.json({
       campaignId: draft ? draft._id : null,
       digest: draft ? draft.digest : preview.digest,
       snapshot: draft ? draft.snapshot : preview.snapshot,
-      blocked: preview.blocked,
+      blocked: allBlocked,
       eligibleCount: preview.snapshot.recipients.length,
-      blockedCount: preview.blocked.length,
+      blockedCount: allBlocked.length,
+      selectedCount: rawContactIds.length,
+      sendingEnabled,
+      workerEnabled,
+      intervalSeconds: preview.snapshot.intervalSeconds,
       startAtUtc: preview.startAtUtc,
       estimatedMinutes: preview.estimatedMinutes,
       minimumDays: preview.minimumDays
@@ -282,7 +359,7 @@ exports.resumeQueue = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // 1. Never resume if unresolved unknown outcomes exist
+    // 1. Never resume if unresolved unknown outcomes exist anywhere for this user
     const hasUnknownOutcome = await Dispatch.exists({ userId, status: 'unknown_outcome' });
     if (hasUnknownOutcome) {
       return res.status(409).json({
@@ -292,55 +369,33 @@ exports.resumeQueue = async (req, res) => {
       });
     }
 
-    // 2. Find eligible owned paused campaigns (strictly 'paused')
+    // 2. Find eligible owned paused/needs_review campaigns
     const pausedCampaigns = await Campaign.find({
       userId,
-      state: 'paused'
+      state: { $in: ['paused', 'needs_review'] }
     });
 
-    if (pausedCampaigns.length === 0) {
-      return res.json({
-        message: 'No paused campaigns to resume.',
-        resumed: 0,
-        isPaused: false
-      });
-    }
-
-    const { digest } = require('../services/campaignService');
     const now = new Date();
     let resumedCount = 0;
 
     for (const campaign of pausedCampaigns) {
-      // Re-verify no unknown outcome dispatches in this campaign
-      const dispatchUnknown = await Dispatch.exists({ campaignId: campaign._id, status: 'unknown_outcome' });
-      if (dispatchUnknown) continue;
-
-      // Verify approvedDigest binds to snapshot
-      if (!campaign.approvedDigest || digest(campaign.snapshot) !== campaign.approvedDigest) {
-        continue;
-      }
-
-      const nextState = campaign.startedAt ? 'running' : 'scheduled';
-      const nextAt = new Date(Math.max(+now, +new Date(campaign.startAtUtc || 0)));
-
-      await Campaign.updateOne(
-        { _id: campaign._id, userId, state: 'paused', revision: campaign.revision },
-        {
-          $set: {
-            state: nextState,
-            nextAt,
-            reason: 'Owner explicitly resumed from dashboard'
-          },
-          $push: { events: { $each: [{ at: now, action: 'resume_dashboard' }], $slice: -200 } }
+      try {
+        const updated = await campaignService.controlCampaign(userId, campaign._id, 'resume', now);
+        if (updated) {
+          resumedCount++;
         }
-      );
-      resumedCount++;
+      } catch (err) {
+        // Skipped: campaign with invalid digest, revision race, unknown outcome, or cancelled
+      }
     }
+
+    // 3. Derive actual resulting state: check if any paused / needs_review campaigns remain
+    const remainingPaused = await Campaign.exists({ userId, state: { $in: ['paused', 'needs_review'] } });
 
     res.json({
       message: `Successfully resumed ${resumedCount} campaign(s).`,
       resumed: resumedCount,
-      isPaused: false
+      isPaused: Boolean(remainingPaused)
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

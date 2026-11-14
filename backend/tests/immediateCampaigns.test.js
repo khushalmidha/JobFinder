@@ -424,3 +424,188 @@ test('multi-tenant isolation: User A cannot preview, approve, pause or resume Us
   const campB = await Campaign.findById(pB.data.campaignId);
   assert.equal(campB.state, 'scheduled');
 });
+
+test('outreachTemplateService: literal dollar replacement tokens, {{otherPlaceholder}}, and unknown tags', async () => {
+  const { renderTemplateText } = require('../services/outreachTemplateService');
+
+  const user = {
+    name: 'Candidate $$ Acme',
+    candidateProfile: {
+      college: 'Tech $& University',
+      cgpa: '9.5',
+      phone: '+919999999999'
+    },
+    resumeLink: 'https://example.com/resume?id=123&$param=abc'
+  };
+
+  const contact = {
+    company: "Acme $& Corp $` Extra $' End $$",
+    hrName: 'Alice $& Senior',
+    email: 'alice@acme.com'
+  };
+
+  const template = [
+    'Hello {{hrName}},',
+    'I am applying for {{role}} at {{companyName}}.',
+    'User: {{userName}}, College: {{college}}, CGPA: {{cgpa}}.',
+    'Job Link: {{jobLink}}.',
+    'Resume: {{resumeLink}}.',
+    'Unknown tag test: {{unknownPlaceholder}} should stay literal.',
+    'Nested placeholder attempt: {{fake_{{role}}_placeholder}}.'
+  ].join('\n');
+
+  const rendered = renderTemplateText(template, {
+    user,
+    contact,
+    roleOverride: 'Software Engineer $& Level',
+    jobLinkOverride: 'https://jobs.example.com/view?id=456&source=$&'
+  });
+
+  // Verify $& in companyName did NOT inject template match or corrupt text
+  assert.ok(rendered.includes("Acme $& Corp $` Extra $' End $$"), 'Company literal dollar tokens preserved');
+  assert.ok(rendered.includes('Alice $& Senior'), 'HR name literal tokens preserved');
+  assert.ok(rendered.includes('Software Engineer $& Level'), 'Role literal tokens preserved');
+  assert.ok(rendered.includes('Tech $& University'), 'College literal tokens preserved');
+  assert.ok(rendered.includes('Candidate $$ Acme'), 'User literal double dollar preserved');
+  assert.ok(rendered.includes('https://jobs.example.com/view?id=456&source=$&'), 'Job link preserved');
+  assert.ok(rendered.includes('{{unknownPlaceholder}}'), 'Unknown placeholder preserved without inventing facts');
+
+  // Verify recursive substitution is impossible
+  const trickyContact = {
+    company: 'Tricky {{userName}} Company'
+  };
+  const trickyRender = renderTemplateText('Company: {{company}}', { user, contact: trickyContact });
+  assert.equal(trickyRender, 'Company: Tricky {{userName}} Company', 'Single pass prevents recursive evaluation');
+});
+
+test('brevo selection is strictly rejected; explicitly chosen provider never silently falls back', async () => {
+  // 1. Explicit useBrevoDirect: true rejected with 400
+  const brevoDirectRes = await request('/mail/preview', 'POST', {
+    contactIds: [String(contactA1._id)],
+    useBrevoDirect: true,
+    subjectOverride: 'Subj',
+    bodyOverride: 'Body'
+  });
+  assert.equal(brevoDirectRes.status, 400);
+  assert.match(brevoDirectRes.data.error, /Brevo API is not currently supported by the campaign worker/i);
+
+  // 2. Explicit smtpId: 'brevo' rejected with 400
+  const brevoIdRes = await request('/mail/preview', 'POST', {
+    contactIds: [String(contactA1._id)],
+    smtpId: 'brevo',
+    subjectOverride: 'Subj',
+    bodyOverride: 'Body'
+  });
+  assert.equal(brevoIdRes.status, 400);
+  assert.match(brevoIdRes.data.error, /Brevo API is not currently supported by the campaign worker/i);
+
+  // 3. Non-existent explicit smtpId rejected; no silent fallback to default
+  const invalidSmtpRes = await request('/mail/preview', 'POST', {
+    contactIds: [String(contactA1._id)],
+    smtpId: 'non-existent-smtp-id',
+    subjectOverride: 'Subj',
+    bodyOverride: 'Body'
+  });
+  assert.equal(invalidSmtpRes.status, 400);
+  assert.match(invalidSmtpRes.data.error, /Choose an existing owned SMTP sender with complete credentials/i);
+});
+
+test('account for every selected contact: selected = eligible + excluded with generic non-leaking exclusions', async () => {
+  // Create contact for User B
+  const contactB = await Contact.create({
+    userId: userB._id,
+    companyId: companyA._id,
+    company: companyA.name,
+    hrName: 'User B HR',
+    email: 'private.userb.hr@aexp.com',
+    verificationStatus: 'publicly_sourced',
+    provenance: [{ url: 'https://aexp.com/careers', provider: 'fixture', observedAt: fixedNow }],
+    status: 'pending'
+  });
+
+  const missingId = new mongoose.Types.ObjectId();
+  const selectedIds = [
+    String(contactA1._id), // 1. Eligible owned contact
+    String(missingId),      // 2. Non-existent / deleted contact
+    String(contactB._id),   // 3. Contact owned by User B
+    String(contactA1._id)  // 4. Duplicate ID in selection
+  ];
+
+  const p = await request('/mail/preview', 'POST', {
+    contactIds: selectedIds,
+    smtpId: 'smtp-account-1',
+    subjectOverride: 'Subj {{companyName}}',
+    bodyOverride: 'Body {{companyName}}'
+  }, userA);
+
+  assert.equal(p.status, 200);
+  assert.equal(p.data.selectedCount, 4);
+  assert.equal(p.data.eligibleCount, 1);
+  assert.equal(p.data.blockedCount, 3);
+  assert.equal(p.data.selectedCount, p.data.eligibleCount + p.data.blockedCount, 'selected = eligible + excluded invariant holds');
+
+  // Verify missing contact exclusion
+  const missingExclusion = p.data.blocked.find(b => String(b.contactId) === String(missingId));
+  assert.ok(missingExclusion, 'Missing ID is reported in blocked');
+  assert.equal(missingExclusion.email, null, 'Email is null for missing ID');
+  assert.equal(missingExclusion.reason, 'Owned contact not found or unavailable');
+
+  // Verify foreign contact exclusion does NOT leak User B's email
+  const foreignExclusion = p.data.blocked.find(b => String(b.contactId) === String(contactB._id));
+  assert.ok(foreignExclusion, 'Foreign contact ID is reported in blocked');
+  assert.equal(foreignExclusion.email, null, 'User B email must not be leaked');
+  assert.equal(foreignExclusion.reason, 'Owned contact not found or unavailable');
+
+  // Verify duplicate contact exclusion
+  const dupExclusion = p.data.blocked.find(b => b.reason === 'Duplicate recipient in selection');
+  assert.ok(dupExclusion, 'Duplicate contact is reported as excluded duplicate');
+});
+
+test('dashboard resume: counts only successful CAS writes and derives isPaused correctly with mixed paused campaigns', async () => {
+  // Create Campaign 1 (Valid)
+  const p1 = await request('/mail/preview', 'POST', {
+    contactIds: [String(contactA1._id)],
+    smtpId: 'smtp-account-1',
+    subjectOverride: 'Subj 1',
+    bodyOverride: 'Body 1'
+  });
+  await request('/mail/send', 'POST', { campaignId: p1.data.campaignId, approvedDigest: p1.data.digest });
+
+  // Create Campaign 2 (Valid initially)
+  const p2 = await request('/mail/preview', 'POST', {
+    contactIds: [String(contactA2._id)],
+    smtpId: 'smtp-account-1',
+    subjectOverride: 'Subj 2',
+    bodyOverride: 'Body 2'
+  });
+  await request('/mail/send', 'POST', { campaignId: p2.data.campaignId, approvedDigest: p2.data.digest });
+
+  // Pause all campaigns
+  const pauseRes = await request('/mail/pause-queue', 'POST');
+  assert.equal(pauseRes.data.paused, 2);
+
+  // Invalidate Campaign 2's approved digest so it cannot resume
+  await Campaign.updateOne({ _id: p2.data.campaignId }, { $set: { approvedDigest: 'tampered-digest' } });
+
+  // Resume queue from dashboard
+  const resumeRes = await request('/mail/resume-queue', 'POST');
+  assert.equal(resumeRes.status, 200);
+  assert.equal(resumeRes.data.resumed, 1, 'Only Campaign 1 was resumed');
+  assert.equal(resumeRes.data.isPaused, true, 'isPaused remains true because Campaign 2 could not resume');
+
+  // Verify Campaign 1 state is scheduled, Campaign 2 state is still paused
+  const camp1 = await Campaign.findById(p1.data.campaignId);
+  const camp2 = await Campaign.findById(p2.data.campaignId);
+  assert.equal(camp1.state, 'scheduled');
+  assert.equal(camp2.state, 'paused');
+
+  // Test CAS revision race: if Campaign 1 revision changed concurrently during resume
+  await request('/mail/pause-queue', 'POST'); // pause again
+  // Concurrently cancel Campaign 1 before resume executes CAS
+  await Campaign.updateOne({ _id: p1.data.campaignId }, { $set: { state: 'cancelled', revision: 99 } });
+
+  const raceResume = await request('/mail/resume-queue', 'POST');
+  assert.equal(raceResume.status, 200);
+  assert.equal(raceResume.data.resumed, 0, 'No campaigns resumed due to CAS revision/state mismatch');
+  assert.equal(raceResume.data.isPaused, true, 'isPaused remains true because camp2 is still paused');
+});
