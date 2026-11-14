@@ -6,6 +6,7 @@ const bounceController = require('../controllers/bounceController');
 const otpController = require('../controllers/otpController');
 const auth = require('../middleware/auth');
 
+router.post('/preview', auth, mailController.previewImmediate);
 router.post('/send', auth, mailController.sendBatch);
 router.get('/logs', auth, mailController.getLogs);
 router.get('/queue-status', auth, mailController.getQueueStatus);

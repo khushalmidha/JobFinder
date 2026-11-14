@@ -5,12 +5,148 @@ const Contact = require('../models/Contact');
 const MailLog = require('../models/MailLog');
 const Campaign = require('../models/OutreachCampaign');
 const Dispatch = require('../models/OutreachDispatch');
+const campaignService = require('../services/campaignService');
+const { renderTemplateText } = require('../services/outreachTemplateService');
+
+exports.previewImmediate = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    const {
+      contactIds,
+      smtpId,
+      templateId,
+      subjectOverride,
+      bodyOverride,
+      jobLinkOverride,
+      roleOverride,
+      overrideSalary,
+      dailyLimit,
+      intervalSeconds,
+      name
+    } = req.body || {};
+
+    if (!Array.isArray(contactIds) || contactIds.length === 0) {
+      return res.status(400).json({ error: 'Select at least one contact to preview.' });
+    }
+    if (contactIds.length > 1000) {
+      return res.status(400).json({ error: 'Select between 1 and 1000 recipients.' });
+    }
+
+    // Resolve template defaults if overrides are not directly provided
+    let defaultSubject = '';
+    let defaultBody = '';
+    if (templateId && Array.isArray(user.emailTemplates)) {
+      const tmpl = user.emailTemplates.find(t => String(t._id) === String(templateId));
+      if (tmpl) {
+        defaultSubject = tmpl.subject || '';
+        defaultBody = tmpl.body || '';
+      }
+    }
+    if (!defaultSubject && user.mailTemplate) {
+      defaultSubject = user.mailTemplate.subject || '';
+      defaultBody = user.mailTemplate.body || '';
+    }
+
+    const rawSubject = (typeof subjectOverride === 'string' && subjectOverride.trim()) ? subjectOverride : defaultSubject;
+    const rawBody = (typeof bodyOverride === 'string' && bodyOverride.trim()) ? bodyOverride : defaultBody;
+
+    if (!rawSubject || !rawBody) {
+      return res.status(400).json({ error: 'Subject and body are required.' });
+    }
+
+    // Resolve sender
+    const senderIdToUse = smtpId || user.selectedSmtpId || (user.smtpConfigs?.[0]?._id ? String(user.smtpConfigs[0]._id) : (user.smtpConfig?.user ? 'legacy-smtp' : ''));
+    if (!senderIdToUse) {
+      return res.status(400).json({ error: 'Choose an existing owned SMTP sender with complete credentials' });
+    }
+
+    // Fetch owned contacts
+    const validContactIds = contactIds.map(id => campaignService.objectId(id));
+    const contacts = await Contact.find({ _id: { $in: validContactIds }, userId }).lean();
+    const contactMap = new Map(contacts.map(c => [String(c._id), c]));
+
+    const recipients = [];
+    for (const id of contactIds) {
+      const c = contactMap.get(String(id));
+      if (!c) continue;
+      const subject = renderTemplateText(rawSubject, { user, contact: c, jobLinkOverride, roleOverride }).replace(/[\r\n]+/g, ' ').trim();
+      const body = renderTemplateText(rawBody, { user, contact: c, jobLinkOverride, roleOverride }).trim();
+      recipients.push({
+        contactId: String(c._id),
+        subject,
+        body,
+        overrideSalary: overrideSalary === true
+      });
+    }
+
+    if (recipients.length === 0) {
+      return res.status(400).json({ error: 'No valid owned contacts found to preview.' });
+    }
+
+    const now = new Date();
+    const campaignInput = {
+      name: name || 'Immediate batch outreach',
+      senderId: senderIdToUse,
+      immediate: true,
+      dailyLimit,
+      intervalSeconds,
+      recipients
+    };
+
+    const preview = await campaignService.previewCampaign(userId, campaignInput, now);
+    let draft = null;
+    if (preview.snapshot.recipients.length > 0) {
+      draft = await campaignService.saveCampaign(userId, { ...campaignInput, recipients: preview.snapshot.recipients }, null, now);
+    }
+
+    res.json({
+      campaignId: draft ? draft._id : null,
+      digest: draft ? draft.digest : preview.digest,
+      snapshot: draft ? draft.snapshot : preview.snapshot,
+      blocked: preview.blocked,
+      eligibleCount: preview.snapshot.recipients.length,
+      blockedCount: preview.blocked.length,
+      startAtUtc: preview.startAtUtc,
+      estimatedMinutes: preview.estimatedMinutes,
+      minimumDays: preview.minimumDays
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
 
 exports.sendBatch = async (req, res) => {
-  // Preserve the endpoint and history, but retire its process-memory delivery
-  // path. All new sends must use the durable, exact-approved campaign worker.
-  if (process.env.OUTREACH_SENDING_ENABLED !== 'true') return res.status(403).json({ error: 'Sending is disabled. Review a scheduled campaign first.' });
-  return res.status(409).json({ error: 'Use Scheduled Campaigns to preview and approve the exact durable queue.', campaignsPath: '/campaigns' });
+  try {
+    const { campaignId, approvedDigest } = req.body || {};
+
+    // Reject arbitrary unapproved sends
+    if (!campaignId || !approvedDigest || typeof approvedDigest !== 'string') {
+      if (process.env.OUTREACH_SENDING_ENABLED !== 'true') {
+        return res.status(403).json({ error: 'Sending is disabled. Preview and approve an exact campaign first.', requiredStep: 'preview' });
+      }
+      return res.status(409).json({
+        error: 'Explicit preview and approved digest required. Review the exact recipients, sender, and exclusions before approving.',
+        requiredStep: 'preview',
+        campaignsPath: '/campaigns'
+      });
+    }
+
+    const now = new Date();
+    const campaign = await campaignService.approveCampaign(req.user._id, campaignId, approvedDigest, now);
+
+    res.json({
+      success: true,
+      message: `Approved and queued ${campaign.snapshot.recipients.length} messages for immediate sending.`,
+      campaignId: campaign._id,
+      count: campaign.snapshot.recipients.length,
+      status: campaign.state
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 };
 
 exports.getLogs = async (req, res) => {
@@ -123,15 +259,92 @@ exports.testConnection = async (req, res) => {
   }
 };
 
-exports.pauseQueue = async (req,res) => {
+exports.pauseQueue = async (req, res) => {
   try {
-    const result=await Campaign.updateMany({userId:req.user._id,state:{$in:['scheduled','running']}},{$set:{state:'paused',reason:'Owner paused all campaigns'},$push:{events:{$each:[{at:new Date(),action:'pause_all'}],$slice:-200}}});
-    res.json({message:'Owned campaigns paused; an in-flight provider request may finish.',paused:result.modifiedCount});
-  }catch(error){res.status(500).json({error:error.message});}
+    const result = await Campaign.updateMany(
+      { userId: req.user._id, state: { $in: ['scheduled', 'running'] } },
+      {
+        $set: { state: 'paused', reason: 'Owner paused from dashboard' },
+        $push: { events: { $each: [{ at: new Date(), action: 'pause_dashboard' }], $slice: -200 } }
+      }
+    );
+    res.json({
+      message: 'Active campaigns paused.',
+      paused: result.modifiedCount,
+      isPaused: true
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };
 
 exports.resumeQueue = async (req, res) => {
-  return res.status(409).json({ error: 'Use Scheduled Campaigns to resume an approved durable queue.', campaignsPath: '/campaigns' });
+  try {
+    const userId = req.user._id;
+
+    // 1. Never resume if unresolved unknown outcomes exist
+    const hasUnknownOutcome = await Dispatch.exists({ userId, status: 'unknown_outcome' });
+    if (hasUnknownOutcome) {
+      return res.status(409).json({
+        error: 'Unresolved unknown delivery outcomes exist. Reconcile provider outcomes in Scheduled Campaigns before resuming.',
+        requiresReconciliation: true,
+        campaignsPath: '/campaigns'
+      });
+    }
+
+    // 2. Find eligible owned paused campaigns (strictly 'paused')
+    const pausedCampaigns = await Campaign.find({
+      userId,
+      state: 'paused'
+    });
+
+    if (pausedCampaigns.length === 0) {
+      return res.json({
+        message: 'No paused campaigns to resume.',
+        resumed: 0,
+        isPaused: false
+      });
+    }
+
+    const { digest } = require('../services/campaignService');
+    const now = new Date();
+    let resumedCount = 0;
+
+    for (const campaign of pausedCampaigns) {
+      // Re-verify no unknown outcome dispatches in this campaign
+      const dispatchUnknown = await Dispatch.exists({ campaignId: campaign._id, status: 'unknown_outcome' });
+      if (dispatchUnknown) continue;
+
+      // Verify approvedDigest binds to snapshot
+      if (!campaign.approvedDigest || digest(campaign.snapshot) !== campaign.approvedDigest) {
+        continue;
+      }
+
+      const nextState = campaign.startedAt ? 'running' : 'scheduled';
+      const nextAt = new Date(Math.max(+now, +new Date(campaign.startAtUtc || 0)));
+
+      await Campaign.updateOne(
+        { _id: campaign._id, userId, state: 'paused', revision: campaign.revision },
+        {
+          $set: {
+            state: nextState,
+            nextAt,
+            reason: 'Owner explicitly resumed from dashboard'
+          },
+          $push: { events: { $each: [{ at: now, action: 'resume_dashboard' }], $slice: -200 } }
+        }
+      );
+      resumedCount++;
+    }
+
+    res.json({
+      message: `Successfully resumed ${resumedCount} campaign(s).`,
+      resumed: resumedCount,
+      isPaused: false
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };
 exports.restoreLimitFailed = async (req, res) => {
   try {

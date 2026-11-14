@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { X, Send, Mail, FileText, CheckCircle2, AlertCircle, ChevronDown, Star, Sparkles, Settings as SettingsIcon } from 'lucide-react';
+import { X, Send, Mail, FileText, CheckCircle2, AlertCircle, ChevronDown, Star, Sparkles, Settings as SettingsIcon, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onSuccess }) => {
   const [loadingSettings, setLoadingSettings] = useState(true);
@@ -16,6 +16,12 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   const [bodyOverride, setBodyOverride] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Interactive Review & Explicit Approval states
+  const [previewData, setPreviewData] = useState(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [approvalChecked, setApprovalChecked] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   // Interactive Popup Modal when no SMTP account is chosen
   const [showSmtpModal, setShowSmtpModal] = useState(false);
@@ -79,6 +85,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   // Handle template selection change
   const handleTemplateSelect = (templateId) => {
     setSelectedTemplateId(templateId);
+    setPreviewData(null);
     const tmpl = templates.find(t => t._id === templateId);
     if (tmpl) {
       setSubjectOverride(tmpl.subject || '');
@@ -86,7 +93,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     }
   };
 
-  const handleSend = async (smtpIdToUse = null) => {
+  const handlePreview = async (smtpIdToUse = null) => {
     const effectiveSmtpId = smtpIdToUse !== null ? smtpIdToUse : selectedSmtpId;
 
     // Check if an SMTP connection is selected
@@ -105,40 +112,54 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
       roleOverride: roleOverride || undefined
     };
 
-    const sendRequest = () => api.post('/mail/send', payload);
-
     try {
       setLoading(true);
       setError('');
 
-      try {
-        await sendRequest();
-      } catch (firstErr) {
-        // If it's a network glitch/nodemon restart, retry once after 800ms
-        if (!firstErr.response) {
-          console.warn('Network error on send attempt, retrying once...', firstErr);
-          await new Promise(res => setTimeout(res, 800));
-          await sendRequest();
-        } else {
-          throw firstErr;
-        }
-      }
-
-      setShowSmtpModal(false);
-      onSuccess();
+      const { data } = await api.post('/mail/preview', payload);
+      setPreviewData(data);
+      setShowReviewModal(true);
+      setApprovalChecked(false);
     } catch (err) {
-      console.error('Failed to queue emails:', err);
+      console.error('Failed to preview immediate outreach:', err);
       const backendErr = err.response?.data?.error;
       const backendMsg = err.response?.data?.message;
       if (backendErr === 'NO_SMTP_SELECTED') {
         setShowSmtpModal(true);
       } else if (!err.response) {
-        setError('Connection interrupted. Please click "Confirm & Send" or "Try Again" below.');
+        setError('Connection interrupted. Please click "Review & Preview" or "Try Again" below.');
       } else {
-        setError(backendMsg || backendErr || err.message || 'Failed to queue emails');
+        setError(backendMsg || backendErr || err.message || 'Failed to preview campaign');
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApproveAndQueue = async () => {
+    if (!previewData || !previewData.campaignId || !previewData.digest || !approvalChecked) {
+      return;
+    }
+
+    try {
+      setApproving(true);
+      setError('');
+
+      const payload = {
+        campaignId: previewData.campaignId,
+        approvedDigest: previewData.digest
+      };
+
+      await api.post('/mail/send', payload);
+      setShowReviewModal(false);
+      onSuccess();
+    } catch (err) {
+      console.error('Failed to approve and queue emails:', err);
+      const backendErr = err.response?.data?.error;
+      const backendMsg = err.response?.data?.message;
+      setError(backendMsg || backendErr || err.message || 'Approval failed; preview details may have changed');
+    } finally {
+      setApproving(false);
     }
   };
 
@@ -177,7 +198,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
               </div>
               <button
                 type="button"
-                onClick={() => handleSend()}
+                onClick={() => handlePreview()}
                 disabled={loading}
                 className="shrink-0 px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 rounded-lg text-xs font-bold transition disabled:opacity-50"
               >
@@ -374,14 +395,14 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
               Cancel
             </button>
             <button 
-              onClick={() => handleSend()}
+              onClick={() => handlePreview()}
               disabled={loading}
               className="px-6 py-2.5 bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-extrabold rounded-xl flex items-center transition shadow-lg shadow-yellow-500/10 disabled:opacity-50 cursor-pointer"
             >
-              {loading ? 'Queueing...' : (
+              {loading ? 'Generating Preview...' : (
                 <>
-                  <Send className="w-4 h-4 mr-2" />
-                  Confirm & Send
+                  <ShieldCheck className="w-4 h-4 mr-2" />
+                  Review & Preview
                 </>
               )}
             </button>
@@ -442,7 +463,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                       setSelectedSmtpId(acc._id);
                       setUseBrevoDirect(false);
                       setShowSmtpModal(false);
-                      handleSend(acc._id);
+                      handlePreview(acc._id);
                     }}
                     className="w-full p-3.5 rounded-xl border border-zinc-800 hover:border-yellow-500/50 bg-zinc-950/60 hover:bg-zinc-800/60 text-left transition flex items-center justify-between group"
                   >
@@ -455,8 +476,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     </div>
 
                     <div className="bg-yellow-500/10 group-hover:bg-yellow-500 text-yellow-400 group-hover:text-zinc-950 text-xs font-bold px-3 py-1.5 rounded-lg border border-yellow-500/30 transition flex items-center gap-1 shrink-0">
-                      <Send className="w-3 h-3" />
-                      Select & Send
+                      <ShieldCheck className="w-3 h-3" />
+                      Select & Review
                     </div>
                   </button>
                 ))}
@@ -468,7 +489,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                       setUseBrevoDirect(true);
                       setSelectedSmtpId('');
                       setShowSmtpModal(false);
-                      handleSend('brevo');
+                      handlePreview('brevo');
                     }}
                     className="w-full p-3.5 rounded-xl border border-zinc-800 hover:border-yellow-500/50 bg-zinc-950/60 hover:bg-zinc-800/60 text-left transition flex items-center justify-between group"
                   >
@@ -479,8 +500,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                       <p className="text-[11px] text-zinc-400 mt-0.5">Cloud Delivery via HTTPS</p>
                     </div>
                     <div className="bg-yellow-500/10 group-hover:bg-yellow-500 text-yellow-400 group-hover:text-zinc-950 text-xs font-bold px-3 py-1.5 rounded-lg border border-yellow-500/30 transition flex items-center gap-1 shrink-0">
-                      <Send className="w-3 h-3" />
-                      Select & Send
+                      <ShieldCheck className="w-3 h-3" />
+                      Select & Review
                     </div>
                   </button>
                 )}
@@ -495,6 +516,137 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          EXPLICIT APPROVAL & REVIEW MODAL
+          ======================================================== */}
+      {showReviewModal && previewData && (
+        <div className="fixed inset-0 bg-zinc-950/90 backdrop-blur-md z-60 flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-700/80 rounded-2xl p-6 max-w-xl w-full shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-yellow-500/10 rounded-lg text-yellow-500 border border-yellow-500/20">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-zinc-100">Review & Explicit Approval</h3>
+                  <p className="text-xs text-zinc-400">Frozen campaign digest: <span className="font-mono text-yellow-400">{previewData.digest?.slice(0, 16)}...</span></p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowReviewModal(false)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-4 overflow-y-auto pr-1 flex-1">
+              {/* Sender & Schedule Banner */}
+              <div className="p-3 bg-zinc-950/80 rounded-xl border border-zinc-800 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Sender Account:</span>
+                  <span className="font-semibold text-zinc-200">{previewData.snapshot?.senderName} &lt;{previewData.snapshot?.senderEmail}&gt;</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Execution Mode:</span>
+                  <span className="text-yellow-400 font-semibold">Immediate durable dispatch queue</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Daily Quota Cap:</span>
+                  <span className="text-zinc-300">{previewData.snapshot?.dailyLimit} emails/day (UTC)</span>
+                </div>
+              </div>
+
+              {/* Counts summary */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-emerald-950/30 border border-emerald-800/50 rounded-xl text-center">
+                  <p className="text-xs text-emerald-400 font-medium">Eligible Recipients</p>
+                  <p className="text-2xl font-black text-emerald-300 mt-0.5">{previewData.eligibleCount}</p>
+                </div>
+                <div className="p-3 bg-zinc-950/60 border border-zinc-800 rounded-xl text-center">
+                  <p className="text-xs text-zinc-400 font-medium">Excluded Contacts</p>
+                  <p className="text-2xl font-black text-zinc-300 mt-0.5">{previewData.blockedCount}</p>
+                </div>
+              </div>
+
+              {/* Exclusions list if any */}
+              {previewData.blocked && previewData.blocked.length > 0 && (
+                <div className="p-3 bg-amber-950/20 border border-amber-800/40 rounded-xl space-y-2">
+                  <div className="flex items-center gap-1.5 text-amber-400 text-xs font-semibold">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Excluded Contacts ({previewData.blocked.length})</span>
+                  </div>
+                  <div className="max-h-28 overflow-y-auto space-y-1 text-[11px]">
+                    {previewData.blocked.map((b, idx) => (
+                      <div key={idx} className="flex justify-between text-zinc-400 border-b border-zinc-800/50 pb-1">
+                        <span className="font-mono text-zinc-300">{b.email || 'Contact'}</span>
+                        <span className="text-amber-300/80">{b.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Sample Message Preview */}
+              {previewData.snapshot?.recipients && previewData.snapshot.recipients[0] && (
+                <div className="p-3 bg-zinc-950/60 border border-zinc-800 rounded-xl space-y-1.5">
+                  <p className="text-xs font-semibold text-zinc-300">Message Preview for {previewData.snapshot.recipients[0].company || 'First Recipient'}:</p>
+                  <p className="text-xs text-yellow-400 font-medium">Subject: {previewData.snapshot.recipients[0].subject}</p>
+                  <p className="text-[11px] text-zinc-400 whitespace-pre-wrap max-h-24 overflow-y-auto font-sans leading-relaxed">
+                    {previewData.snapshot.recipients[0].body}
+                  </p>
+                </div>
+              )}
+
+              {/* Approval Checkbox */}
+              {previewData.eligibleCount > 0 ? (
+                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-yellow-500/30 bg-yellow-500/5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={approvalChecked}
+                    onChange={(e) => setApprovalChecked(e.target.checked)}
+                    className="mt-0.5 rounded border-zinc-700 text-yellow-500 focus:ring-yellow-500/20"
+                  />
+                  <span className="text-xs text-zinc-200 leading-snug">
+                    I have reviewed the exact recipients, subject, body, exclusions, and sender account. I explicitly approve queueing this immediate outreach through the durable campaign worker.
+                  </span>
+                </label>
+              ) : (
+                <div className="p-3 bg-red-950/30 border border-red-800/40 rounded-xl text-xs text-red-300 text-center">
+                  All selected recipients were excluded due to existing outreach history, suppression, or qualification rules. Nothing to send.
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setShowReviewModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition"
+              >
+                Back to Edit
+              </button>
+
+              {previewData.eligibleCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleApproveAndQueue}
+                  disabled={!approvalChecked || approving}
+                  className="px-5 py-2.5 bg-yellow-500 hover:bg-yellow-400 text-zinc-950 text-xs font-extrabold rounded-xl flex items-center gap-1.5 transition disabled:opacity-40 cursor-pointer shadow-lg shadow-yellow-500/10"
+                >
+                  {approving ? 'Queueing...' : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      Approve & Queue Now ({previewData.eligibleCount})
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
