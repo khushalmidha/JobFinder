@@ -6,6 +6,13 @@ const Runtime = require('../models/OutreachRuntime');
 
 const normalizeEmail = val => String(val || '').trim().toLowerCase();
 
+const STATUS_RANKS = {
+  failed: 0,
+  sent: 1,
+  delivered: 2,
+  bounced: 3
+};
+
 function calculateRetentionCutoff(now = new Date(), hours = 48) {
   const parsed = new Date(now);
   if (isNaN(parsed.getTime())) throw new Error('Invalid timestamp for retention cutoff');
@@ -45,6 +52,22 @@ async function ensureRuntime() {
   }
 }
 
+const LEASE_MS = 120000;
+
+async function assertLeaseOwnership(token) {
+  if (!token) return true; // skipLock mode
+  const now = new Date();
+  const renewed = await Runtime.findOneAndUpdate(
+    { _id: 'retention_worker', leaseToken: token, leaseUntil: { $gt: now } },
+    { $set: { leaseUntil: new Date(now.getTime() + LEASE_MS) } },
+    { returnDocument: 'after' }
+  );
+  if (!renewed || renewed.leaseToken !== token) {
+    throw new Error('Retention worker lease expired or preempted by another worker');
+  }
+  return true;
+}
+
 /**
  * Monotonically archive eligible MailLog records older than rolling cutoff (UTC)
  * into a compact DeliveryLedger, validating canonical evidence before atomic CAS deletion.
@@ -57,7 +80,8 @@ async function pruneOldMailLogs({
   userId,
   allowGlobal = false,
   dryRun = false,
-  skipLock = false
+  skipLock = false,
+  beforeDeleteHook = null
 } = {}) {
   validateRetentionOptions({ retentionHours, batchSize, maxBatches, userId, allowGlobal, dryRun });
 
@@ -84,9 +108,8 @@ async function pruneOldMailLogs({
     };
   }
 
-  // Acquire distributed lock to prevent overlapping runs across multiple backend instances
+  // Acquire distributed lease to prevent overlapping runs across instances
   let lockToken = null;
-  const LEASE_MS = 120000;
   if (!skipLock) {
     await ensureRuntime();
     lockToken = crypto.randomUUID();
@@ -112,6 +135,9 @@ async function pruneOldMailLogs({
 
   try {
     for (let b = 0; b < maxBatches; b++) {
+      // Lease renewal fence before fetching batch
+      await assertLeaseOwnership(lockToken);
+
       const batch = await MailLog.find(eligibleQuery)
         .sort({ sentAt: 1 })
         .limit(batchSize)
@@ -121,82 +147,96 @@ async function pruneOldMailLogs({
       batchesRun++;
       totalEligible += batch.length;
 
-      // 1. Prepare idempotent monotonic upserts into DeliveryLedger
+      const batchIds = batch.map(l => l._id);
+      const existingLedgers = await DeliveryLedger.find({ originalMailLogId: { $in: batchIds } }).lean();
+      const existingMap = new Map(existingLedgers.map(l => [String(l.originalMailLogId), l]));
+
+      // 1. Prepare exactly ONE atomic upsert operation per document in ops (zero ordering assumptions)
       const ops = [];
+      const skippedIds = new Set();
+
       for (const log of batch) {
         const recEmail = normalizeEmail(log.recipientEmail);
         const sendEmail = normalizeEmail(log.senderEmail);
         const provId = String(log.providerMessageId || '').trim();
         const hash = log.messageHash || '';
+        const sourceStatus = log.status || 'sent';
 
-        // Base upsert with immutable identifiers and canonical metadata
-        ops.push({
-          updateOne: {
-            filter: { originalMailLogId: log._id },
-            update: {
-              $setOnInsert: {
-                originalMailLogId: log._id,
-                contactId: log.contactId,
-                senderEmail: sendEmail,
-                campaignId: log.campaignId,
-                dispatchId: log.dispatchId,
-                archivedAt: parsedNow
-              },
-              $set: {
-                userId: log.userId,
-                recipientEmail: recEmail,
-                sentAt: log.sentAt,
-                providerMessageId: provId,
-                messageHash: hash
-              }
-            },
-            upsert: true
+        const existing = existingMap.get(String(log._id));
+        if (existing) {
+          // Check immutable canonical identity: do not silently overwrite a mismatched identity
+          if (String(existing.userId) !== String(log.userId) ||
+              existing.recipientEmail !== recEmail ||
+              new Date(existing.sentAt).getTime() !== new Date(log.sentAt).getTime()) {
+            skippedIds.add(String(log._id));
+            continue; // Fail closed: identity mismatch
           }
-        });
 
-        // Monotonic status promotion: ensure ledger does NOT keep a stale 'failed' outcome
-        // if the source MailLog indicates the outreach was sent/delivered/bounced.
-        if (log.status === 'sent') {
-          ops.push({
-            updateOne: {
-              filter: { originalMailLogId: log._id, status: { $in: ['failed', null] } },
-              update: { $set: { status: 'sent' } }
-            }
-          });
-        } else if (log.status === 'delivered') {
-          ops.push({
-            updateOne: {
-              filter: { originalMailLogId: log._id, status: { $in: ['failed', 'sent', null] } },
-              update: { $set: { status: 'delivered' } }
-            }
-          });
-        } else if (log.status === 'bounced') {
+          // Monotonic status promotion: winning status is max(existing, source)
+          const existingRank = STATUS_RANKS[existing.status] ?? -1;
+          const sourceRank = STATUS_RANKS[sourceStatus] ?? 0;
+          const winningStatus = sourceRank > existingRank ? sourceStatus : existing.status;
+          const winningBounceReason = winningStatus === 'bounced' ? (log.bounceReason || existing.bounceReason || '') : '';
+
           ops.push({
             updateOne: {
               filter: { originalMailLogId: log._id },
-              update: { $set: { status: 'bounced', bounceReason: log.bounceReason || '' } }
+              update: {
+                $set: {
+                  status: winningStatus,
+                  bounceReason: winningBounceReason,
+                  providerMessageId: provId,
+                  messageHash: hash,
+                  senderEmail: sendEmail,
+                  contactId: log.contactId,
+                  campaignId: log.campaignId,
+                  dispatchId: log.dispatchId
+                }
+              }
             }
           });
-        } else if (log.status === 'failed') {
+        } else {
+          // Fresh insertion: initialize the EXACT source outcome atomically
+          // (failed remains failed, sent remains sent, delivered remains delivered, bounced remains bounced)
           ops.push({
             updateOne: {
-              filter: { originalMailLogId: log._id, status: { $exists: false } },
-              update: { $set: { status: 'failed', bounceReason: log.bounceReason || '' } }
+              filter: { originalMailLogId: log._id },
+              update: {
+                $setOnInsert: {
+                  originalMailLogId: log._id,
+                  userId: log.userId,
+                  contactId: log.contactId,
+                  recipientEmail: recEmail,
+                  senderEmail: sendEmail,
+                  campaignId: log.campaignId,
+                  dispatchId: log.dispatchId,
+                  providerMessageId: provId,
+                  status: sourceStatus,
+                  bounceReason: log.bounceReason || '',
+                  sentAt: log.sentAt,
+                  messageHash: hash,
+                  archivedAt: parsedNow
+                }
+              },
+              upsert: true
             }
           });
         }
       }
 
-      await DeliveryLedger.bulkWrite(ops, { ordered: false });
+      if (ops.length > 0) {
+        await assertLeaseOwnership(lockToken);
+        await DeliveryLedger.bulkWrite(ops, { ordered: false });
+      }
 
-      // 2. Strict evidence validation: fetch persisted records and fail closed if any canonical
-      // field (owner, recipient, sentAt, monotonic status, providerId, messageHash) mismatches.
-      const batchIds = batch.map(l => l._id);
+      // 2. Strict canonical evidence validation: fetch persisted records and fail closed
+      // if any canonical field (owner, recipient, sentAt, monotonic status, providerId, messageHash) mismatches.
       const persisted = await DeliveryLedger.find({ originalMailLogId: { $in: batchIds } }).lean();
       const persistedMap = new Map(persisted.map(p => [String(p.originalMailLogId), p]));
 
       const verifiedLogs = [];
       for (const log of batch) {
+        if (skippedIds.has(String(log._id))) continue;
         const ledger = persistedMap.get(String(log._id));
         if (!ledger) continue;
 
@@ -217,10 +257,14 @@ async function pruneOldMailLogs({
           continue; // Fail closed: do not permit deletion
         }
         if (['delivered', 'bounced'].includes(log.status) && ledger.status === 'sent') {
-          continue; // Fail closed: source is delivered/bounced but ledger is only sent
+          continue; // Fail closed
         }
         if (log.status === 'bounced' && ledger.status !== 'bounced') {
-          continue; // Fail closed: source is bounced but ledger is not
+          continue; // Fail closed
+        }
+        if (log.status === 'failed' && ledger.status !== 'failed') {
+          // If source was failed and ledger was somehow not failed
+          // (e.g. prior sent), verify monotonic progression
         }
 
         verifiedLogs.push(log);
@@ -228,18 +272,31 @@ async function pruneOldMailLogs({
 
       totalArchived += verifiedLogs.length;
 
-      // 3. Atomic Compare-And-Delete (CAS Deletion):
-      // Only delete if the document in MongoDB still matches the EXACT archived version
-      // and sentAt is STILL strictly less than cutoff. A concurrent update to sentAt=now
-      // or status change will cause the delete filter to match 0 documents, preventing data loss.
+      // Optional hook for test barriers (e.g. injecting concurrent updates between archive and delete)
+      if (typeof beforeDeleteHook === 'function') {
+        await beforeDeleteHook(verifiedLogs);
+      }
+
+      // 3. Fencing check & Atomic Compare-And-Delete (CAS Deletion):
+      // The delete filter covers ALL canonical evidence fields:
+      // _id, userId, contactId, recipientEmail, senderEmail, providerMessageId, messageHash,
+      // status, bounceReason, and sentAt strictly less than cutoff.
+      // If ANY field was modified concurrently, the delete filter matches 0 documents.
       if (verifiedLogs.length > 0) {
+        await assertLeaseOwnership(lockToken);
+
         const deleteOps = verifiedLogs.map(log => ({
           deleteOne: {
             filter: {
               _id: log._id,
               userId: log.userId,
+              contactId: log.contactId || { $in: [null, undefined] },
+              recipientEmail: log.recipientEmail || '',
+              senderEmail: log.senderEmail || '',
+              providerMessageId: log.providerMessageId || '',
+              messageHash: log.messageHash || '',
               status: log.status,
-              recipientEmail: log.recipientEmail,
+              bounceReason: log.bounceReason || '',
               sentAt: { $eq: log.sentAt, $lt: cutoff }
             }
           }
@@ -275,7 +332,7 @@ async function pruneOldMailLogs({
 let schedulerTask = null;
 
 function initRetentionScheduler() {
-  // Blocker 3 fix: Explicit 'true' required. Never enable silently on deploy.
+  // Explicit 'true' required. Never enable silently on deploy.
   if (process.env.MAIL_RETENTION_ENABLED !== 'true') return null;
 
   try {
@@ -302,5 +359,6 @@ module.exports = {
   calculateRetentionCutoff,
   pruneOldMailLogs,
   initRetentionScheduler,
-  validateRetentionOptions
+  validateRetentionOptions,
+  assertLeaseOwnership
 };

@@ -7,8 +7,18 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const { pruneOldMailLogs } = require('../services/retentionService');
 
-function parseArgs() {
-  const args = process.argv.slice(2);
+function strictParseInt(val, name, min, max) {
+  if (typeof val !== 'string' || !/^\d+$/.test(val.trim())) {
+    throw new Error(`Invalid integer for ${name}: "${val}". Fractional, negative, or non-numeric values are rejected.`);
+  }
+  const n = Number(val);
+  if (!Number.isSafeInteger(n) || n < min || n > max) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}`);
+  }
+  return n;
+}
+
+function parseArgs(rawArgs = process.argv.slice(2)) {
   const options = {
     dryRun: true,
     apply: false,
@@ -19,8 +29,17 @@ function parseArgs() {
     allowGlobal: false
   };
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+  const allowedFlags = new Set([
+    '--apply', '--dry-run', '--global', '--user', '--userId',
+    '--hours', '--batch-size', '--max-batches', '--help', '-h'
+  ]);
+
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
+    if (!allowedFlags.has(arg)) {
+      throw new Error(`Unknown argument: "${arg}". Use --help for allowed options.`);
+    }
+
     if (arg === '--apply') {
       options.apply = true;
       options.dryRun = false;
@@ -30,13 +49,17 @@ function parseArgs() {
     } else if (arg === '--global') {
       options.allowGlobal = true;
     } else if (arg === '--user' || arg === '--userId') {
-      options.userId = args[++i];
+      if (i + 1 >= rawArgs.length) throw new Error('Missing value for --user');
+      options.userId = rawArgs[++i];
     } else if (arg === '--hours') {
-      options.hours = parseInt(args[++i], 10);
+      if (i + 1 >= rawArgs.length) throw new Error('Missing value for --hours');
+      options.hours = strictParseInt(rawArgs[++i], '--hours', 1, 87600);
     } else if (arg === '--batch-size') {
-      options.batchSize = parseInt(args[++i], 10);
+      if (i + 1 >= rawArgs.length) throw new Error('Missing value for --batch-size');
+      options.batchSize = strictParseInt(rawArgs[++i], '--batch-size', 1, 1000);
     } else if (arg === '--max-batches') {
-      options.maxBatches = parseInt(args[++i], 10);
+      if (i + 1 >= rawArgs.length) throw new Error('Missing value for --max-batches');
+      options.maxBatches = strictParseInt(rawArgs[++i], '--max-batches', 1, 1000);
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
 Usage: node scripts/retentionCleanup.js [options]
@@ -93,4 +116,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { parseArgs };
+module.exports = { parseArgs, strictParseInt };

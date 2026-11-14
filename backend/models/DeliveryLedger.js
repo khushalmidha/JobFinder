@@ -8,7 +8,7 @@ const deliveryLedgerSchema = new mongoose.Schema({
   campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'OutreachCampaign' },
   dispatchId: { type: mongoose.Schema.Types.ObjectId, ref: 'OutreachDispatch' },
   providerMessageId: { type: String, default: '', trim: true },
-  status: { type: String, enum: ['sent', 'delivered', 'bounced', 'failed'], default: 'sent' },
+  status: { type: String, enum: ['sent', 'delivered', 'bounced', 'failed'], required: true },
   bounceReason: { type: String, default: '' },
   sentAt: { type: Date, required: true },
   originalMailLogId: { type: mongoose.Schema.Types.ObjectId, unique: true, sparse: true },
