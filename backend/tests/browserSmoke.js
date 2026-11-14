@@ -28,7 +28,7 @@ async function main() {
     }));
     app.use('/api/auth',require('../routes/auth'));
     app.use('/api/campaigns',require('../routes/campaigns'));app.use('/api/company-imports',require('../routes/companyImport'));
-    app.use('/api/crm',require('../routes/crm'));
+    app.use('/api/crm',require('../routes/crm'));app.use('/api/contact-intake',require('../routes/contactIntake'));
     await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime'].map(m=>require(`../models/${m}`).init()));
     app.all('/submitted',(_req,res)=>{submissions++;res.send('Unexpected submission');});
     app.get('/fixture',(_req,res)=>res.type('html').send(`<!doctype html><title>Synthetic form QA</title><h1>Local Workday / Google-style fixture</h1><p>No real employer or applicant data.</p><form action="/submitted"><label>First name <input id="first" data-automation-id="legalNameSection_firstName"></label><label>Expected salary <input id="salary"></label><button type="button" role="combobox" aria-label="Country" aria-controls="countries">Select</button><div id="countries" role="listbox" hidden><div role="option">India</div></div><div role="combobox" aria-label="State" aria-controls="states">Canada</div><div id="states" hidden><div role="option">Karnataka</div></div><label><input id="consent" type="checkbox">I consent to use my email</label><button>Submit application</button></form><script>window.blocked=0;const trigger=document.querySelector('button[role=combobox]');trigger.onclick=()=>{document.querySelector('#countries').hidden=false};document.querySelector('[role=option]').onclick=()=>{trigger.setAttribute('data-value','India');trigger.textContent='India';for(const method of ['submit','requestSubmit']){try{document.querySelector('form')[method]()}catch{window.blocked++}}};</script>`));
@@ -167,6 +167,26 @@ async function main() {
     await page.screenshot({path:path.join(screenshots,'outreach-crm-simulation.png'),fullPage:true});
     assert.equal(simulatedSends,1);
     console.log('PASS: CRM real browser reminder persistence/draft review/manual reply/confirmed opt-out/RecruiterGraph/mobile; real mail=0');
+    process.env.CONTACT_ADMISSION_ENABLED='true';
+    const admission=require('../services/contactAdmissionService'),Candidate=require('../models/ContactCandidate'),Proof=require('../models/MailboxProof');
+    admission.checkedDomain=async()=>({status:'mx_found',hosts:['fixture.example']});admission.intake=admission.createIntake({domainCheck:admission.checkedDomain});
+    await Promise.all([Candidate.init(),Proof.init()]);
+    await Candidate.create({userId:owner,email:'new@browser-fixture.example',company:'Synthetic Intake Employer',payload:{email:'new@browser-fixture.example',company:'Synthetic Intake Employer',source:'extension'},state:'pending_verification',reason:'Synthetic candidate, no real mailbox'});
+    await page.setViewportSize({width:1440,height:1100});await page.goto(base+'/email-checks');await page.getByRole('heading',{name:'Email verification queue',exact:true}).waitFor();
+    await page.getByText('Synthetic Intake Employer — new@browser-fixture.example',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Verify with Hunter',exact:true}).isDisabled(),true);
+    await page.getByRole('button',{name:'Recheck domain / existing proof',exact:true}).click();await page.getByRole('status').filter({hasText:'pending 1'}).waitFor();
+    assert.equal(await Contact.countDocuments({userId:owner,email:'new@browser-fixture.example'}),0);
+    await page.getByLabel('I approve one Hunter verification credit for new@browser-fixture.example.',{exact:true}).check();
+    await page.getByRole('button',{name:'Verify with Hunter',exact:true}).click();await page.getByRole('alert').filter({hasText:'Configure Hunter key'}).waitFor();
+    assert.equal(await Proof.countDocuments(),0);
+    await Proof.create({userId:owner,email:'new@browser-fixture.example',provider:'hunter_verifier',outcome:'valid',expiresAt:new Date(Date.now()+86400000)});
+    await page.getByRole('button',{name:'Recheck domain / existing proof',exact:true}).click();await page.getByRole('status').filter({hasText:'Added 1'}).waitFor();
+    assert.equal(await Contact.countDocuments({userId:owner,email:'new@browser-fixture.example',verificationStatus:'vendor_verified'}),1);
+    await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    assert.equal(simulatedSends,1);process.env.CONTACT_ADMISSION_ENABLED='false';
+    console.log('PASS: Email Checks actual browser quarantine/recheck/explicit-credit gate/no-key failure/synthetic proof promotion/mobile; paid calls=0, real mail=0');
+
   } catch(error) {
     if(page){await page.screenshot({path:path.join(screenshots,'browser-failure.png'),fullPage:true}).catch(()=>{});console.error('Synthetic failing page:',await page.locator('body').innerText().catch(()=>''));}
     throw error;

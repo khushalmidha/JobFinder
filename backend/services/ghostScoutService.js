@@ -43,6 +43,7 @@ async function scoutRecruiters({ companyQuery = '', domain = '', limit = 10, use
     if (!userId) continue;
     const existing = await Contact.findOne({ userId, email: r.email });
     if (existing) { skippedCount++; continue; }
+    if(require('./contactAdmissionService').enabled()){const result=await require('./contactAdmissionService').intake(userId,[r]);savedContacts.push(...result.contacts);addedCount+=result.added;skippedCount+=result.staged+result.rejected;continue;}
     savedContacts.push(await Contact.create({ ...r, userId, status: 'pending' })); addedCount++;
   }
   return { addedCount, skippedCount, totalFound: recruiters.length, recruiters, savedContacts, reason: result.reason || (recruiters.length ? null : 'No public recruiting inbox found in checked pages.'), requestsUsed: result.requestsUsed || 0 };

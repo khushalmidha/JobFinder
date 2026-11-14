@@ -77,8 +77,8 @@ async function syncContactsToTargetAccounts(sourceUserId, contactsToSync) {
       }
 
       if (toInsertForTarget.length > 0) {
-        await Contact.insertMany(toInsertForTarget, { ordered: false });
-        totalSynced += toInsertForTarget.length;
+        if(require('./contactAdmissionService').enabled()){const result=await require('./contactAdmissionService').intake(targetUser._id,toInsertForTarget);totalSynced+=result.added;}
+        else {await Contact.insertMany(toInsertForTarget, { ordered: false });totalSynced += toInsertForTarget.length;}
         syncedAccountsCount++;
         console.log(`[ContactSync] Successfully one-way synced ${toInsertForTarget.length} contacts from ${sourceUser.email} to ${targetUser.email}`);
       }

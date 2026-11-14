@@ -11,20 +11,14 @@ function isValidEmailSyntax(email) {
 async function resolveDomainMx(domain, resolver = dns) {
   const key = String(domain || '').trim().toLowerCase();
   if (resolver === dns && mxCache.get(key)?.expires > Date.now()) return mxCache.get(key).result;
-  try {
-    const records = await resolver.resolveMx(key);
-    if (records.some(r => r.exchange === '' || r.exchange === '.')) return { valid: false, status: 'invalid', error: 'Domain explicitly declines email (Null MX)' };
-    if (records.length) {
-      records.sort((a, b) => a.priority - b.priority);
-      const result = { valid: true, status: 'domain_mail_capable', exchange: records[0].exchange, allExchanges: records.map(r => r.exchange) };
-      if (resolver === dns) mxCache.set(key, { expires: Date.now() + TTL, result });
-      return result;
-    }
-  } catch (error) {
-    if (error.code === 'ENOTFOUND') return { valid: false, status: 'invalid', error: 'Domain does not exist' };
-    // Timeout, SERVFAIL and no MX do not establish that a mailbox is invalid.
+  const result = await require('./smtpConnectivityService').resolveAuditDomain(key,{resolver,timeoutMs:3000});
+  if(result.status==='null_mx')return {valid:false,status:'invalid',error:'Domain explicitly declines email (Null MX)'};
+  if(['mx_found','implicit_mx'].includes(result.status)) {
+    const answer={valid:true,status:'domain_mail_capable',exchange:result.hosts[0],allExchanges:result.hosts};
+    if(resolver===dns){if(mxCache.size>=2000)mxCache.delete(mxCache.keys().next().value);mxCache.set(key,{expires:Date.now()+TTL,result:answer});}
+    return answer;
   }
-  return { valid: false, status: 'unknown', error: 'Domain mail capability inconclusive; no mailbox check performed' };
+  return {valid:false,status:'unknown',error:'Domain mail capability inconclusive; no mailbox check performed'};
 }
 async function validateEmail(email, { resolver = dns } = {}) {
   const clean = String(email || '').trim().toLowerCase();
