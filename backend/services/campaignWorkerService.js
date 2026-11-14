@@ -30,8 +30,8 @@ async function quotaAvailable(campaign,user,now){
     Dispatch.countDocuments({senderEmail:campaign.snapshot.senderEmail,startedAt:{$gte:start}}),MailLog.countDocuments({...legacy,senderEmail:campaign.snapshot.senderEmail}),
     Dispatch.countDocuments({campaignId:campaign._id,startedAt:{$gte:start}})
   ]);
-  if(global+legacyGlobal>=configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',10))return 'Global daily cap reached (UTC day)';
-  const cap=Math.min(user.dailyEmailLimit||10,configuredLimit('OUTREACH_MAX_DAILY',10));
+  if(global+legacyGlobal>=configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450))return 'Global daily cap reached (UTC day)';
+  const cap=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
   if(owner+legacyOwner>=cap||account+legacyAccount>=cap||perCampaign>=campaign.snapshot.dailyLimit)return 'User, sender or campaign daily cap reached (UTC day)';
   return null;
 }

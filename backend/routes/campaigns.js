@@ -16,7 +16,7 @@ router.get('/options',wrap(async(req,res)=>{
     blockReason:contactBlockReason(c)||(!['publicly_sourced','vendor_verified'].includes(c.verificationStatus)?'Requires publicly sourced or provider-verified contact':null),
     salaryQualified:qualifyCompany(map.get(String(c.companyId))||{}).qualificationStatus==='qualified'}));
   const runtime=await Runtime.findById('global').select('lastPollAt lastDispatchAt lastError nextAllowedAt').lean();
-  res.json({senders:service.senderOptions(user).map(({id,email,name,provider})=>({id,email,name,provider})),contacts,sendingEnabled:process.env.OUTREACH_SENDING_ENABLED==='true',workerEnabled:process.env.OUTREACH_WORKER_ENABLED==='true',maxDailyLimit:Math.min(user.dailyEmailLimit||10,service.configuredLimit('OUTREACH_MAX_DAILY',10)),quotaDay:'UTC',runtime,admin:user.role==='admin',contactsTruncated:rows.length===1000});
+  res.json({senders:service.senderOptions(user).map(({id,email,name,provider})=>({id,email,name,provider})),contacts,sendingEnabled:process.env.OUTREACH_SENDING_ENABLED==='true',workerEnabled:process.env.OUTREACH_WORKER_ENABLED==='true',maxDailyLimit:Math.min(user.dailyEmailLimit||450,service.configuredLimit('OUTREACH_MAX_DAILY',450)),quotaDay:'UTC',runtime,admin:user.role==='admin',contactsTruncated:rows.length===1000});
 }));
 router.get('/',wrap(async(req,res)=>{
   const campaigns=await Campaign.find({userId:req.user._id}).sort({createdAt:-1}).limit(100).lean();

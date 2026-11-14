@@ -149,3 +149,22 @@ test('manual provider-history reconciliation records the outcome without retryin
   assert.equal(result.status,200);assert.equal(result.data.automaticallyRetried,false);assert.equal(await MailLog.countDocuments({dispatchId:row._id}),1);
   assert.equal((await Campaign.findById(c._id)).state,'needs_review');assert.equal(await Dispatch.countDocuments({status:'queued'}),1);
 });
+
+
+test('450 quota is consistent across options, preview and worker with no old 10/200 clamp',async()=>{
+  const oldMax=process.env.OUTREACH_MAX_DAILY,oldGlobal=process.env.OUTREACH_GLOBAL_MAX_DAILY;
+  try {
+    process.env.OUTREACH_MAX_DAILY='450';process.env.OUTREACH_GLOBAL_MAX_DAILY='450';
+    assert.equal((await request('/campaigns/options')).data.maxDailyLimit,450);
+    const queue=await request('/mail/queue-status');assert.equal(queue.data.dailyLimit,450);assert.equal(queue.data.accounts[0].dailyLimit,450);
+    const data={...input(),dailyLimit:450};assert.equal((await service.previewCampaign(user._id,data,now)).snapshot.dailyLimit,450);
+    const implicit={...data};delete implicit.dailyLimit;assert.equal((await service.previewCampaign(user._id,implicit,now)).snapshot.dailyLimit,450);
+    await assert.rejects(service.previewCampaign(user._id,{...data,dailyLimit:451},now),/Daily limit/);
+    const c=await approved(data);const quota=require('../services/campaignWorkerService').quotaAvailable;
+    await MailLog.insertMany(Array.from({length:449},(_,i)=>({userId:user._id,contactId:contacts[0]._id,recipientEmail:'historical@example.org',senderEmail:c.snapshot.senderEmail,subject:'Synthetic historical quota '+i,body:'Fixture only',status:'sent',sentAt:due})));
+    assert.equal(await quota(c,user,due),null);
+    await MailLog.create({userId:user._id,contactId:contacts[0]._id,senderEmail:c.snapshot.senderEmail,subject:'450th fixture',body:'Fixture only',status:'sent',sentAt:due});
+    assert.match(await quota(c,user,due),/daily cap/);
+    process.env.OUTREACH_MAX_DAILY='20';assert.equal((await request('/campaigns/options')).data.maxDailyLimit,20);
+  } finally {process.env.OUTREACH_MAX_DAILY=oldMax;process.env.OUTREACH_GLOBAL_MAX_DAILY=oldGlobal;}
+});

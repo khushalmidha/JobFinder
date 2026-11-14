@@ -671,7 +671,7 @@ const Dashboard = () => {
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2 bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-800">
             <span className="text-xs font-medium text-zinc-400">
-              Queue: {queueStatus.pending + queueStatus.size}
+              Queue: {queueStatus.pending || 0}
             </span>
             {queueStatus.dailyLimit && (
               <button

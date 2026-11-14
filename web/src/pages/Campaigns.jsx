@@ -3,7 +3,7 @@ import api from '../services/api';
 
 const field = 'w-full rounded border border-zinc-700 bg-zinc-950 p-2.5';
 const button = 'rounded border border-zinc-600 px-3 py-2 disabled:opacity-40 hover:bg-zinc-800';
-const emptyDraft = () => ({ name: '', senderId: '', localDateTime: '', timezone: 'Asia/Kolkata', dailyLimit: 10, intervalSeconds: 180, recipients: [] });
+const emptyDraft = () => ({ name: '', senderId: '', localDateTime: '', timezone: 'Asia/Kolkata', dailyLimit: 450, intervalSeconds: 180, recipients: [] });
 const statusOf = campaign => campaign?.state || campaign?.status || 'draft';
 const errorText = error => error.response?.data?.error || error.message;
 const recipientEmail = row => row.recipientEmail || row.normalizedRecipientEmail || row.email || row.recipient || '';
@@ -60,7 +60,7 @@ export default function Campaigns() {
   useEffect(() => {
     let active = true;
     Promise.all([api.get('/campaigns/options'), api.get('/campaigns')]).then(([a, b]) => {
-      if (active) { setOptions(a.data); setCampaigns(b.data.campaigns || []); }
+      if (active) { setOptions(a.data); setDraft(previous => ({ ...previous, dailyLimit: Math.min(previous.dailyLimit, a.data.maxDailyLimit || 450) })); setCampaigns(b.data.campaigns || []); }
     }).catch(error => { if (active) setMessage(errorText(error)); });
     return () => { active = false; };
   }, []);
@@ -149,7 +149,7 @@ export default function Campaigns() {
     const snapshot = campaign.snapshot || campaign;
     change({ name: campaign.name || snapshot.name || '', senderId: snapshot.senderId || '',
       localDateTime: snapshot.localDateTime || '', timezone: snapshot.timezone || 'Asia/Kolkata',
-      dailyLimit: snapshot.dailyLimit || 10, intervalSeconds: snapshot.intervalSeconds || 180,
+      dailyLimit: snapshot.dailyLimit || 450, intervalSeconds: snapshot.intervalSeconds || 180,
       recipients: (snapshot.recipients || []).map(row => ({ contactId: String(row.contactId), subject: row.subject, body: row.body, overrideSalary: !!row.overrideSalary })) });
     setEditingId(campaign._id);
     setMessage('Draft loaded for editing. Run a new preview before approval.');
@@ -181,7 +181,7 @@ export default function Campaigns() {
         <label>Sender account<select className={field} value={draft.senderId} onChange={event => change({ ...draft, senderId: event.target.value })}><option value="">Select your configured sender</option>{options.senders.map(row => <option key={row.id} value={row.id}>{row.name || row.email} — {row.email}</option>)}</select></label>
         <label>Start date and local time<input type="datetime-local" className={field} value={draft.localDateTime} onChange={event => change({ ...draft, localDateTime: event.target.value })} /></label>
         <label>Timezone<input list="campaign-timezones" className={field} value={draft.timezone} onChange={event => change({ ...draft, timezone: event.target.value })} /><datalist id="campaign-timezones">{['Asia/Kolkata', 'UTC', 'America/New_York', 'Europe/London', 'Asia/Singapore', 'Australia/Sydney'].map(zone => <option key={zone} value={zone} />)}</datalist></label>
-        <label>Maximum per day<input type="number" min="1" max={options.maxDailyLimit || 100} className={field} value={draft.dailyLimit} onChange={event => change({ ...draft, dailyLimit: Number(event.target.value) })} /></label>
+        <label>Maximum per day<input type="number" min="1" max={options.maxDailyLimit || 450} className={field} value={draft.dailyLimit} onChange={event => change({ ...draft, dailyLimit: Number(event.target.value) })} /></label>
         <label>Minimum seconds between messages<input type="number" min="180" className={field} value={draft.intervalSeconds} onChange={event => change({ ...draft, intervalSeconds: Number(event.target.value) })} /></label>
       </div>
       <p className="text-sm text-zinc-400">The selected time starts processing at or after that instant. Daily limits use UTC days and are shared across your campaigns; your account cap is {options.maxDailyLimit || 'enforced by the server'}. Daily limits can spread delivery over several days. Ambiguous or nonexistent daylight-saving times must be corrected.</p>

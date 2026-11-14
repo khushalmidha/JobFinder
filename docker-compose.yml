@@ -6,6 +6,8 @@ services:
       - ./backend/.env
     environment:
       PORT: 5000
+      OUTREACH_MAX_DAILY: "450"
+      OUTREACH_GLOBAL_MAX_DAILY: "450"
       OUTREACH_SENDING_ENABLED: "false"
       OUTREACH_WORKER_ENABLED: "false"
       EMAIL_VERIFICATION_ENABLED: "false"

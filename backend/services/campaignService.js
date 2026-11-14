@@ -11,7 +11,7 @@ const validEmail=value=>/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a
 const stable=value=>Array.isArray(value)?value.map(stable):value && typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,stable(value[k])])):value;
 const digest=value=>crypto.createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
 const objectId=id=>{if(!mongoose.isValidObjectId(id))throw new Error('Invalid record ID');return id;};
-function configuredLimit(name,fallback,max=200){const v=Number(process.env[name]);return Number.isInteger(v)&&v>0?Math.min(v,max):fallback;}
+function configuredLimit(name,fallback,max=450){const v=Number(process.env[name]);return Number.isInteger(v)&&v>0?Math.min(v,max):fallback;}
 function senderOptions(user) {
   const options=(user.smtpConfigs||[]).filter(s=>s.user && s.host && s.pass).map(s=>({id:String(s._id),email:normalizeEmail(s.user),name:s.name||s.user,host:s.host,port:Number(s.port)||465,provider:'smtp'}));
   if(user.smtpConfig?.user && user.smtpConfig?.pass && !options.some(s=>s.email===normalizeEmail(user.smtpConfig.user))) options.push({id:'legacy-smtp',email:normalizeEmail(user.smtpConfig.user),name:'Saved SMTP account',host:user.smtpConfig.host,port:Number(user.smtpConfig.port)||465,provider:'smtp'});
@@ -48,8 +48,8 @@ async function previewCampaign(userId,input,now=new Date()) {
   const start=localTimeToUtc(input.localDateTime,timezone);
   if(start<=now)throw new Error('Choose a future start time');
   if(start-now>366*86400000)throw new Error('Schedule within the next year');
-  const dailyLimit=input.dailyLimit??10,intervalSeconds=input.intervalSeconds??180;
-  if(!Number.isInteger(dailyLimit)||dailyLimit<1||dailyLimit>Math.min(user.dailyEmailLimit||10,configuredLimit('OUTREACH_MAX_DAILY',10)))throw new Error('Daily limit exceeds configured sender safety limit');
+  const dailyLimit=input.dailyLimit??Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450)),intervalSeconds=input.intervalSeconds??180;
+  if(!Number.isInteger(dailyLimit)||dailyLimit<1||dailyLimit>Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450)))throw new Error('Daily limit exceeds configured sender safety limit');
   if(!Number.isInteger(intervalSeconds)||intervalSeconds<180||intervalSeconds>86400)throw new Error('Use an interval between 180 and 86400 seconds');
   if(!Array.isArray(input.recipients)||input.recipients.length<1||input.recipients.length>1000)throw new Error('Select 1 to 1000 recipients');
   const blocked=[],recipients=[],emails=new Set();
