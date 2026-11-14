@@ -123,12 +123,13 @@ const officialPages = new Map([
   ['careers@intellicar.in', 'https://www.intellicar.in/company-pages/careers'],
   ['careers@getlexi.io', 'https://www.getlexi.io/careers/software-engineer-chennai'],
   ['careers@live2.ai', 'https://live2.ai/careers'],
-  ['hr@screl.com', 'https://screl.com/careers']
+  ['hr@screl.com', 'https://screl.com/careers'],
+  ['careers@zeta.tech', 'https://www.zeta.tech/in/careers/work-with-us']
 ]);
 const officialEmployerNames = new Map([
   ['jobs@razorpay.com', 'Razorpay'], ['careers@browserstack.com', 'BrowserStack'],
   ['careers@apnadatasystems.com', 'Apna Data Systems'], ['careers@intellicar.in', 'Intellicar'],
-  ['careers@getlexi.io', 'Lexi'], ['careers@live2.ai', 'Live2.ai'], ['hr@screl.com', 'SCREL']
+  ['careers@getlexi.io', 'Lexi'], ['careers@live2.ai', 'Live2.ai'], ['hr@screl.com', 'SCREL'], ['careers@zeta.tech', 'Zeta']
 ]);
 function trustedEmployerDomain(row) {
   const email = String(row.recruitmentEmail?.email || '').toLowerCase().trim();

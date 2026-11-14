@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "source": "Company_Hunt_2026_Expanded_733_Entries.xlsx",
+  "purpose": "Separately approved incremental research import; original 733-row batch unchanged.",
+  "companies": [
+    {
+      "companyName": "Zeta",
+      "regionGroup": "India",
+      "targetRoles": "AI/ML + SDE",
+      "sector": "Startup",
+      "location": "Bengaluru, Mumbai",
+      "newGradEligibility": "New-grad vacancy NOT verified",
+      "reportedBaseLowLPA": null,
+      "reportedBaseHighLPA": null,
+      "baseEvidenceType": "No verified fixed-base evidence",
+      "salarySourceUrl": "https://github.com/Targter/180-Companies-15LPA",
+      "reportedCTCLowLPA": 15.0,
+      "reportedCTCHighLPA": 22.0,
+      "careersUrl": "https://zeta.tech/careers",
+      "applicationMode": "Careers site",
+      "researchSourceUrl": "",
+      "notes": "Community-sourced reported cash pay includes first-year bonus; not accepted as proof of recurring fixed base. | Fixed-base ≥₹12L not verified; CTC/bonus is not fixed pay. | Independent review found public recruitment address on official India careers page. This does not prove mailbox existence, pay, or Zeta Tech alias identity.",
+      "dateFromSource": "2026-11-07",
+      "candidateAbove15Base": false,
+      "qualificationStatus": "research_needed",
+      "recruitmentEmail": {
+        "email": "careers@zeta.tech",
+        "evidenceUrl": "https://www.zeta.tech/in/careers/work-with-us",
+        "publicListingStatus": "publicly_listed",
+        "mailboxVerified": false,
+        "readyForSend": false,
+        "checkedAt": "2026-11-07"
+      },
+      "sendEligible": false
+    }
+  ]
+}

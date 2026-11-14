@@ -21,6 +21,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/auth/email-verification', require('./routes/emailVerification'));
 app.use('/api/contacts', contactRoutes);
 app.use('/api/mail', mailRoutes);
 app.use('/api/upload', uploadRoutes);
@@ -46,7 +47,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/jobfinder
     initJobScheduler();
     require('./services/researchQueueService').initResearchScheduler();
     // Build only additive indexes. The worker stays off unless explicitly enabled.
-    await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime','MailLog','CompanyImportRun','CompanyProspect','PublicRecruitmentLead'].map(model => require(`./models/${model}`).init()));
+    await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime','MailLog','CompanyImportRun','CompanyProspect','PublicRecruitmentLead','EmailVerificationChallenge','EmailVerificationBudget','EmailVerificationReceipt'].map(model => require(`./models/${model}`).init()));
     require('./services/campaignWorkerService').initCampaignScheduler();
 
     app.listen(PORT, () => {

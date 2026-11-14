@@ -2,7 +2,7 @@
 
 This local operator tool promotes an existing, genuinely email-verified account. It does not create accounts, send verification emails, or manufacture verification evidence. Normal signup always creates an unverified `user`; authenticated settings cannot write email identity, role, verification, or migration attribution.
 
-The current application has no trusted email-verification workflow. An existing login without stored evidence remains ineligible. Owning a login, entering an address in Settings, or having an SMTP account configured does not satisfy this check. A future trusted verification integration must write `emailVerified: true`, a nonfuture `emailVerifiedAt`, and `emailVerificationProof` containing its method, issuer, exact account-email subject, and matching verification timestamp. Do not manually backfill these fields to bypass verification.
+The Settings account verification flow now supports a server-owned sender, explicitly enabled by the operator. See [setup and security](ACCOUNT_EMAIL_VERIFICATION.md). Existing logins without genuine proof remain ineligible. Owning a login, entering an email in Settings or configuring an outreach SMTP account is not proof. Migration requires email_code from jobfinder_trusted_server_sender, matching timestamps/email, a UUID challenge ID and its matching immutable consumption receipt. Do not manually backfill these fields to bypass verification.
 
 From `backend`, preview first:
 

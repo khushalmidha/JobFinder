@@ -145,3 +145,11 @@ test('reviewed public leads become owned sourced research contacts without clear
   await Contact.updateOne({_id:first.data.contact._id},{$set:{suppressedAt:new Date(),suppressionReason:'Permanent existing suppression',status:'bounced'}});
   const repeat=await post(true);assert.equal(repeat.data.created,false);assert.equal(repeat.data.contact.suppressionReason,'Permanent existing suppression');assert.equal(await Contact.countDocuments(),1);assert.equal(await MailLog.countDocuments(),0);
 });
+test('reviewed Zeta incremental evidence is bound to its employer and does not merge the blank-domain Zeta Tech row',async()=>{
+  const source=require('../../docs/research/ZETA_PUBLIC_INBOX_INCREMENTAL_20261107.json');
+  const fetchPage=async url=>url.endsWith('/robots.txt')?{status:404}:{status:200,contentType:'text/html',text:'Email careers@zeta.tech'};
+  const preview=await service.previewImport(admin._id,source);await service.applyImport(admin._id,preview.runId,preview.digest,{fetchPage});
+  const lead=await Lead.findOne();assert.equal(lead.listingStatus,'official_publicly_listed');assert.equal(lead.mailboxVerified,false);assert.equal(lead.readyToSend,false);
+  const wrong=await service.checkPublicLead(source.companies[0].recruitmentEmail,{companyName:'Zeta Tech',fetchPage});assert.equal(wrong.listingStatus,'source_claim_unchecked');
+  assert.equal(await Company.countDocuments(),1);assert.equal(await Prospect.countDocuments(),1);assert.equal((await Prospect.findOne()).companyName,'Zeta');
+});

@@ -20,7 +20,13 @@ async function main() {
     const company=await Company.create({name:'Synthetic Demo Employer',domain:'employer.example',careersUrl:'https://employer.example/careers',salaryEvidence:[{role:'Software Engineer I',roleFamily:'software_engineering',level:'entry',experienceMin:0,experienceMax:2,location:'India',indiaEligibility:true,indiaEligibilitySourceUrl:'https://employer.example/jobs/1',salaryBaseMinINR:1600000,salaryBaseMaxINR:1800000,currency:'INR',payPeriod:'year',baseVsCTC:'fixed_base',salarySourceUrl:'https://employer.example/jobs/1',salarySourceType:'official_job',reportedOn:date,lastCheckedAt:date,evidenceConfidence:'high',evidenceExcerpt:'Synthetic browser fixture only: annual fixed base 16–18 LPA'}]});
     await Job.create({companyId:company._id,company:company.name,title:'Software Engineer I',url:'https://employer.example/jobs/1'});
     await Contact.create({userId:owner,companyId:company._id,company:company.name,email:'careers@employer.example',verificationStatus:'publicly_sourced',provenance:[{url:'https://employer.example/careers',provider:'synthetic_fixture',observedAt:date}]});
+    let verificationMail = null;
     const app=express();app.use(express.json());app.use('/api/research',require('../routes/research'));
+    app.use('/api/auth/email-verification',require('../routes/emailVerification').createRouter({
+      config:()=>({enabled:true,configured:true,secret:'synthetic-browser-verification-secret-32',from:'trusted@example.org'}),
+      sendCode:async(_config,mail)=>{verificationMail=mail;}
+    }));
+    app.use('/api/auth',require('../routes/auth'));
     app.use('/api/campaigns',require('../routes/campaigns'));app.use('/api/company-imports',require('../routes/companyImport'));
     await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime'].map(m=>require(`../models/${m}`).init()));
     app.all('/submitted',(_req,res)=>{submissions++;res.send('Unexpected submission');});
@@ -114,6 +120,19 @@ async function main() {
     await page.screenshot({path:path.join(screenshots,'company-import-dryrun.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     console.log('PASS: real campaign UI preview/exact approval/timezone, fake-clock dormant→pause→resume→simulated accepted→persistent progress, unknown-outcome reconciliation/cancel, admin733dryrun; real mail/provider requests=0');
+    await page.setViewportSize({width:1440,height:1100});await page.goto(base+'/settings');
+    await page.getByRole('heading',{name:'Account email verification',exact:true}).waitFor();
+    assert.equal(await page.locator('label').filter({hasText:/^Mobile \/ Phone$/}).locator('..').locator('input').inputValue(),'');
+    assert.equal(await page.locator('label').filter({hasText:/^College \/ Institution$/}).locator('..').locator('input').inputValue(),'');
+    await page.getByLabel('Send a verification code to my registered account email.',{exact:true}).check();
+    await page.getByRole('button',{name:'Send verification code',exact:true}).click();
+    await page.getByText(/Open your registered inbox and enter/).waitFor();assert.equal(verificationMail.recipient,'browser-owner@example.org');
+    await page.getByLabel('Verification code',{exact:true}).fill(verificationMail.code);await page.getByRole('button',{name:'Verify account email',exact:true}).click();
+    await page.getByText('Account email verified. Administrator promotion and company import remain separate controlled actions.',{exact:true}).waitFor();
+    assert.equal((await require('../models/User').findById(owner)).emailVerified,true);
+    assert.equal(await require('../models/AdminRoleMigration').countDocuments(),0);
+    await page.screenshot({path:path.join(screenshots,'account-verification-simulation.png'),fullPage:true});
+    console.log('PASS: account email verification Settings UI with synthetic trusted sender, one-use code and no automatic administrator promotion; real verification delivery=0');
   } catch(error) {
     if(page){await page.screenshot({path:path.join(screenshots,'browser-failure.png'),fullPage:true}).catch(()=>{});console.error('Synthetic failing page:',await page.locator('body').innerText().catch(()=>''));}
     throw error;
