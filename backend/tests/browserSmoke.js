@@ -217,6 +217,16 @@ async function main() {
     const Suppression=require('../models/RecipientSuppression');assert.equal(await Suppression.countDocuments({userId:owner,source:'owner_block'}),0);
     assert.equal(await Suppression.countDocuments({userId:owner,source:'owner_opt_out'}),1);assert.equal(simulatedSends,1);
     console.log('PASS: actual dashboard domain-suffix selection, bulk block, company grouping, persistent reload, individual unblock/reblock and bulk unblock; opt-out protected; real mail=0');
+    await require('../models/User').updateOne({_id:owner},{$set:{blockedCompanies:['ATLASSIAN']}});
+    await Contact.create({userId:owner,company:'Atlassian',email:'fixture@atlassian.example'});
+    await Contact.create({userId:owner,company:'Gravitontrading',email:'fixture@graviton.example'});
+    await page.goto(base+'/');await page.getByRole('button',{name:/Blocked Emails & Companies/}).click();
+    await page.getByRole('heading',{name:'Atlassian',exact:true}).waitFor();await page.getByRole('button',{name:'Unblock company',exact:true}).click();
+    await page.getByRole('heading',{name:'Atlassian',exact:true}).waitFor({state:'detached'});
+    await page.getByRole('button',{name:/^Active Contacts/}).click();await page.getByRole('heading',{name:'Atlassian',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Graviton Research Capital',exact:true}).waitFor();
+    console.log('PASS: mixed-case Atlassian company unblock through actual browser and canonical Graviton heading; real mail=0');
+
 
 
   } catch(error) {

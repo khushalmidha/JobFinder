@@ -62,6 +62,7 @@ exports.getContacts = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    for(const contact of contacts)contact.company=require('../services/companyIdentityService').canonicalCompany(contact.company);
     const blocks = await require('../models/RecipientSuppression').find({userId:req.user._id,email:{$in:contacts.map(c=>String(c.email||'').trim().toLowerCase())}}).select('email source').lean();
     const blocked = new Map(blocks.map(row=>[row.email,row.source]));
     for(const contact of contacts){contact.emailBlocked=blocked.has(String(contact.email||'').trim().toLowerCase());contact.emailBlockSource=blocked.get(String(contact.email||'').trim().toLowerCase())||null;}
@@ -79,7 +80,7 @@ exports.getCompanies = async (req, res) => {
   try {
     const companies = await Contact.distinct('company', { userId: req.user._id });
     // Filter out empty and Unknown, then sort
-    const validCompanies = companies
+    const validCompanies = [...new Set(companies.map(require('../services/companyIdentityService').canonicalCompany))]
       .filter(c => c && c.trim() && c.toLowerCase() !== 'unknown')
       .sort((a, b) => a.localeCompare(b));
     res.json(validCompanies);
