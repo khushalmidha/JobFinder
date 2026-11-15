@@ -175,6 +175,6 @@ test('mixed-case and alias company unblock removes the actual stored keys but pr
 test('reviewed directory alias expansion is idempotent and never treats similar names or shared brand domains as identity',()=>{
   const {canonicalCompany,canonicalBlocks}=require('../services/companyIdentityService');
   const seen=new Map();for(const row of require('../data/companyAliases.reviewed.json'))for(const alias of row.aliases){assert.equal(canonicalCompany(alias),row.canonical);assert.equal(canonicalCompany(canonicalCompany(alias)),row.canonical);const key=alias.toLowerCase().replace(/[^a-z0-9]/g,'');assert.ok(!seen.has(key)||seen.get(key)===row.canonical);seen.set(key,row.canonical);}
-  for(const [a,b] of [['SCALER','Zscaler'],['Atlas','Atlassian'],['iVisa','Visa'],['Loco','LocoNav'],['Paytm','Paytm Insider'],['Zomato','Blinkit'],['Postman','moveworks'],['Meta','MetaOption LLC'],['Gmail','Morgan Stanley']])assert.notEqual(canonicalCompany(a),canonicalCompany(b));
+  for(const [a,b] of [['SCALER','Zscaler'],['Atlas','Atlassian'],['iVisa','Visa'],['Loco','LocoNav'],['Paytm','Paytm Insider'],['Zomato','Blinkit'],['Postman','moveworks'],['Meta','MetaOption LLC'],['Gmail','Morgan Stanley'],['Fidelity Investments','Fidelity International'],['Bharti Airtel Foundation','Bharti Airtel'],['LTM','L&T Technology Services']])assert.notEqual(canonicalCompany(a),canonicalCompany(b));
   assert.deepEqual(canonicalBlocks(['BROWSER STACK','BrowserStack','Builder']),['BrowserStack','Builder.ai']);
 });
