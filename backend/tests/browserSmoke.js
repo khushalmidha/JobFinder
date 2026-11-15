@@ -16,6 +16,7 @@ async function main() {
     mongo=await MongoMemoryServer.create();await mongoose.connect(mongo.getUri());
     const Company=require('../models/Company'), Job=require('../models/JobOpening'), Contact=require('../models/Contact');
     const owner=new mongoose.Types.ObjectId();const date=new Date();
+    const scheduledDate=new Date(Date.now()+86400000).toISOString().slice(0,10);
     await require('../models/User').create({_id:owner,name:'Synthetic Browser Owner',email:'browser-owner@example.org',passwordHash:'synthetic-not-a-login',role:'admin',smtpConfigs:[{_id:'browser-smtp',name:'Synthetic SMTP',host:'smtp.example.org',port:465,user:'sender@example.org',pass:'synthetic-unused-password'}]});
     const company=await Company.create({name:'Synthetic Demo Employer',domain:'employer.example',careersUrl:'https://employer.example/careers',salaryEvidence:[{role:'Software Engineer I',roleFamily:'software_engineering',level:'entry',experienceMin:0,experienceMax:2,location:'India',indiaEligibility:true,indiaEligibilitySourceUrl:'https://employer.example/jobs/1',salaryBaseMinINR:1600000,salaryBaseMaxINR:1800000,currency:'INR',payPeriod:'year',baseVsCTC:'fixed_base',salarySourceUrl:'https://employer.example/jobs/1',salarySourceType:'official_job',reportedOn:date,lastCheckedAt:date,evidenceConfidence:'high',evidenceExcerpt:'Synthetic browser fixture only: annual fixed base 16–18 LPA'}]});
     await Job.create({companyId:company._id,company:company.name,title:'Software Engineer I',url:'https://employer.example/jobs/1'});
@@ -79,12 +80,12 @@ async function main() {
     await page.getByRole('heading',{name:'Scheduled campaigns',exact:true}).waitFor();
     await page.getByLabel('Campaign name',{exact:true}).fill('Synthetic scheduled browser campaign');
     await page.getByRole('combobox',{name:/Sender account/}).selectOption('browser-smtp');
-    await page.getByLabel('Start date and local time',{exact:true}).fill('2026-11-15T09:30');
+    await page.getByLabel('Start date and local time',{exact:true}).fill(scheduledDate+'T09:30');
     await page.getByLabel('Body for newly selected recipients').fill('Hello recruiting team,\n\nSynthetic browser-approved exact message.');
     await page.getByLabel('Select careers@employer.example',{exact:true}).check();
     await page.getByRole('button',{name:'Dry run & preview',exact:true}).click();
     await page.getByRole('heading',{name:'Exact campaign preview'}).waitFor();
-    assert.ok((await page.locator('body').innerText()).includes('2026-11-15T04:00:00.000Z'));
+    assert.ok((await page.locator('body').innerText()).includes(scheduledDate+'T04:00:00.000Z'));
     await page.screenshot({path:path.join(screenshots,'campaign-exact-preview.png'),fullPage:true});
     await page.getByRole('button',{name:'Approve & Schedule',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Approve this exact campaign?'});await dialog.waitFor();
@@ -107,7 +108,7 @@ async function main() {
     // A second queue exercises browser cancellation and outcome reconciliation.
     await require('../models/Contact').create({userId:owner,companyId:company._id,company:company.name,email:'jobs@employer.example',verificationStatus:'publicly_sourced',provenance:[{url:'https://employer.example/careers',provider:'synthetic_fixture',observedAt:date}]});
     const svc=require('../services/campaignService'),secondContact=await require('../models/Contact').findOne({userId:owner,email:'jobs@employer.example'});
-    const draft=await svc.saveCampaign(owner,{name:'Synthetic ambiguous campaign',senderId:'browser-smtp',localDateTime:'2026-11-15T09:40',timezone:'Asia/Kolkata',dailyLimit:10,intervalSeconds:180,recipients:[{contactId:String(secondContact._id),subject:'Synthetic second',body:'No real delivery; simulated ambiguous outcome.'}]});
+    const draft=await svc.saveCampaign(owner,{name:'Synthetic ambiguous campaign',senderId:'browser-smtp',localDateTime:scheduledDate+'T09:40',timezone:'Asia/Kolkata',dailyLimit:10,intervalSeconds:180,recipients:[{contactId:String(secondContact._id),subject:'Synthetic second',body:'No real delivery; simulated ambiguous outcome.'}]});
     await svc.approveCampaign(owner,draft._id,draft.digest);
     assert.equal((await tick({now:draft.startAtUtc,enabled:()=>true,send:async()=>{throw new Error('Fixture unknown outcome');}})).status,'unknown_outcome');
     await page.reload();await page.getByRole('button',{name:/Synthetic ambiguous campaign · needs_review/}).click();
