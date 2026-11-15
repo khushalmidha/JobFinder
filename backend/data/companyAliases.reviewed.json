@@ -286,5 +286,66 @@
     "supportingContactDomain": "walmart.com",
     "basis": "Reviewed name variant with shared corporate email domain in the scoped contact dataset; not mailbox verification",
     "reviewedOn": "2026-11-15"
+  },
+  {
+    "canonical": "JPMorgan Chase",
+    "aliases": [
+      "Jp morgan",
+      "JP Morgan Chase",
+      "JPMorgan Chase"
+    ],
+    "supportingContactDomain": "jpmchase.com",
+    "basis": "Reviewed directory label plus official employer identity/rename evidence; original label preserved; not mailbox or salary verification",
+    "sourceUrls": [
+      "https://www.jpmorganchase.com/careers/how-we-hire/recruitment-scams-warnings"
+    ],
+    "reviewedOn": "2026-11-16"
+  },
+  {
+    "canonical": "Fidelity Investments",
+    "aliases": [
+      "Fedility Investments",
+      "Fmr",
+      "Fidelity Investments"
+    ],
+    "supportingContactDomain": "fmr.com",
+    "basis": "Reviewed directory label plus official employer identity/rename evidence; original label preserved; not mailbox or salary verification",
+    "sourceUrls": [
+      "https://institutional.fidelity.com/app/item/RD_2045.html"
+    ],
+    "reviewedOn": "2026-11-16"
+  },
+  {
+    "canonical": "Bharti Airtel Foundation",
+    "aliases": [
+      "Bhartifoundation",
+      "Bharti Foundation",
+      "Bharti airtel foundation",
+      "Bharti Airtel Foundation"
+    ],
+    "supportingContactDomain": "bhartifoundation.org",
+    "basis": "Reviewed directory label plus official employer identity/rename evidence; original label preserved; not mailbox or salary verification",
+    "sourceUrls": [
+      "https://bhartiairtelfoundation.org/api/media/file/Annual%20Report%202025-bafe3671b85fc5d48dab04047bda256679aff135.pdf"
+    ],
+    "reviewedOn": "2026-11-16"
+  },
+  {
+    "canonical": "LTM",
+    "aliases": [
+      "Mindtree",
+      "Ltimindtree",
+      "LTIMindtree",
+      "LTI Mindtree",
+      "LTM",
+      "LTM Limited"
+    ],
+    "supportingContactDomain": "ltimindtree.com",
+    "basis": "Reviewed directory label plus official employer identity/rename evidence; original label preserved; not mailbox or salary verification",
+    "sourceUrls": [
+      "https://www.ltm.com/news-events/press-releases/2022/lti-and-mindtree-to-start-operating-as-a-merged-entity-from-november-14-2022",
+      "https://www.ltm.com/uploads/investors/2026/03/se-intimation-change-of-name-to-LTM-fy26.pdf"
+    ],
+    "reviewedOn": "2026-11-16"
   }
 ]

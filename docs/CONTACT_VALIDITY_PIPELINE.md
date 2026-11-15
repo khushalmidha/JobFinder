@@ -40,3 +40,6 @@ Company block/unblock matches canonical identity, including legacy case/space/al
 
 
 The November 15 full-directory review compared 1,000 scoped company labels and flagged 519 name/domain pairs for review. An additional 28 explicit alias groups are recorded with supporting dataset domains in `backend/data/companyAliases.reviewed.json`. Similarity is discovery only: it is not a runtime merge rule. Shared domains alone do not establish identity (the audit also found mixed/mislabelled records and distinct brands sharing a group domain). Scaler/Zscaler, Visa/iVisa, Atlas/Atlassian, Zomato/Blinkit and other uncertain pairs remain separate. Mailbox-verification and salary-evidence status never change as a consequence of label cleanup.
+
+
+The follow-up identity review adds four officially sourced groups (32 additional groups in total): JPMorgan Chase, Fidelity Investments/FMR, Bharti Airtel Foundation and LTM including historical Mindtree/LTIMindtree labels. Official source URLs are stored with each group. Current LTM naming was checked against its March 17, 2026 change-of-name filing. Fidelity International, the Bharti Airtel telecom business and L&T Technology Services remain separate. Historical company research/salary evidence and original contact labels are not rewritten to assert current eligibility.
