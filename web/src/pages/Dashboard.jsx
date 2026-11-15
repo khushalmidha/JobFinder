@@ -1532,7 +1532,9 @@ const Dashboard = () => {
           jobLinkOverride={composeData.jobLink}
           roleOverride={composeData.role}
           onClose={() => setShowCompose(false)} 
-          onSuccess={() => {
+          onSuccess={(result) => {
+            setShareToast(`${result.message}${(!result.sendingEnabled || !result.workerEnabled) ? ' Delivery is currently paused; the approved queue is saved.' : ''}`);
+            setTimeout(() => setShareToast(''), 10000);
             setShowCompose(false);
             setSelectedIds(new Set());
             fetchContacts();

@@ -127,21 +127,30 @@ exports.previewImmediate = async (req, res) => {
     const sendingEnabled = process.env.OUTREACH_SENDING_ENABLED === 'true';
     const workerEnabled = process.env.OUTREACH_WORKER_ENABLED === 'true';
     const effectiveInterval = (Number.isInteger(intervalSeconds) && intervalSeconds >= 180 && intervalSeconds <= 86400) ? intervalSeconds : 180;
+    const mode = req.body.mode === undefined ? 'immediate' : req.body.mode;
+    if (!['immediate', 'scheduled'].includes(mode)) throw new Error('Choose immediate or scheduled delivery');
+    const immediate = mode === 'immediate';
+    const timezone = immediate ? 'Asia/Kolkata' : req.body.timezone;
+    const localDateTime = immediate ? null : req.body.localDateTime;
+    const plannedStart = immediate ? now : require('../services/campaignTimeService').localTimeToUtc(localDateTime, timezone);
+    if (!immediate && plannedStart <= now) throw new Error('Choose a future start time');
+    if (!immediate && plannedStart - now > 366 * 86400000) throw new Error('Schedule within the next year');
+
 
     if (recipients.length === 0) {
       return res.json({
         campaignId: null,
         digest: null,
         snapshot: {
-          name: name || 'Immediate batch outreach',
+          name: name || (immediate ? 'Immediate batch outreach' : 'Scheduled batch outreach'),
           senderId: sender.id,
           senderEmail: sender.email,
           senderName: sender.name,
           senderHost: sender.host,
           senderPort: sender.port,
           provider: sender.provider,
-          startAtUtc: now.toISOString(),
-          immediate: true,
+          startAtUtc: plannedStart.toISOString(),
+          immediate, timezone, localDateTime,
           dailyLimit: dailyLimit || Math.min(user.dailyEmailLimit || 450, 450),
           intervalSeconds: effectiveInterval,
           recipients: []
@@ -153,16 +162,16 @@ exports.previewImmediate = async (req, res) => {
         sendingEnabled,
         workerEnabled,
         intervalSeconds: effectiveInterval,
-        startAtUtc: now.toISOString(),
+        startAtUtc: plannedStart.toISOString(),
         estimatedMinutes: 0,
         minimumDays: 0
       });
     }
 
     const campaignInput = {
-      name: name || 'Immediate batch outreach',
+      name: name || (immediate ? 'Immediate batch outreach' : 'Scheduled batch outreach'),
       senderId: sender.id,
-      immediate: true,
+      immediate, timezone, localDateTime,
       dailyLimit,
       intervalSeconds: effectiveInterval,
       recipients
@@ -217,7 +226,9 @@ exports.sendBatch = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Approved and queued ${campaign.snapshot.recipients.length} messages for immediate sending.`,
+      message: campaign.snapshot.immediate ? `Approved ${campaign.snapshot.recipients.length} messages for the next available worker cycle.` : `Scheduled ${campaign.snapshot.recipients.length} messages for ${campaign.snapshot.localDateTime} (${campaign.snapshot.timezone}).`,
+      immediate: campaign.snapshot.immediate, startAtUtc: campaign.startAtUtc, timezone: campaign.snapshot.timezone,
+      sendingEnabled: process.env.OUTREACH_SENDING_ENABLED === 'true', workerEnabled: process.env.OUTREACH_WORKER_ENABLED === 'true',
       campaignId: campaign._id,
       count: campaign.snapshot.recipients.length,
       status: campaign.state

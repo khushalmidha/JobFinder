@@ -15,6 +15,12 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   const [bodyOverride, setBodyOverride] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [deliveryMode, setDeliveryMode] = useState('immediate');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [scheduleTimezone, setScheduleTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata');
+  const invalidateTiming = () => { setPreviewData(null); setApprovalChecked(false); setError(''); };
+
 
   // Interactive Review & Explicit Approval states
   const [previewData, setPreviewData] = useState(null);
@@ -106,7 +112,11 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
       return;
     }
 
+    if (deliveryMode === 'scheduled' && (!scheduleDate || !scheduleTime || !scheduleTimezone)) { setError('Choose a send date, time and timezone before previewing.'); return; }
+
     const payload = { 
+      mode: deliveryMode,
+      ...(deliveryMode === 'scheduled' ? { localDateTime: `${scheduleDate}T${scheduleTime}`, timezone: scheduleTimezone } : {}),
       contactIds: selectedIds,
       templateId: selectedTemplateId || undefined,
       smtpId: effectiveSmtpId,
@@ -156,9 +166,9 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
         approvedDigest: previewData.digest
       };
 
-      await api.post('/mail/send', payload);
+      const { data } = await api.post('/mail/send', payload);
       setShowReviewModal(false);
-      onSuccess();
+      onSuccess(data);
     } catch (err) {
       console.error('Failed to approve and queue emails:', err);
       const backendErr = err.response?.data?.error;
@@ -340,6 +350,20 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
               })}
             </div>
           </div>
+
+          <fieldset className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/80 p-4">
+            <legend className="px-1 text-sm font-bold text-zinc-200">When to send</legend>
+            <div className="flex flex-wrap gap-5 text-sm">
+              <label className="flex items-center gap-2"><input type="radio" name="deliveryMode" value="immediate" checked={deliveryMode === 'immediate'} onChange={() => { setDeliveryMode('immediate'); invalidateTiming(); }} />Send now (default)</label>
+              <label className="flex items-center gap-2"><input type="radio" name="deliveryMode" value="scheduled" checked={deliveryMode === 'scheduled'} onChange={() => { setDeliveryMode('scheduled'); invalidateTiming(); }} />Schedule for later</label>
+            </div>
+            {deliveryMode === 'scheduled' ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="text-xs text-zinc-300">Send date<input aria-label="Send date" type="date" required value={scheduleDate} onChange={e => { setScheduleDate(e.target.value); invalidateTiming(); }} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 p-2.5" /></label>
+              <label className="text-xs text-zinc-300">Send time<input aria-label="Send time" type="time" required value={scheduleTime} onChange={e => { setScheduleTime(e.target.value); invalidateTiming(); }} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 p-2.5" /></label>
+              <label className="text-xs text-zinc-300 sm:col-span-2">Schedule timezone<select aria-label="Schedule timezone" value={scheduleTimezone} onChange={e => { setScheduleTimezone(e.target.value); invalidateTiming(); }} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 p-2.5">{[...new Set([scheduleTimezone, 'UTC', 'Asia/Kolkata', 'America/New_York', 'Europe/London', ...(Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [])])].map(zone => <option key={zone} value={zone}>{zone}</option>)}</select></label>
+              <p className="text-xs text-zinc-400 sm:col-span-2">After approval, the queue starts at this date and time, subject to daily limits and delivery availability.</p>
+            </div> : <p className="text-xs text-zinc-400">After approval, join the next available delivery cycle. Daily limits and the sending interval still apply.</p>}
+          </fieldset>
 
           {/* SUBJECT & BODY INPUTS */}
           <div className="space-y-4">
@@ -541,8 +565,12 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-zinc-400">Execution Mode:</span>
-                  <span className="text-yellow-400 font-semibold">Immediate durable dispatch queue</span>
+                  <span className="text-yellow-400 font-semibold">{previewData.snapshot?.immediate ? 'Immediate durable dispatch queue' : 'Scheduled durable dispatch queue'}</span>
                 </div>
+                {!previewData.snapshot?.immediate && <div className="space-y-1 rounded border border-yellow-500/30 p-2 text-yellow-200">
+                  <p>Scheduled start: {previewData.snapshot?.localDateTime?.replace('T', ' ')} ({previewData.snapshot?.timezone})</p>
+                  <p>Scheduled start (UTC): {previewData.snapshot?.startAtUtc}</p>
+                </div>}
                 <div className="flex justify-between items-center">
                   <span className="text-zinc-400">Configured Cooldown:</span>
                   <span className="font-mono text-zinc-300 font-semibold">{previewData.intervalSeconds || previewData.snapshot?.intervalSeconds || 180}s interval between sends</span>
@@ -566,7 +594,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     </span>
                   </div>
                   <p className="text-[10px] text-zinc-500 leading-normal pt-1">
-                    Immediate outreach queues for the next worker poll cycle subject to cooldown interval, not an instant SMTP guarantee.
+                    {previewData.snapshot?.immediate ? 'Immediate outreach queues for the next worker poll cycle subject to cooldown interval, not an instant SMTP guarantee.' : 'Scheduled outreach waits until the approved start time, then follows the sending interval and daily limits.'}
+                    {(!previewData.sendingEnabled || !previewData.workerEnabled) && ' Delivery is currently paused. Approval saves the queue; it will wait until sending is enabled.'}
                   </p>
                 </div>
               </div>
@@ -703,7 +732,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     className="mt-0.5 rounded border-zinc-700 text-yellow-500 focus:ring-yellow-500/20"
                   />
                   <span className="text-xs text-zinc-200 leading-snug">
-                    I have reviewed all {previewData.eligibleCount} frozen recipient messages, personalized subjects, bodies, exclusions, sender account, and cooldown interval. I explicitly approve queueing this immediate outreach through the durable campaign worker.
+                    I have reviewed all {previewData.eligibleCount} frozen recipient messages, personalized subjects, bodies, exclusions, sender account, and cooldown interval. I explicitly approve {previewData.snapshot?.immediate ? 'immediate' : 'scheduled'} outreach with the displayed start time and timezone.
                   </span>
                 </label>
               ) : (
@@ -732,7 +761,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                   {approving ? 'Queueing...' : (
                     <>
                       <Send className="w-3.5 h-3.5" />
-                      Approve & Queue Now ({previewData.eligibleCount})
+                      {previewData.snapshot?.immediate ? 'Approve & Queue Now' : 'Approve & Schedule'} ({previewData.eligibleCount})
                     </>
                   )}
                 </button>
