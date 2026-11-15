@@ -170,3 +170,11 @@ test('mixed-case and alias company unblock removes the actual stored keys but pr
   await request('/auth/unblock-company','POST',{company:'Graviton Research Capital'});assert.deepEqual((await User.findById(owner._id)).blockedCompanies.toObject(),['Builder.ai']);
   assert.equal((await request('/auth/unblock-company','POST',{company:{invalid:true}})).status,400);
 });
+
+
+test('reviewed directory alias expansion is idempotent and never treats similar names or shared brand domains as identity',()=>{
+  const {canonicalCompany,canonicalBlocks}=require('../services/companyIdentityService');
+  const seen=new Map();for(const row of require('../data/companyAliases.reviewed.json'))for(const alias of row.aliases){assert.equal(canonicalCompany(alias),row.canonical);assert.equal(canonicalCompany(canonicalCompany(alias)),row.canonical);const key=alias.toLowerCase().replace(/[^a-z0-9]/g,'');assert.ok(!seen.has(key)||seen.get(key)===row.canonical);seen.set(key,row.canonical);}
+  for(const [a,b] of [['SCALER','Zscaler'],['Atlas','Atlassian'],['iVisa','Visa'],['Loco','LocoNav'],['Paytm','Paytm Insider'],['Zomato','Blinkit'],['Postman','moveworks'],['Meta','MetaOption LLC'],['Gmail','Morgan Stanley']])assert.notEqual(canonicalCompany(a),canonicalCompany(b));
+  assert.deepEqual(canonicalBlocks(['BROWSER STACK','BrowserStack','Builder']),['BrowserStack','Builder.ai']);
+});
