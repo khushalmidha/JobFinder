@@ -1,6 +1,7 @@
 // Reviewed contact-directory aliases only. Never fuzzy-merge unrelated employers
 // or combine salary evidence, recruiting inboxes or contact history records.
 const groups = {
+  ...Object.fromEntries(require('../data/companyAliases.reviewed.json').map(row=>[row.canonical,row.aliases])),
   'Graviton Research Capital': ['Graviton', 'Graviton Trading', 'Gravitontrading', 'Graviton Traiding', 'Graviton Research', 'Graviton Research Capital'],
   Samsung: ['Samsung', 'Samasung', 'Sumsung', 'Samsung Bangalore', 'Samsung Bengaluru', 'Samsung Noida/Delhi', 'Samsung Delhi NCR', 'Sumsung Delhi NCR', 'Samasung Delhi NCR', 'Samsung Delhi', 'Samsung R&D (SRI-B / SRI-D)'],
   Atlassian: ['Atlassian']
