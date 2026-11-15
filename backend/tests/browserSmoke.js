@@ -220,6 +220,7 @@ async function main() {
     await require('../models/User').updateOne({_id:owner},{$set:{blockedCompanies:['ATLASSIAN']}});
     await Contact.create({userId:owner,company:'Atlassian',email:'fixture@atlassian.example'});
     await Contact.create({userId:owner,company:'Gravitontrading',email:'fixture@graviton.example'});
+    require('../controllers/contactController').invalidateContactCache(owner);
     await page.goto(base+'/');await page.getByRole('button',{name:/Blocked Emails & Companies/}).click();
     await page.getByRole('heading',{name:'Atlassian',exact:true}).waitFor();await page.getByRole('button',{name:'Unblock company',exact:true}).click();
     await page.getByRole('heading',{name:'Atlassian',exact:true}).waitFor({state:'detached'});
