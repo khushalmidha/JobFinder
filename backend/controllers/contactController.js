@@ -62,6 +62,9 @@ exports.getContacts = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    const blocks = await require('../models/RecipientSuppression').find({userId:req.user._id,email:{$in:contacts.map(c=>String(c.email||'').trim().toLowerCase())}}).select('email source').lean();
+    const blocked = new Map(blocks.map(row=>[row.email,row.source]));
+    for(const contact of contacts){contact.emailBlocked=blocked.has(String(contact.email||'').trim().toLowerCase());contact.emailBlockSource=blocked.get(String(contact.email||'').trim().toLowerCase())||null;}
     if (isUnfiltered) {
       contactCache.set(cacheKey, { data: contacts, timestamp: Date.now() });
     }

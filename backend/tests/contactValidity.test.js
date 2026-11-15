@@ -11,7 +11,7 @@ const proof=async(userId,email,outcome='valid',expiresAt=new Date(Date.now()+864
 before(async()=>{
   process.env.JWT_SECRET='contact-validity-fixture';process.env.OUTREACH_SENDING_ENABLED='false';process.env.OUTREACH_WORKER_ENABLED='false';
   mongo=await MongoMemoryServer.create();await mongoose.connect(mongo.getUri());await Promise.all([User,Contact,Candidate,Proof,Suppression,Dispatch,MailLog].map(M=>M.init()));
-  const app=express();app.use(express.json());app.use('/contacts',require('../routes/contact'));app.use('/intake',require('../routes/contactIntake'));
+  const app=express();app.use(express.json({limit:'1mb'}));app.use('/contacts',require('../routes/contact'));app.use('/intake',require('../routes/contactIntake'));
   await new Promise(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});base=`http://127.0.0.1:${server.address().port}`;
 },{timeout:300000});
 beforeEach(async()=>{
@@ -115,4 +115,37 @@ test('imports defer DNS without admitting unverified addresses; recheck performs
   assert.equal((await intake(owner._id,[record()])).staged,1);assert.equal(checks,0);assert.equal(await Contact.countDocuments(),0);
   assert.equal((await intake(owner._id,[record()],{checkUnverifiedDomain:true})).rejected,1);assert.equal(checks,1);
   assert.equal((await Candidate.findOne()).state,'confirmed_invalid');
+});
+
+
+test('bulk email blocks are owner scoped, persistent across reload and idempotent; unblock preserves history',async()=>{
+  const contact=await legacy();process.env.CONTACT_ADMISSION_ENABLED='false';const outsider=await Contact.create({...record('outsider@fixture.example'),userId:other._id});process.env.CONTACT_ADMISSION_ENABLED='true';
+  await MailLog.create({userId:owner._id,contactId:contact._id,subject:'Retain history',body:'Retain message body'});
+  const ids=[String(contact._id),String(contact._id),String(outsider._id)];
+  const first=await request('/contacts/block-emails','POST',{contactIds:ids});assert.equal(first.status,200);assert.equal((await first.json()).uniqueEmails,1);
+  await request('/contacts/block-emails','POST',{contactIds:ids});assert.equal(await Suppression.countDocuments(),1);
+  const listing=await (await request('/contacts')).json();assert.equal(listing[0].emailBlocked,true);assert.equal(listing[0].emailBlockSource,'owner_block');
+  assert.equal(await Suppression.countDocuments({userId:other._id}),0);assert.equal(await Contact.countDocuments(),2);
+  await request('/contacts/unblock-emails','POST',{contactIds:[String(contact._id)]});assert.equal((await (await request('/contacts')).json())[0].emailBlocked,false);assert.equal(await MailLog.countDocuments(),1);
+});
+
+test('manual unblock never erases recipient opt-out or confirmed-invalid suppression',async()=>{
+  const contact=await legacy();await Suppression.create({userId:owner._id,email:contact.email,source:'owner_opt_out',reason:'Recipient requested opt-out'});
+  await request('/contacts/block-emails','POST',{contactIds:[String(contact._id)]});
+  const response=await (await request('/contacts/unblock-emails','POST',{contactIds:[String(contact._id)]})).json();assert.equal(response.blocked,1);assert.equal((await Suppression.findOne()).source,'owner_opt_out');
+  await Suppression.updateOne({userId:owner._id},{$set:{source:'confirmed_invalid_pipeline'}});
+  await request('/contacts/unblock-emails','POST',{contactIds:[String(contact._id)]});assert.equal(await Suppression.countDocuments(),1);
+});
+
+test('blocking holds queued delivery without changing in-flight or unknown outcomes, and cannot reimport',async()=>{
+  const contact=await legacy();const campaignId=new mongoose.Types.ObjectId();
+  for(const status of ['queued','sending','unknown_outcome'])await Dispatch.create({campaignId:new mongoose.Types.ObjectId(),userId:owner._id,contactId:contact._id,revision:1,recipientEmail:contact.email,status});
+  await request('/contacts/block-emails','POST',{contactIds:[String(contact._id)]});assert.equal(await Dispatch.countDocuments({status:'queued'}),0);assert.equal(await Dispatch.countDocuments({status:'suppressed'}),1);assert.equal(await Dispatch.countDocuments({status:'sending'}),1);assert.equal(await Dispatch.countDocuments({status:'unknown_outcome'}),1);
+  await proof(owner._id,contact.email);assert.equal((await admission.intake(owner._id,[record()])).rejected,1);
+  await request('/contacts/unblock-emails','POST',{contactIds:[String(contact._id)]});assert.equal(await Dispatch.countDocuments({status:'queued'}),0);
+});
+
+test('email block input is bounded and malformed selections fail without writes',async()=>{
+  for(const contactIds of [[],['invalid'],new Array(10001).fill(String(new mongoose.Types.ObjectId()))])assert.equal((await request('/contacts/block-emails','POST',{contactIds})).status,400);
+  assert.equal(await Suppression.countDocuments(),0);
 });

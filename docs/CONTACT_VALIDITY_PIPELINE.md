@@ -23,3 +23,11 @@ To stop housekeeping set `CONTACT_HYGIENE_ENABLED=false` and recreate the backen
 ## Validation
 
 Real temporary-Mongo tests cover forged flags, owner isolation, stale/catch-all proofs, model-write bypasses, immutable history, deletion races, unknown-outcome holds and deferred DNS. Chromium exercises Email Checks staging, recheck, explicit verification approval and proof-backed promotion with synthetic fixtures. Development tests invoke no real email provider.
+
+## Manual email blocking
+
+Search `@gmail.com` in Contacts to match that exact email domain, use Select All Filtered (or individual checkboxes), then **Block Selected Emails**. Each row also has **Block email**. This blocks only the chosen owner/address pairs; it does not blacklist every future address at that domain or the whole company.
+
+The **Blocked Emails & Companies** tab groups rows under their company. Manual email blocks can be removed individually or in bulk. Whole-company blocking remains separate. Block/unblock never deletes contact/message history; unblock removes only `owner_block` suppression, never recipient opt-outs or confirmed-invalid records. Queued dispatches become suppressed when blocked and are not automatically requeued after unblock. In-flight deliveries cannot be recalled.
+
+Authenticated POST `/api/contacts/block-emails` and `/api/contacts/unblock-emails` accept `contactIds` (1–10000). Ownership is resolved on the server, duplicate addresses collapse, and foreign/missing IDs disclose no contact details. Contact reads expose owner-scoped `emailBlocked`/`emailBlockSource` fields. Existing campaign preview and dispatch gates already consult persistent suppression, so blocked addresses cannot bypass the controls through another contact row or reimport.
