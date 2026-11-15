@@ -30,6 +30,20 @@ const Dashboard = () => {
   const [deletingContact, setDeletingContact] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [deletingBulk, setDeletingBulk] = useState(false);
+  const [blockingEmails, setBlockingEmails] = useState(false);
+  const handleEmailBlocks = async (ids, block = true) => {
+    if (!ids.length || blockingEmails) return;
+    setBlockingEmails(true); setError('');
+    try {
+      const { data } = await api.post(block ? '/contacts/block-emails' : '/contacts/unblock-emails', { contactIds: ids });
+      const response = await api.get('/contacts'); setContacts(response.data);
+      setSelectedIds(new Set());
+      setShareToast(block ? `${data.uniqueEmails} selected email(s) blocked. History preserved.` : `${data.unblocked} email(s) unblocked; ${data.blocked} remain suppressed by other evidence.`);
+      setTimeout(() => setShareToast(''), 6000);
+    } catch (err) { setError(err.response?.data?.error || 'Could not update email blocks. Retry safely.'); }
+    finally { setBlockingEmails(false); }
+  };
+
 
   // Daily limit & switch account states
   const [smtpAccounts, setSmtpAccounts] = useState([]);
@@ -331,12 +345,12 @@ const Dashboard = () => {
   };
 
   // 1. Separate Active (Deliverable) and Invalid contacts
-  const activeContactsList = contacts.filter(c => c.deliverabilityStatus !== 'invalid');
-  const invalidContactsList = contacts.filter(c => c.deliverabilityStatus === 'invalid');
+  const activeContactsList = contacts.filter(c => c.deliverabilityStatus !== 'invalid' || c.emailBlocked);
+  const invalidContactsList = contacts.filter(c => c.deliverabilityStatus === 'invalid' && !c.emailBlocked);
 
   const filteredContacts = activeContactsList.filter(c => {
-    const s = search.toLowerCase();
-    const matchSearch = !search || 
+    const s = search.trim().toLowerCase();
+    const matchSearch = s.startsWith('@') ? (c.email || '').trim().toLowerCase().endsWith(s) : !s ||
       (c.company || '').toLowerCase().includes(s) || 
       (c.hrName || '').toLowerCase().includes(s) || 
       (c.email || '').toLowerCase().includes(s) || 
@@ -412,24 +426,15 @@ const Dashboard = () => {
     return name.split(' ').map(word => word ? word.charAt(0).toUpperCase() + word.slice(1) : '').join(' ');
   };
 
-  const allFilteredSelected = filteredContacts.length > 0 && filteredContacts.filter(c => {
-    const originalComp = capitalizeCompany((c.company || 'Unknown').trim());
-    return !blockedCompanies.some(b => b.toLowerCase() === originalComp.toLowerCase());
-  }).every(c => selectedIds.has(c._id));
-
+  const selectionContacts = filteredContacts.filter(c => {
+    const companyBlocked = blockedCompanies.some(b => b.toLowerCase() === (c.company || 'Unknown').trim().toLowerCase());
+    return activeTab === 'blocked' ? (companyBlocked || c.emailBlocked) : (!companyBlocked && !c.emailBlocked);
+  });
+  const allFilteredSelected = selectionContacts.length > 0 && selectionContacts.every(c => selectedIds.has(c._id));
   const toggleSelectAll = () => {
-    const newSelected = new Set(selectedIds);
-    const unblockedFiltered = filteredContacts.filter(c => {
-      const originalComp = capitalizeCompany((c.company || 'Unknown').trim());
-      return !blockedCompanies.some(b => b.toLowerCase() === originalComp.toLowerCase());
-    });
-
-    if (allFilteredSelected) {
-      unblockedFiltered.forEach(c => newSelected.delete(c._id));
-    } else {
-      unblockedFiltered.forEach(c => newSelected.add(c._id));
-    }
-    setSelectedIds(newSelected);
+    const next = new Set(selectedIds);
+    selectionContacts.forEach(c => allFilteredSelected ? next.delete(c._id) : next.add(c._id));
+    setSelectedIds(next);
   };
 
   const groupedContacts = filteredContacts.reduce((acc, contact) => {
@@ -451,11 +456,10 @@ const Dashboard = () => {
 
   Object.entries(groupedContacts).forEach(([company, companyContacts]) => {
     const isBlocked = blockedCompanies.some(b => b.toLowerCase() === company.toLowerCase());
-    if (isBlocked) {
-      blockedGroupedContacts[company] = companyContacts;
-    } else {
-      activeGroupedContacts[company] = companyContacts;
-    }
+    const blocked = companyContacts.filter(c => isBlocked || c.emailBlocked);
+    const active = companyContacts.filter(c => !isBlocked && !c.emailBlocked);
+    if (blocked.length) blockedGroupedContacts[company] = blocked;
+    if (active.length) activeGroupedContacts[company] = active;
   });
 
   // Filter and group invalid contacts for the dedicated Invalid tab
@@ -983,13 +987,13 @@ const Dashboard = () => {
 
       <div className="flex space-x-4 mb-6 border-b border-zinc-800">
         <button 
-          onClick={() => setActiveTab('active')}
+          onClick={() => { setActiveTab('active'); setSelectedIds(new Set()); }}
           className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'active' ? 'border-yellow-500 text-yellow-500' : 'border-transparent text-zinc-400 hover:text-zinc-200'}`}
         >
-          Active Deliverable Contacts ({activeContactsList.length})
+          Active Contacts ({activeContactsList.filter(c => !c.emailBlocked && !blockedCompanies.some(b => b.toLowerCase() === (c.company || 'Unknown').trim().toLowerCase())).length})
         </button>
         <button 
-          onClick={() => setActiveTab('invalid')}
+          onClick={() => { setActiveTab('invalid'); setSelectedIds(new Set()); }}
           className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors flex items-center ${activeTab === 'invalid' ? 'border-amber-500 text-amber-400' : 'border-transparent text-zinc-400 hover:text-zinc-200'}`}
         >
           <AlertCircle className="w-4 h-4 mr-1.5 text-amber-400" />
@@ -1001,10 +1005,10 @@ const Dashboard = () => {
           )}
         </button>
         <button 
-          onClick={() => setActiveTab('blocked')}
+          onClick={() => { setActiveTab('blocked'); setSelectedIds(new Set()); setSearch(''); setStatusFilter(''); setDaysFilter(''); setCtcFilter('all'); }}
           className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors flex items-center ${activeTab === 'blocked' ? 'border-red-500 text-red-500' : 'border-transparent text-zinc-400 hover:text-zinc-200'}`}
         >
-          Blocked Companies
+          Blocked Emails & Companies
           {Object.keys(blockedGroupedContacts).length > 0 && (
             <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full ${activeTab === 'blocked' ? 'bg-red-500/20' : 'bg-zinc-800'}`}>
               {Object.keys(blockedGroupedContacts).length}
@@ -1013,16 +1017,17 @@ const Dashboard = () => {
         </button>
       </div>
 
-      {activeTab === 'active' && (
+      {activeTab !== 'invalid' && (
       <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 mb-8 p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3 flex-1">
           <div className="relative flex-1 min-w-[240px] sm:min-w-[280px] max-w-md" style={{ minWidth: '220px' }}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
             <input 
               type="text" 
-              placeholder="Search companies, emails, roles..."
+              aria-label="Search contacts"
+              placeholder="Search company, email or @gmail.com"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setSelectedIds(new Set()); }}
               className="w-full pl-9 pr-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-sm text-zinc-200 placeholder:text-zinc-500"
             />
           </div>
@@ -1099,7 +1104,7 @@ const Dashboard = () => {
             />
             <span>Select All Filtered</span>
           </label>
-          <button
+          {activeTab === 'active' && <button
             onClick={() => {
               setComposeData({ ids: Array.from(selectedIds), jobLink: '', role: '' });
               setShowCompose(true);
@@ -1109,7 +1114,7 @@ const Dashboard = () => {
           >
             <Mail className="w-4 h-4 mr-1.5" />
             Send ({selectedIds.size})
-          </button>
+          </button>}
         </div>
       </div>
       )}
@@ -1125,6 +1130,10 @@ const Dashboard = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => handleEmailBlocks(Array.from(selectedIds), activeTab !== 'blocked')} disabled={blockingEmails}
+              className="px-3 py-1.5 rounded-lg bg-red-950 text-red-300 border border-red-700 text-xs font-bold disabled:opacity-50">
+              {blockingEmails ? 'Updating blocks...' : activeTab === 'blocked' ? `Unblock Selected Emails (${selectedIds.size})` : `Block Selected Emails (${selectedIds.size})`}
+            </button>
             <button
               onClick={() => downloadTxt(true, false)}
               className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-zinc-950 rounded-lg text-xs font-black transition flex items-center gap-1.5 shadow-md cursor-pointer"
@@ -1183,6 +1192,7 @@ const Dashboard = () => {
         <div className="space-y-6">
           {Object.entries(activeTab === 'active' ? activeGroupedContacts : blockedGroupedContacts).map(([company, companyContacts]) => {
             const isBlocked = activeTab === 'blocked';
+            const companyWideBlocked = blockedCompanies.some(b => b.toLowerCase() === company.toLowerCase());
             
             return (
             <div key={company} className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden shadow-sm">
@@ -1203,10 +1213,11 @@ const Dashboard = () => {
                   </span>
                   
                   <button
-                    onClick={() => isBlocked ? handleUnblockCompany(company) : setCompanyToBlock(company)}
+                    disabled={blockingEmails || (isBlocked && !companyWideBlocked && !companyContacts.some(c => c.emailBlockSource === 'owner_block'))}
+                    onClick={() => isBlocked ? (companyWideBlocked ? handleUnblockCompany(company) : handleEmailBlocks(companyContacts.filter(c => c.emailBlockSource === 'owner_block').map(c => c._id), false)) : setCompanyToBlock(company)}
                     className={`ml-2 text-xs font-bold px-3 py-1.5 rounded transition-colors ${isBlocked ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
                   >
-                    {isBlocked ? 'Unblock All' : 'Block'}
+                    {isBlocked ? (companyWideBlocked ? 'Unblock company' : 'Unblock email blocks') : 'Block company'}
                   </button>
                 </div>
                 
@@ -1273,6 +1284,7 @@ const Dashboard = () => {
                         <td className="p-3 pl-4 w-12 text-center">
                           <input 
                             type="checkbox" 
+                            aria-label={`Select ${contact.email}`}
                             checked={selectedIds.has(contact._id)}
                             onChange={() => toggleSelect(contact._id)}
                             className="rounded border-zinc-700 bg-zinc-800 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-zinc-900"
@@ -1305,6 +1317,13 @@ const Dashboard = () => {
                         </td>
                         <td className="p-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            <button aria-label={`${contact.emailBlocked ? 'Unblock' : 'Block'} ${contact.email}`}
+                              onClick={() => handleEmailBlocks([contact._id], !contact.emailBlocked)}
+                              disabled={blockingEmails || (contact.emailBlocked && contact.emailBlockSource !== 'owner_block')}
+                              className="px-2 py-1 rounded bg-red-950/50 text-red-300 text-xs font-bold disabled:opacity-50"
+                              title={contact.emailBlocked && contact.emailBlockSource !== 'owner_block' ? 'Opt-out or confirmed-invalid suppression cannot be removed here' : 'Block or unblock this email only'}>
+                              {contact.emailBlocked ? (contact.emailBlockSource === 'owner_block' ? 'Unblock email' : 'Suppressed') : 'Block email'}
+                            </button>
                             <button
                               onClick={() => handleMarkReplied(contact._id)}
                               className={`p-1.5 rounded-md text-xs font-bold transition ${

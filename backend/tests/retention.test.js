@@ -542,7 +542,7 @@ test('legacy records: handles blank/missing recipientEmail and absent providerMe
 
 test('quota deduplication: delivery present in both MailLog and DeliveryLedger counted exactly once', async () => {
   const contact = await Contact.create({ userId: userA._id, company: 'Acme', email: 'quota-test@acme.com' });
-  const todaySentAt = new Date('2026-11-14T08:00:00Z');
+  const todaySentAt = new Date(); // Quota is evaluated against the current UTC day.
 
   const log = await MailLog.create({
     userId: userA._id,

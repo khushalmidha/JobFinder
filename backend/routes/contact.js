@@ -6,6 +6,8 @@ const auth = require('../middleware/auth');
 router.get('/', auth, contactController.getContacts);
 router.get('/companies', auth, contactController.getCompanies);
 router.post('/bulk', auth, contactController.bulkCreate);
+router.post('/block-emails', auth, require('./recipientBlocks').block);
+router.post('/unblock-emails', auth, require('./recipientBlocks').unblock);
 router.patch('/:id', auth, contactController.updateContact);
 router.delete('/:id', auth, contactController.deleteContact);
 

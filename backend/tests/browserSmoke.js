@@ -28,6 +28,7 @@ async function main() {
     }));
     app.use('/api/auth',require('../routes/auth'));
     app.use('/api/campaigns',require('../routes/campaigns'));app.use('/api/company-imports',require('../routes/companyImport'));
+    app.use('/api/contacts',require('../routes/contact'));app.use('/api/mail',require('../routes/mail'));
     app.use('/api/crm',require('../routes/crm'));app.use('/api/contact-intake',require('../routes/contactIntake'));
     await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime'].map(m=>require(`../models/${m}`).init()));
     app.all('/submitted',(_req,res)=>{submissions++;res.send('Unexpected submission');});
@@ -186,6 +187,36 @@ async function main() {
     await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     assert.equal(simulatedSends,1);process.env.CONTACT_ADMISSION_ENABLED='false';
     console.log('PASS: Email Checks actual browser quarantine/recheck/explicit-credit gate/no-key failure/synthetic proof promotion/mobile; paid calls=0, real mail=0');
+    await Contact.create([
+      {userId:owner,company:'Synthetic Block Alpha',email:'first@gmail.com'},
+      {userId:owner,company:'Synthetic Block Beta',email:'second@gmail.com'},
+      {userId:owner,company:'Synthetic Block Alpha',email:'third@gmail.com.example'}
+    ]);
+    await page.setViewportSize({width:1440,height:1100});await page.goto(base+'/');
+    await page.getByLabel('Search contacts',{exact:true}).fill('@gmail.com');
+    await page.getByLabel('Select first@gmail.com',{exact:true}).waitFor();
+    assert.equal(await page.getByLabel('Select third@gmail.com.example',{exact:true}).count(),0);
+    await page.getByText('Select All Filtered',{exact:true}).click();
+    await page.getByRole('button',{name:'Block Selected Emails (2)',exact:true}).click();
+    await page.getByText('2 selected email(s) blocked. History preserved.',{exact:true}).waitFor();
+    await page.getByRole('button',{name:/Blocked Emails & Companies/}).click();
+    await page.getByRole('heading',{name:'Synthetic Block Alpha',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Synthetic Block Beta',exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Unblock first@gmail.com',exact:true}).count(),1);
+    await page.reload();await page.getByRole('button',{name:/Blocked Emails & Companies/}).click();
+    await page.getByRole('button',{name:'Unblock first@gmail.com',exact:true}).click();
+    await page.getByText('1 email(s) unblocked; 0 remain suppressed by other evidence.',{exact:true}).waitFor();
+    await page.getByRole('button',{name:/^Active Contacts/}).click();
+    await page.getByRole('button',{name:'Block first@gmail.com',exact:true}).click();
+    await page.getByText('1 selected email(s) blocked. History preserved.',{exact:true}).waitFor();
+    await page.getByRole('button',{name:/Blocked Emails & Companies/}).click();
+    await page.getByLabel('Search contacts',{exact:true}).fill('@gmail.com');await page.getByText('Select All Filtered',{exact:true}).click();
+    await page.getByRole('button',{name:'Unblock Selected Emails (2)',exact:true}).click();
+    await page.getByText('2 email(s) unblocked; 0 remain suppressed by other evidence.',{exact:true}).waitFor();
+    const Suppression=require('../models/RecipientSuppression');assert.equal(await Suppression.countDocuments({userId:owner,source:'owner_block'}),0);
+    assert.equal(await Suppression.countDocuments({userId:owner,source:'owner_opt_out'}),1);assert.equal(simulatedSends,1);
+    console.log('PASS: actual dashboard domain-suffix selection, bulk block, company grouping, persistent reload, individual unblock/reblock and bulk unblock; opt-out protected; real mail=0');
+
 
   } catch(error) {
     if(page){await page.screenshot({path:path.join(screenshots,'browser-failure.png'),fullPage:true}).catch(()=>{});console.error('Synthetic failing page:',await page.locator('body').innerText().catch(()=>''));}
