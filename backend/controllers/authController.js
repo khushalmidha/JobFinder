@@ -78,7 +78,7 @@ exports.getSettings = async (req, res) => {
       await user.save();
     }
 
-    res.json(user);
+    res.json({...user.toObject(),blockedCompanies:require('../services/companyIdentityService').canonicalBlocks(user.blockedCompanies)});
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -197,36 +197,27 @@ exports.convertTemplate = async (req, res) => {
   }
 };
 
-exports.blockCompany = async (req, res) => {
+// A company label is an identity key, not a case-sensitive display string.
+exports.blockCompany = async (req,res) => {
   try {
-    const { company } = req.body;
-    if (!company) return res.status(400).json({ error: 'Company name required' });
-    
-    const user = await User.findById(req.user._id);
-    if (!user.blockedCompanies.includes(company)) {
-      user.blockedCompanies.push(company);
-      await user.save();
-    }
-    
-    res.json({ message: 'Company blocked successfully', blockedCompanies: user.blockedCompanies });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    const {canonicalCompany,canonicalBlocks}=require('../services/companyIdentityService');
+    if(typeof req.body.company!=='string'||!req.body.company.trim()||req.body.company.length>300)return res.status(400).json({error:'Company name required (maximum 300 characters)'});
+    const company=canonicalCompany(req.body.company);
+    await User.updateOne({_id:req.user._id},{$addToSet:{blockedCompanies:company}});
+    const user=await User.findById(req.user._id).select('blockedCompanies');
+    res.json({message:'Company blocked successfully',blockedCompanies:canonicalBlocks(user.blockedCompanies)});
+  }catch(error){res.status(500).json({error:error.message});}
 };
-
-exports.unblockCompany = async (req, res) => {
+exports.unblockCompany = async (req,res) => {
   try {
-    const { company } = req.body;
-    if (!company) return res.status(400).json({ error: 'Company name required' });
-    
-    const user = await User.findById(req.user._id);
-    user.blockedCompanies = user.blockedCompanies.filter(c => c !== company);
-    await user.save();
-    
-    res.json({ message: 'Company unblocked successfully', blockedCompanies: user.blockedCompanies });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    const {companyKey,canonicalBlocks}=require('../services/companyIdentityService');
+    if(typeof req.body.company!=='string'||!req.body.company.trim()||req.body.company.length>300)return res.status(400).json({error:'Company name required (maximum 300 characters)'});
+    const user=await User.findById(req.user._id).select('blockedCompanies');
+    const aliases=(user.blockedCompanies||[]).filter(value=>companyKey(value)===companyKey(req.body.company));
+    if(aliases.length)await User.updateOne({_id:req.user._id},{$pull:{blockedCompanies:{$in:aliases}}});
+    const refreshed=await User.findById(req.user._id).select('blockedCompanies');
+    res.json({message:'Company unblocked successfully. Individual email blocks remain separate.',blockedCompanies:canonicalBlocks(refreshed.blockedCompanies)});
+  }catch(error){res.status(500).json({error:error.message});}
 };
 
 exports.getAvailableSyncAccounts = async (req, res) => {

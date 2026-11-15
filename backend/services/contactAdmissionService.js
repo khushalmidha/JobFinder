@@ -5,11 +5,12 @@ const Suppression = require('../models/RecipientSuppression');
 const { syntaxDisposition, resolveAuditDomain } = require('./smtpConnectivityService');
 const normalize = value => String(value || '').trim().toLowerCase();
 const enabled = () => process.env.CONTACT_ADMISSION_ENABLED === 'true';
-const fields = ['company','hrName','email','role','package','linkedinUrl','source','companyId','provenance','inferenceFlag'];
+const fields = ['company','companyOriginalName','hrName','email','role','package','linkedinUrl','source','companyId','provenance','inferenceFlag'];
 function cleanPayload(input) {
   const out = {};
   for (const key of fields) if (input[key] !== undefined) out[key] = input[key];
-  out.email = normalize(input.email); out.company = String(input.company || 'Unknown').slice(0,300);
+  if(input.company && require('./companyIdentityService').canonicalCompany(input.company)!==input.company)out.companyOriginalName=input.company;
+  out.email = normalize(input.email); out.company = require('./companyIdentityService').canonicalCompany(input.company || 'Unknown').slice(0,300);
   return out;
 }
 async function latestProof(userId,email) {

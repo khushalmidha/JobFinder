@@ -11,7 +11,7 @@ const proof=async(userId,email,outcome='valid',expiresAt=new Date(Date.now()+864
 before(async()=>{
   process.env.JWT_SECRET='contact-validity-fixture';process.env.OUTREACH_SENDING_ENABLED='false';process.env.OUTREACH_WORKER_ENABLED='false';
   mongo=await MongoMemoryServer.create();await mongoose.connect(mongo.getUri());await Promise.all([User,Contact,Candidate,Proof,Suppression,Dispatch,MailLog].map(M=>M.init()));
-  const app=express();app.use(express.json({limit:'1mb'}));app.use('/contacts',require('../routes/contact'));app.use('/intake',require('../routes/contactIntake'));
+  const app=express();app.use(express.json({limit:'1mb'}));app.use('/contacts',require('../routes/contact'));app.use('/intake',require('../routes/contactIntake'));app.use('/auth',require('../routes/auth'));
   await new Promise(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});base=`http://127.0.0.1:${server.address().port}`;
 },{timeout:300000});
 beforeEach(async()=>{
@@ -148,4 +148,25 @@ test('blocking holds queued delivery without changing in-flight or unknown outco
 test('email block input is bounded and malformed selections fail without writes',async()=>{
   for(const contactIds of [[],['invalid'],new Array(10001).fill(String(new mongoose.Types.ObjectId()))])assert.equal((await request('/contacts/block-emails','POST',{contactIds})).status,400);
   assert.equal(await Suppression.countDocuments(),0);
+});
+
+
+test('reviewed company aliases normalize model writes and intake without merging unrelated Atlas or Fresh Gravity',async()=>{
+  const {canonicalCompany}=require('../services/companyIdentityService');
+  for(const value of ['Graviton','Gravitontrading','Graviton Traiding'])assert.equal(canonicalCompany(value),'Graviton Research Capital');
+  for(const value of ['Samsung Bangalore','Samsung Noida/Delhi','Samasung','Sumsung Delhi NCR'])assert.equal(canonicalCompany(value),'Samsung');
+  assert.equal(canonicalCompany('Fresh Gravity'),'Fresh Gravity');assert.equal(canonicalCompany('Atlas'),'Atlas');
+  const contact=await legacy({company:'Gravitontrading',notes:'Keep history'});assert.equal(contact.company,'Graviton Research Capital');
+  await Contact.updateOne({_id:contact._id},{$set:{company:'Sumsung Delhi NCR'}});assert.equal((await Contact.findById(contact._id)).company,'Samsung');
+  await admission.intake(owner._id,[{...record('new@fixture.example'),company:'Samsung Bangalore'}]);assert.equal((await Candidate.findOne({email:'new@fixture.example'})).company,'Samsung');
+});
+
+test('mixed-case and alias company unblock removes the actual stored keys but preserves address suppression and other owners',async()=>{
+  await User.updateOne({_id:owner._id},{$set:{blockedCompanies:['ATLASSIAN',' atlassian ','Gravitontrading','Builder.ai']}});
+  await User.updateOne({_id:other._id},{$set:{blockedCompanies:['ATLASSIAN']}});
+  await Suppression.create({userId:owner._id,email:record().email,source:'owner_opt_out',reason:'Opt-out remains protected'});
+  const response=await request('/auth/unblock-company','POST',{company:'Atlassian'});assert.equal(response.status,200);assert.deepEqual((await response.json()).blockedCompanies,['Graviton Research Capital','Builder.ai']);
+  assert.deepEqual((await User.findById(other._id)).blockedCompanies.toObject(),['ATLASSIAN']);assert.equal(await Suppression.countDocuments(),1);
+  await request('/auth/unblock-company','POST',{company:'Graviton Research Capital'});assert.deepEqual((await User.findById(owner._id)).blockedCompanies.toObject(),['Builder.ai']);
+  assert.equal((await request('/auth/unblock-company','POST',{company:{invalid:true}})).status,400);
 });

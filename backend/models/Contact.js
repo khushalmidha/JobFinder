@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const contactSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   company: { type: String, required: true },
+  companyOriginalName: String,
   hrName: { type: String, default: '' },
   email: { type: String, required: true },
   package: { type: String, default: '' },
@@ -58,6 +59,9 @@ contactSchema.index({ email: 1 });
 // A server-controlled guard covers every Mongoose writer, including older
 // import/scout paths. A client-supplied "valid" flag is never mailbox proof.
 async function enforceDocument() {
+  const originalCompany=this.company;
+  this.company=require('../services/companyIdentityService').canonicalCompany(this.company);
+  if(originalCompany!==this.company&&!this.companyOriginalName)this.companyOriginalName=originalCompany;
   if (this.isNew || this.isModified('email') || (this.isModified('deliverabilityStatus') && this.deliverabilityStatus === 'valid') || (this.isModified('verificationStatus') && this.verificationStatus === 'vendor_verified')) {
     await require('../services/contactAdmissionService').assertAdmission(this);
   }
@@ -65,11 +69,13 @@ async function enforceDocument() {
 contactSchema.pre('validate', enforceDocument);
 contactSchema.pre('save', enforceDocument);
 contactSchema.pre('insertMany', async function(docs) {
+  for(const doc of docs){const original=doc.company;doc.company=require('../services/companyIdentityService').canonicalCompany(original);if(original!==doc.company&&!doc.companyOriginalName)doc.companyOriginalName=original;}
   if (docs.length > 1000 && require('../services/contactAdmissionService').enabled()) throw new Error('Contact insertion batch exceeds1000');
   const results = await Promise.allSettled(docs.map(doc => require('../services/contactAdmissionService').assertAdmission(doc)));
   const failure = results.find(r => r.status === 'rejected'); if (failure) throw failure.reason;
 });
 async function guardUpdate(model, filter, update, options = {}) {
+  require('../services/companyIdentityService').normalizeUpdate(update);
   const admission = require('../services/contactAdmissionService'); if (!admission.enabled()) return;
   if (Array.isArray(update)) throw new Error('Use verified contact intake for pipeline updates');
   const changes = {...update,...update?.$set,...update?.$setOnInsert};
@@ -86,6 +92,7 @@ for (const operation of ['updateOne','updateMany','findOneAndUpdate','replaceOne
 });
 contactSchema.pre('bulkWrite', async function(ops) {
   for (const op of ops) {
+    if (op.insertOne) require('../services/companyIdentityService').normalizeUpdate(op.insertOne.document);
     if (op.insertOne) await require('../services/contactAdmissionService').assertAdmission(op.insertOne.document);
     for (const name of ['updateOne','updateMany','replaceOne']) if (op[name]) await guardUpdate(this,op[name].filter,op[name].update || op[name].replacement,{upsert:op[name].upsert,multi:name==='updateMany',replacement:name==='replaceOne'});
   }

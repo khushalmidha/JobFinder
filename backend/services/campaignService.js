@@ -35,7 +35,7 @@ async function recipientReason(user,contact,row,now=new Date(),dispatchId) {
   if(require('./contactAdmissionService').enabled() && !await require('./contactAdmissionService').validProof(user._id,contact.email))return 'Fresh trusted mailbox verification required';
   const blocked=contactBlockReason(contact);if(blocked)return blocked;
   if(!['publicly_sourced','vendor_verified'].includes(contact.verificationStatus))return 'Individual recruiting contact requires public or provider evidence';
-  if((user.blockedCompanies||[]).some(c=>c.toLowerCase()===contact.company.toLowerCase()))return 'Company is on your do-not-contact list';
+  if((user.blockedCompanies||[]).some(c=>require('./companyIdentityService').companyKey(c)===require('./companyIdentityService').companyKey(contact.company)))return 'Company is on your do-not-contact list';
   // Duplicate contact rows cannot bypass an existing suppression for this owner.
   const same=await Contact.find({userId:user._id,email:{$regex:`^${normalizeEmail(contact.email).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,$options:'i'}}).lean();
   if(same.some(c=>c.optOutAt||c.suppressedAt||c.deliverabilityStatus==='invalid'||['bounced','removed','replied','reply_received','positive_response','negative_response'].includes(c.status)))return 'Recipient suppressed or replied in another contact record';
