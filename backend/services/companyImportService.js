@@ -10,8 +10,11 @@ const User = require('../models/User');
 const { fetchPublicPage, robotsAllows } = require('./safePublicFetch');
 const { extractEmails, normalizeDomain } = require('./publicEmailDiscovery');
 
-const sourcePath = path.resolve(__dirname, '../../docs/handoff/20261107/company_research_staging_733.json');
-const suppliedSource = () => JSON.parse(fs.readFileSync(sourcePath, 'utf8').replace(/^\uFEFF/, ''));
+const sourcePath = path.resolve(__dirname, '../data/company_research_staging_733.json');
+const suppliedSource = () => {
+  try { return JSON.parse(fs.readFileSync(sourcePath, 'utf8').replace(/^\uFEFF/, '')); }
+  catch (error) { if(error.code==='ENOENT')throw Object.assign(new Error('Company source data is unavailable. Ask an administrator to restore the packaged dataset.'),{status:503});throw error; }
+};
 const canonicalName = value => String(value || '').normalize('NFKC').trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ');
 function canonical(value) {
   const raw = JSON.parse(JSON.stringify(value));

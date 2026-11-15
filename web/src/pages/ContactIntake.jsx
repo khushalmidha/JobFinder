@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
-export default function ContactIntake() {
+export default function ContactIntake({ embedded = false }) {
+  const Container = embedded ? 'section' : 'main';
+  const Heading = embedded ? 'h2' : 'h1';
   const [rows,setRows]=useState([]),[page,setPage]=useState(1),[total,setTotal]=useState(0),[error,setError]=useState(''),[busy,setBusy]=useState(false),[approved,setApproved]=useState({}),[message,setMessage]=useState('');
   async function load(number=page){const {data}=await api.get('/contact-intake',{params:{page:number}});setRows(data.rows);setTotal(data.total);setPage(number);}
   useEffect(()=>{load(1).catch(e=>setError(e.response?.data?.error||e.message));},[]);
   async function navigate(number){setBusy(true);setError('');try{await load(number);}catch(e){setError(e.response?.data?.error||e.message);}finally{setBusy(false);}}
   async function run(fn){setBusy(true);setError('');setMessage('');try{const {data}=await fn();setMessage(`Added ${data.added||0}; updated ${data.updated||0}; pending ${data.staged||0}; rejected ${data.rejected||0}.`);setApproved({});await load();}catch(e){setError(e.response?.data?.error||e.message);}finally{setBusy(false);}}
-  return <main className="p-4 md:p-8 space-y-5 max-w-5xl mx-auto">
-    <h1 className="text-2xl text-zinc-100 font-bold">Email verification queue</h1>
+  return <Container className="p-4 md:p-8 space-y-5 max-w-5xl mx-auto">
+    <Heading className="text-2xl text-zinc-100 font-bold">Email verification queue</Heading>
     <p>New addresses stay here until a fresh trusted verifier result is available. A public listing, MX record or SMTP connection does not prove an individual mailbox exists. Existing contacts also need a current proof before sending.</p>
     <p>Domain checks are free. Hunter verification reserves one credit only after your explicit approval and configured Research credit budget. No paid verification runs automatically. Provider verification is an assertion at a point in time, not a delivery guarantee.</p>
     {error&&<p role="alert" className="text-red-300">{error}</p>}{message&&<p role="status" className="text-green-300">{message}</p>}
@@ -22,5 +24,5 @@ export default function ContactIntake() {
     </article>)}
     {!rows.length&&<p>No candidates in this page.</p>}
     <div className="flex gap-3 items-center"><button disabled={busy||page<=1} onClick={()=>navigate(page-1)}>Previous</button><span>Page {page}</span><button disabled={busy||page*50>=total} onClick={()=>navigate(page+1)}>Next</button></div>
-  </main>;
+  </Container>;
 }

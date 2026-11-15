@@ -5,7 +5,9 @@ import api from '../services/api';
 const inputStyle = 'w-full p-2 rounded bg-zinc-950 border border-zinc-700 text-zinc-100';
 const buttonStyle = 'px-3 py-2 rounded border border-zinc-600 hover:bg-zinc-800 disabled:opacity-40';
 const safeLink = url => { try { const u = new URL(url); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : undefined; } catch { return undefined; } };
-export default function OutreachCRM() {
+export default function OutreachCRM({ embedded = false }) {
+  const Container = embedded ? 'section' : 'main';
+  const Heading = embedded ? 'h2' : 'h1';
   const [data, setData] = useState({ reminders: [], graph: [] });
   const [contacts, setContacts] = useState([]);
   const [query, setQuery] = useState('');
@@ -43,8 +45,8 @@ export default function OutreachCRM() {
     });
   };
   const close = (row, status) => run(async () => { await api.patch(`/crm/reminders/${row._id}`, { status, revision: row.revision }); setDraft(null); });
-  return <main className="p-4 md:p-8 max-w-6xl mx-auto space-y-7">
-    <h1 className="text-2xl font-bold text-zinc-100">Outreach CRM</h1>
+  return <Container className="p-4 md:p-8 max-w-6xl mx-auto space-y-7">
+    <Heading className="text-2xl font-bold text-zinc-100">Outreach CRM</Heading>
     <p>Plan follow-ups and review linked hiring evidence. Reminders do not send emails. Sending requires a separate exact campaign preview and approval in <Link className="text-yellow-400 underline" to="/campaigns">Scheduled Campaigns</Link>.</p>
     {error && <p role="alert" className="text-red-300">{error}</p>}
     {message && <p role="status" className="text-green-300">{message}</p>}
@@ -86,5 +88,5 @@ export default function OutreachCRM() {
         {node.publicLeads.map(l => <p key={l._id || l.email}>Public inbox: {l.email} · mailbox existence unconfirmed · <a className="text-yellow-400 underline" href={safeLink(l.evidenceUrl)} target="_blank" rel="noreferrer">Employer source</a></p>)}
       </article>)}
     </section>
-  </main>;
+  </Container>;
 }

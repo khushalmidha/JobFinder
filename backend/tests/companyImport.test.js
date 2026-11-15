@@ -153,3 +153,9 @@ test('reviewed Zeta incremental evidence is bound to its employer and does not m
   const wrong=await service.checkPublicLead(source.companies[0].recruitmentEmail,{companyName:'Zeta Tech',fetchPage});assert.equal(wrong.listingStatus,'source_claim_unchecked');
   assert.equal(await Company.countDocuments(),1);assert.equal(await Prospect.countDocuments(),1);assert.equal((await Prospect.findOne()).companyName,'Zeta');
 });
+
+
+test('the unchanged 733-row source is included inside the backend Docker build context',()=>{
+  const fs=require('node:fs'),path=require('node:path');const sourceFile=path.resolve(__dirname,'../data/company_research_staging_733.json');assert.ok(fs.existsSync(sourceFile));
+  const source=service.suppliedSource();assert.deepEqual(source,JSON.parse(fs.readFileSync(sourceFile,'utf8')));const summary=service.sourceSummary();assert.equal(summary.sourceRows,733);assert.equal(summary.indiaRows,519);assert.equal(summary.overseasRows,214);assert.equal(summary.verifiedFixedBaseOffersFromImport,0);
+});
