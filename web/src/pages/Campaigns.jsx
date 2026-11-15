@@ -34,7 +34,9 @@ function ReconciliationForm({ dispatch, busy, reconcile }) {
   </form>;
 }
 
-export default function Campaigns() {
+export default function Campaigns({ embedded = false }) {
+  const Container = embedded ? 'section' : 'main';
+  const Heading = embedded ? 'h2' : 'h1';
   const [options, setOptions] = useState({ senders: [], contacts: [], sendingEnabled: false, workerEnabled: false });
   const [draft, setDraft] = useState(emptyDraft);
   const [campaigns, setCampaigns] = useState([]);
@@ -166,8 +168,8 @@ export default function Campaigns() {
   const heartbeat = options.runtime?.lastPollAt;
   const staleHeartbeat = options.workerEnabled && (!heartbeat || Date.now() - new Date(heartbeat).getTime() > 120000);
 
-  return <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
-    <header><h1 className="text-3xl font-bold text-white">Outreach Queue</h1><p className="mt-2 text-zinc-400">Create immediate or scheduled outreach from Contacts → Send. Manage approved queues, pauses and delivery status here.</p><a href="/" className="inline-block mt-3 text-yellow-400 underline">Compose outreach from contacts</a></header>
+  return <Container className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
+    <header><Heading className="text-3xl font-bold text-white">Outreach Queue</Heading><p className="mt-2 text-zinc-400">Create immediate or scheduled outreach from Contacts → Send. Manage approved queues, pauses and delivery status here.</p><a href="/" className="inline-block mt-3 text-yellow-400 underline">Compose outreach from contacts</a></header>
     <div className="rounded border border-zinc-700 p-4 text-sm space-y-1">
       <p>Real sending: <strong>{options.sendingEnabled ? 'enabled' : 'disabled'}</strong> · Backend worker: <strong>{options.workerEnabled ? 'enabled' : 'disabled'}</strong></p>
       {staleHeartbeat && <p role="alert" className="text-amber-200">The worker has no recent heartbeat. Scheduled dispatch may be delayed; check backend availability and refresh status.</p>}
@@ -214,5 +216,5 @@ export default function Campaigns() {
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }
     }}><div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="approve-campaign-title" className="rounded border border-yellow-700 bg-zinc-900 p-6 max-w-xl space-y-4"><h2 id="approve-campaign-title" className="text-xl font-semibold">Approve this exact campaign?</h2><p>{previewRows.length} messages from {approvedSenderName ? `${approvedSenderName} <${approvedSenderEmail}>` : approvedSenderEmail}, starting {draft.localDateTime} {draft.timezone} ({startAt ? new Date(startAt).toISOString() : ''} UTC).</p><p>Approval freezes these recipients, messages, sender, schedule and limits. The sending feature must be separately configured; this action will not enable it.</p><label className="block"><input type="checkbox" checked={approvalChecked} onChange={event => setApprovalChecked(event.target.checked)} /> I reviewed each exact recipient, subject and body and approve this scheduled campaign.</label><div className="flex gap-3"><button type="button" className={button} disabled={busy} onClick={() => setConfirming(false)}>Back to review</button><button type="button" className="rounded bg-yellow-500 text-black font-semibold px-3 py-2 disabled:opacity-40" disabled={busy || !approvalChecked} onClick={() => run(approve)}>Confirm approval & schedule</button></div></div></div>}
-  </main>;
+  </Container>;
 }

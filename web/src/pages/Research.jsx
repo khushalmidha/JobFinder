@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 
-export default function Research() {
+export default function Research({ embedded = false }) {
+  const Container = embedded ? 'section' : 'main';
+  const Heading = embedded ? 'h2' : 'h1';
   const [status, setStatus] = useState('qualified');
   const [data, setData] = useState({ companies: [], counts: {} });
   const [detail, setDetail] = useState(null);
@@ -82,8 +84,8 @@ export default function Research() {
   }
 
   const field = 'w-full bg-zinc-900 border border-zinc-700 rounded p-3';
-  return <main className="p-8 space-y-6 max-w-6xl mx-auto">
-    <div><h1 className="text-3xl font-bold text-white">Recruitment research</h1><p className="text-zinc-400 mt-2">Source-backed fixed base above ₹15 LPA → relevant opening → professional contact → reviewed draft.</p></div>
+  return <Container className="p-8 space-y-6 max-w-6xl mx-auto">
+    <div><Heading className="text-3xl font-bold text-white">Recruitment research</Heading><p className="text-zinc-400 mt-2">Source-backed fixed base above ₹15 LPA → relevant opening → professional contact → reviewed draft.</p></div>
     <div className="flex flex-wrap gap-3">{Object.entries(data.counts).map(([key,count]) => <span key={key} className="rounded border border-zinc-700 px-3 py-2">{key.replaceAll('_',' ')}: {count}</span>)}</div>
     {budget && <section className="p-4 border border-zinc-700 rounded space-y-2">
       <p>Research {budget.globalStop || budget.policy.stopped ? 'stopped' : 'available on demand'} · Paid providers {budget.policy.paidProvidersEnabled ? 'enabled' : 'off'} · Credit cap: {budget.policy.monthlyCredits} / month · Requests: {budget.policy.dailyRequests} / day</p>
@@ -192,5 +194,5 @@ export default function Research() {
     {draft && <section className="space-y-3 border border-zinc-700 rounded p-5"><h2 className="text-xl">Review draft</h2><p>Recipient: {draft.recipient} · {draft.status}</p><input aria-label="Draft subject" className={field} value={draft.subject} onChange={e => setDraft({ ...draft, subject: e.target.value, status: 'draft' })} /><textarea aria-label="Draft body" rows={12} className={field} value={draft.body} onChange={e => setDraft({ ...draft, body: e.target.value, status: 'draft' })} /><button type="button" className="p-3 border rounded" disabled={busy} onClick={() => run(saveDraft)}>Save reviewed draft</button><p>Reviewing saves a draft. No email is sent.</p></section>}
     {drafts.length > 0 && <details><summary>Saved drafts ({drafts.length})</summary>{drafts.map(d => <button type="button" key={d._id} className="block p-2 text-left" onClick={() => setDraft(d)}>{d.recipient} · {d.subject} · {d.status}</button>)}</details>}
     {message && <p role="status" className="p-4 border border-yellow-700 rounded">{message}</p>}
-  </main>;
+  </Container>;
 }

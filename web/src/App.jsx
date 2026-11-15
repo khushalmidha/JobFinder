@@ -1,17 +1,10 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Dashboard from './pages/Dashboard';
 import Import from './pages/Import';
-import JobHunter from './pages/JobHunter';
-import Research from './pages/Research';
-import Companies from './pages/Companies';
-import Campaigns from './pages/Campaigns';
-import ContactIntake from './pages/ContactIntake';
-import OutreachCRM from './pages/OutreachCRM';
 import Settings from './pages/Settings';
-import Logs from './pages/Logs';
 import Login from './pages/Login';
 import Layout from './components/Layout';
+import { Workspace, LegacyWorkspaceLink } from './pages/Workspaces';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
@@ -22,15 +15,15 @@ function App() {
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <Login onLogin={() => setIsAuthenticated(true)} />} />
         
         <Route path="/" element={isAuthenticated ? <Layout onLogout={() => setIsAuthenticated(false)} /> : <Navigate to="/login" />}>
-          <Route index element={<Dashboard />} />
-          <Route path="jobs" element={<JobHunter />} />
-          <Route path="research" element={<Research />} />
-          <Route path="companies" element={<Companies />} />
-          <Route path="campaigns" element={<Campaigns />} />
-          <Route path="email-checks" element={<ContactIntake />} />
-          <Route path="crm" element={<OutreachCRM />} />
+          <Route index element={<Workspace area="contacts" />} />
+          <Route path="jobs" element={<Workspace area="hiring" />} />
+          <Route path="research" element={<LegacyWorkspaceLink path="/jobs" section="research" />} />
+          <Route path="companies" element={<LegacyWorkspaceLink path="/jobs" section="companies" />} />
+          <Route path="campaigns" element={<LegacyWorkspaceLink path="/logs" section="campaigns" />} />
+          <Route path="email-checks" element={<LegacyWorkspaceLink path="/" section="email-checks" />} />
+          <Route path="crm" element={<LegacyWorkspaceLink path="/" section="crm" />} />
           <Route path="import" element={<Import />} />
-          <Route path="logs" element={<Logs />} />
+          <Route path="logs" element={<Workspace area="mail" />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
