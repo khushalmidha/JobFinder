@@ -17,7 +17,7 @@ const Layout = ({ onLogout }) => {
     { path: '/jobs', label: 'Job Hunter & HR Sheet', icon: Briefcase },
     { path: '/research', label: 'Recruitment Research', icon: Users },
     { path: '/companies', label: 'Company Directory', icon: Briefcase },
-    { path: '/campaigns', label: 'Scheduled Campaigns', icon: Send },
+    { path: '/campaigns', label: 'Outreach Queue', icon: Send },
     { path: '/crm', label: 'Outreach CRM', icon: Users },
     { path: '/email-checks', label: 'Email Checks', icon: Users },
     { path: '/import', label: 'Import Contacts', icon: Users },

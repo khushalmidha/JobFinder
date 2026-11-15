@@ -609,3 +609,38 @@ test('dashboard resume: counts only successful CAS writes and derives isPaused c
   assert.equal(raceResume.data.resumed, 0, 'No campaigns resumed due to CAS revision/state mismatch');
   assert.equal(raceResume.data.isPaused, true, 'isPaused remains true because camp2 is still paused');
 });
+
+
+const composeInput = () => ({contactIds:[String(contactA1._id)],smtpId:'smtp-account-1',subjectOverride:'Schedule subject',bodyOverride:'Exact reviewed message'});
+const futureLocal = () => new Date(Date.now()+2*86400000).toISOString().slice(0,10)+'T10:00';
+
+test('unified compose defaults to immediate even if inactive schedule fields remain in the request',async()=>{
+  const response=await request('/mail/preview','POST',{...composeInput(),localDateTime:'invalid',timezone:'invalid'});
+  assert.equal(response.status,200);assert.equal(response.data.snapshot.immediate,true);assert.equal(response.data.snapshot.localDateTime,null);
+});
+
+test('unified compose approves an exact future timezone-bound schedule and remains dormant until due',async()=>{
+  const localDateTime=futureLocal();const response=await request('/mail/preview','POST',{...composeInput(),mode:'scheduled',localDateTime,timezone:'Asia/Kolkata'});
+  assert.equal(response.status,200);assert.equal(response.data.snapshot.immediate,false);assert.equal(response.data.snapshot.startAtUtc,localDateTime.slice(0,10)+'T04:30:00.000Z');
+  assert.equal(await Dispatch.countDocuments(),0);
+  const approval=await request('/mail/send','POST',{campaignId:response.data.campaignId,approvedDigest:response.data.digest});assert.equal(approval.status,200);assert.equal(approval.data.immediate,false);assert.match(approval.data.message,/Scheduled/);
+  const campaign=await Campaign.findById(response.data.campaignId);assert.equal(+campaign.nextAt,+campaign.startAtUtc);
+  let calls=0;const send=async()=>{calls++;return {providerMessageId:'synthetic-scheduled-id'};};
+  assert.equal((await runCampaignWorkerOnce({now:new Date(+campaign.startAtUtc-1000),enabled:()=>true,send})).status,'idle');assert.equal(calls,0);
+  assert.equal((await runCampaignWorkerOnce({now:campaign.startAtUtc,enabled:()=>true,send})).status,'sent');assert.equal(calls,1);
+});
+
+test('unified compose rejects missing, past, invalid timezone, nonexistent and ambiguous DST schedules',async()=>{
+  for(const input of [{mode:'wrong'}, {mode:'scheduled'}, {mode:'scheduled',localDateTime:'2020-01-01T10:00',timezone:'UTC'}, {mode:'scheduled',localDateTime:futureLocal(),timezone:'invalid'}, {mode:'scheduled',localDateTime:'2027-03-14T02:30',timezone:'America/New_York'}, {mode:'scheduled',localDateTime:'2027-11-07T01:30',timezone:'America/New_York'}]){
+    assert.equal((await request('/mail/preview','POST',{...composeInput(),...input})).status,400);
+  }
+  assert.equal(await Campaign.countDocuments(),0);assert.equal(await Dispatch.countDocuments(),0);
+});
+
+test('changing a saved compose schedule invalidates its previous exact digest; elapsed schedules cannot be approved',async()=>{
+  const payload={...composeInput(),mode:'scheduled',localDateTime:futureLocal(),timezone:'UTC'};const first=await request('/mail/preview','POST',payload);assert.equal(first.status,200);
+  const original=await Campaign.findById(first.data.campaignId);const updated=await campaignService.saveCampaign(userA._id,{...original.snapshot,localDateTime:futureLocal().replace('10:00','11:00')},original._id);
+  await assert.rejects(campaignService.approveCampaign(userA._id,updated._id,first.data.digest),/Preview changed/);
+  await assert.rejects(campaignService.approveCampaign(userA._id,updated._id,updated.digest,new Date(+updated.startAtUtc+1000)),/future start time/);
+  assert.equal(await Dispatch.countDocuments(),0);
+});

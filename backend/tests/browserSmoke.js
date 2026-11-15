@@ -77,7 +77,8 @@ async function main() {
     assert.equal(await require('../models/MailLog').countDocuments(),0);
     console.log('PASS: actual dashboard company/evidence/job/contact/draft/review UI; mail logs=0; screenshots use synthetic data only');
     await page.goto(base+'/campaigns');
-    await page.getByRole('heading',{name:'Scheduled campaigns',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Outreach Queue',exact:true}).waitFor();
+    await page.getByText('Advanced campaign editor',{exact:true}).click();
     await page.getByLabel('Campaign name',{exact:true}).fill('Synthetic scheduled browser campaign');
     await page.getByRole('combobox',{name:/Sender account/}).selectOption('browser-smtp');
     await page.getByLabel('Start date and local time',{exact:true}).fill(scheduledDate+'T09:30');
