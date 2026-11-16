@@ -1,6 +1,6 @@
 # Approved sender fallback
 
-Navigation consolidation is complete: five sidebar destinations, all previous tools integrated, and the packaged 733-row company source now loads in production (733 prospects, eight existing inbox leads). This feature adds no sidebar destination.
+Sender fallback is part of the existing Contacts → Send form and Queue & Logs controls. It adds no sidebar destination.
 
 In Contacts → Send, choose a primary SMTP account, enable automatic sender switching, and select additional owned accounts. Preview displays the exact sender list, From names/addresses, individual daily caps, combined campaign budget and shared server ceiling. The explicit campaign approval authorizes that list. Switching after approval needs no second popup or manual resume. Editing sender selection clears preview approval.
 
