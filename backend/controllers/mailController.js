@@ -41,9 +41,6 @@ exports.previewImmediate = async (req, res) => {
     if (!Array.isArray(rawContactIds) || rawContactIds.length === 0) {
       return res.status(400).json({ error: 'Select at least one contact to preview.' });
     }
-    if (rawContactIds.length > 1000) {
-      return res.status(400).json({ error: 'Select between 1 and 1000 recipients.' });
-    }
 
     // 2. Resolve template defaults if overrides are not directly provided
     let defaultSubject = '';

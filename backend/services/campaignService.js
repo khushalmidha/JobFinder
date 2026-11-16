@@ -48,20 +48,51 @@ async function duplicateReason(userId,contactId,email,excludeDispatchId) {
   if(await Dispatch.exists({userId,recipientEmail:email,status:{$in:['sending','sent','unknown_outcome']},...(excludeDispatchId?{_id:{$ne:excludeDispatchId}}:{})}))return 'Previous send or unresolved delivery outcome';
   return null;
 }
-async function recipientReason(user,contact,row,now=new Date(),dispatchId) {
+async function previewEvidence(user,contacts) {
+  const ids=contacts.map(c=>c._id),emails=[...new Set(contacts.map(c=>normalizeEmail(c.email)))];
+  const historyFilter={userId:user._id,status:{$in:['sent','delivered']},$or:[{contactId:{$in:ids}},{recipientEmail:{$in:emails}}]};
+  const [suppressions,same,companies,logs,ledger,dispatches]=await Promise.all([
+    RecipientSuppression.find({userId:user._id,email:{$in:emails}}).select('email').lean(),
+    // Include all owned email spellings to retain case-insensitive duplicate suppression.
+    Contact.find({userId:user._id}).select('email optOutAt suppressedAt deliverabilityStatus status').lean(),
+    Company.find({_id:{$in:contacts.filter(c=>c.companyId).map(c=>c.companyId)}}).lean(),
+    MailLog.find(historyFilter).select('contactId recipientEmail').lean(),
+    DeliveryLedger.find(historyFilter).select('contactId recipientEmail').lean(),
+    Dispatch.find({userId:user._id,recipientEmail:{$in:emails},status:{$in:['sending','sent','unknown_outcome']}}).select('recipientEmail').lean()
+  ]);
+  return {
+    suppressed:new Set(suppressions.map(c=>c.email)),
+    blockedDuplicates:new Set(same.filter(c=>c.optOutAt||c.suppressedAt||c.deliverabilityStatus==='invalid'||['bounced','removed','replied','reply_received','positive_response','negative_response'].includes(c.status)).map(c=>normalizeEmail(c.email))),
+    companies:new Map(companies.map(c=>[String(c._id),c])),
+    sentIds:new Set([...logs,...ledger].map(c=>String(c.contactId))),
+    sentEmails:new Set([...logs,...ledger].map(c=>c.recipientEmail)),
+    uncertainEmails:new Set(dispatches.map(c=>c.recipientEmail))
+  };
+}
+async function recipientReason(user,contact,row,now=new Date(),dispatchId,evidence) {
   if(!contact || String(contact.userId)!==String(user._id))return 'Owned contact not found';
   if(!validEmail(normalizeEmail(contact.email)))return 'Unsupported or invalid recipient syntax';
-  if(await RecipientSuppression.exists({userId:user._id,email:normalizeEmail(contact.email)}))return 'Recipient has a persistent suppression record';
+  if(evidence?evidence.suppressed.has(normalizeEmail(contact.email)):await RecipientSuppression.exists({userId:user._id,email:normalizeEmail(contact.email)}))return 'Recipient has a persistent suppression record';
   if(require('./contactAdmissionService').enabled() && !await require('./contactAdmissionService').validProof(user._id,contact.email))return 'Fresh trusted mailbox verification required';
   const blocked=contactBlockReason(contact);if(blocked)return blocked;
   if(!['publicly_sourced','vendor_verified'].includes(contact.verificationStatus))return 'Individual recruiting contact requires public or provider evidence';
   if((user.blockedCompanies||[]).some(c=>require('./companyIdentityService').companyKey(c)===require('./companyIdentityService').companyKey(contact.company)))return 'Company is on your do-not-contact list';
   // Duplicate contact rows cannot bypass an existing suppression for this owner.
-  const same=await Contact.find({userId:user._id,email:{$regex:`^${normalizeEmail(contact.email).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,$options:'i'}}).lean();
-  if(same.some(c=>c.optOutAt||c.suppressedAt||c.deliverabilityStatus==='invalid'||['bounced','removed','replied','reply_received','positive_response','negative_response'].includes(c.status)))return 'Recipient suppressed or replied in another contact record';
-  const company=contact.companyId?await Company.findById(contact.companyId).lean():null;
+  const email=normalizeEmail(contact.email);
+  if(evidence){
+    if(evidence.blockedDuplicates.has(email))return 'Recipient suppressed or replied in another contact record';
+  }else{
+    const same=await Contact.find({userId:user._id,email:{$regex:`^${email.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,$options:'i'}}).lean();
+    if(same.some(c=>c.optOutAt||c.suppressedAt||c.deliverabilityStatus==='invalid'||['bounced','removed','replied','reply_received','positive_response','negative_response'].includes(c.status)))return 'Recipient suppressed or replied in another contact record';
+  }
+  const company=evidence?evidence.companies.get(String(contact.companyId)):(contact.companyId?await Company.findById(contact.companyId).lean():null);
   if(qualifyCompany(company||{},now).qualificationStatus!=='qualified' && row.overrideSalary!==true)return 'Company fixed-base qualification is unverified; explicit research override required';
-  return duplicateReason(user._id,contact._id,normalizeEmail(contact.email),dispatchId);
+  if(evidence){
+    if(evidence.sentIds.has(String(contact._id))||evidence.sentEmails.has(email))return 'Already sent: contact or recipient history';
+    if(evidence.uncertainEmails.has(email))return 'Previous send or unresolved delivery outcome';
+    return null;
+  }
+  return duplicateReason(user._id,contact._id,email,dispatchId);
 }
 async function previewCampaign(userId,input,now=new Date()) {
   const user=await User.findById(userId);if(!user)throw new Error('User not found');
@@ -80,19 +111,28 @@ async function previewCampaign(userId,input,now=new Date()) {
   const dailyLimit=input.dailyLimit??maximum,intervalSeconds=input.intervalSeconds??180;
   if(!Number.isInteger(dailyLimit)||dailyLimit<1||dailyLimit>maximum)throw new Error('Daily limit exceeds configured sender safety limit');
   if(!Number.isInteger(intervalSeconds)||intervalSeconds<180||intervalSeconds>86400)throw new Error('Use an interval between 180 and 86400 seconds');
-  if(!Array.isArray(input.recipients)||input.recipients.length<1||input.recipients.length>1000)throw new Error('Select 1 to 1000 recipients');
+  // Queue size is independent of daily dispatch budgets; never truncate the approved selection.
+  if(!Array.isArray(input.recipients)||input.recipients.length<1)throw new Error('Select at least one recipient');
   const blocked=[],recipients=[],emails=new Set();
   const validIds=input.recipients.map(r=>mongoose.isValidObjectId(r.contactId)?r.contactId:null).filter(Boolean);
   const contacts=validIds.length?await Contact.find({userId,_id:{$in:validIds}}).lean():[];
   const map=new Map(contacts.map(c=>[String(c._id),c]));
-  for(const row of input.recipients){
-    const contact=map.get(String(row.contactId)),email=contact?.email?normalizeEmail(contact.email):null;
-    let reason=await recipientReason(user,contact,row,now);
-    if(!reason && email && emails.has(email))reason='Duplicate recipient in selection';
-    if(typeof row.subject!=='string'||!row.subject.trim()||/[\r\n]/.test(row.subject)||row.subject.length>200||typeof row.body!=='string'||!row.body.trim()||row.body.length>10000)reason='Valid subject (up to 200 characters) and body (up to 10000) required';
-    if(reason){blocked.push({contactId:String(row.contactId),email:contact?email:null,reason});continue;}
-    if(email)emails.add(email);
-    recipients.push({contactId:String(contact._id),recipientEmail:email,company:contact.company,subject:row.subject,body:row.body,overrideSalary:row.overrideSalary===true});
+  const evidence=await previewEvidence(user,contacts);
+  // Bound concurrent evidence reads without imposing a queue-size cap. Keep output
+  // ordering deterministic so previews, duplicate exclusions and digests are stable.
+  for(let offset=0;offset<input.recipients.length;offset+=25){
+    const checked=await Promise.all(input.recipients.slice(offset,offset+25).map(async row=>{
+      const contact=map.get(String(row.contactId)),email=contact?.email?normalizeEmail(contact.email):null;
+      return {row,contact,email,reason:await recipientReason(user,contact,row,now,undefined,evidence)};
+    }));
+    for(const {row,contact,email,reason:checkedReason} of checked){
+      let reason=checkedReason;
+      if(!reason && email && emails.has(email))reason='Duplicate recipient in selection';
+      if(typeof row.subject!=='string'||!row.subject.trim()||/[\r\n]/.test(row.subject)||row.subject.length>200||typeof row.body!=='string'||!row.body.trim()||row.body.length>10000)reason='Valid subject (up to 200 characters) and body (up to 10000) required';
+      if(reason){blocked.push({contactId:String(row.contactId),email:contact?email:null,reason});continue;}
+      if(email)emails.add(email);
+      recipients.push({contactId:String(contact._id),recipientEmail:email,company:contact.company,subject:row.subject,body:row.body,overrideSalary:row.overrideSalary===true});
+    }
   }
   const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients,...(policy||{})};
   return {snapshot,digest:digest(snapshot),blocked,startAtUtc:start.toISOString(),immediate:isImmediate,estimatedMinutes:Math.max(0,recipients.length-1)*intervalSeconds/60,minimumDays:Math.ceil(recipients.length/dailyLimit),costEstimate:'INR 0 additional infrastructure/API credits; existing SMTP provider terms apply',quotaDay:'UTC'};
