@@ -4,6 +4,8 @@ Sender fallback is part of the existing Contacts → Send form and Queue & Logs 
 
 In Contacts → Send, choose a primary SMTP account, enable automatic sender switching, and select additional owned accounts. Preview displays the exact sender list, From names/addresses, individual daily caps, combined campaign budget and shared server ceiling. The explicit campaign approval authorizes that list. Switching after approval needs no second popup or manual resume. Editing sender selection clears preview approval.
 
+Queue length has no application-imposed recipient-count cap. The full eligible selection is frozen for preview and approval; daily sending budgets control dispatch over subsequent days rather than rejecting a large queue. HTTP request and database document byte-size limits still apply.
+
 ## Budget and dispatch behavior
 
 - Each approved sender has an application daily cap up to 450, bounded by the owner's configured safety limit. A two-sender fallback campaign defaults to a combined 900/day campaign budget, three to 1,350, and so on. A smaller explicitly approved campaign budget still applies. Legacy/single-sender campaigns retain their original aggregate owner cap and snapshots; deployment does not expand old approvals.

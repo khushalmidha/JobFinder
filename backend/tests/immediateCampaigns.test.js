@@ -44,7 +44,7 @@ before(async () => {
   await Promise.all([User, Contact, Company, Campaign, Dispatch, Runtime, MailLog, RecipientSuppression].map(M => M.init()));
 
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
   app.use('/mail', require('../routes/mail'));
   app.use('/campaigns', require('../routes/campaigns'));
 
@@ -643,4 +643,65 @@ test('changing a saved compose schedule invalidates its previous exact digest; e
   await assert.rejects(campaignService.approveCampaign(userA._id,updated._id,first.data.digest),/Preview changed/);
   await assert.rejects(campaignService.approveCampaign(userA._id,updated._id,updated.digest,new Date(+updated.startAtUtc+1000)),/future start time/);
   assert.equal(await Dispatch.countDocuments(),0);
+});
+
+
+test('1748 recipients preview and approve into one durable queue without weakening daily caps or exclusions', { timeout: 180000 }, async () => {
+  const contacts = await Contact.insertMany(Array.from({ length: 1748 }, (_, index) => ({
+    userId: userA._id, companyId: companyA._id, company: companyA.name,
+    hrName: `Recruiter ${index}`, email: `queue-size-${index}@aexp.com`,
+    verificationStatus: 'publicly_sourced', status: 'pending',
+    provenance: [{ url: 'https://aexp.com/careers', provider: 'fixture', observedAt: fixedNow }]
+  })));
+  const preview = await request('/mail/preview', 'POST', {
+    contactIds: [...contacts.map(c => String(c._id)), String(contactBlocked._id)],
+    smtpId: 'smtp-account-1', subjectOverride: 'Hello {{hrName}}', bodyOverride: 'Application for {{companyName}}'
+  });
+  assert.equal(preview.status, 200, JSON.stringify(preview.data));
+  assert.equal(preview.data.selectedCount, 1749);
+  assert.equal(preview.data.eligibleCount, 1748);
+  assert.equal(preview.data.blockedCount, 1);
+  assert.equal(preview.data.snapshot.recipients.length, 1748);
+  assert.equal(preview.data.snapshot.dailyLimit, 450);
+  assert.equal(preview.data.minimumDays, 4);
+  assert.equal(preview.data.snapshot.recipients.at(-1).subject, 'Hello Recruiter 1747');
+  const campaign = await campaignService.approveCampaign(userA._id, preview.data.campaignId, preview.data.digest);
+  assert.equal(campaign.state, 'scheduled');
+  assert.equal(campaign.approvedDigest, preview.data.digest);
+  assert.equal(await Dispatch.countDocuments({campaignId: campaign._id, status: 'queued'}), 1748);
+  assert.equal(await Dispatch.countDocuments({contactId: contactBlocked._id}), 0);
+  assert.equal(new Set(await Dispatch.distinct('providerIdempotencyKey', {campaignId: campaign._id})).size, 1748);
+  assert.equal(await Dispatch.countDocuments({status: {$in: ['sending','sent','unknown_outcome']}}), 0);
+  const saved = await Campaign.findById(campaign._id).lean();
+  assert.equal(saved.snapshot.dailyLimit, 450);
+  assert.equal(saved.snapshot.recipients.length, 1748);
+});
+
+
+test('batched preview preserves live eligibility checks, history and case-insensitive duplicate suppression', async () => {
+  const Ledger = require('../models/DeliveryLedger');
+  const contacts = await Contact.insertMany(Array.from({length: 7}, (_, index) => ({
+    userId: userA._id, companyId: companyA._id, company: companyA.name,
+    email: `batch-eligibility-${index}@aexp.com`, verificationStatus: 'publicly_sourced', status: 'pending',
+    provenance: [{url:'https://aexp.com/careers',provider:'fixture',observedAt:fixedNow}]
+  })));
+  await RecipientSuppression.create({userId:userA._id,email:contacts[0].email,reason:'Owner blocked',source:'owner_block'});
+  await Contact.collection.insertOne({userId:userA._id,email:contacts[1].email.toUpperCase(),status:'replied',company:companyA.name});
+  await MailLog.collection.insertOne({userId:userA._id,contactId:contacts[2]._id,recipientEmail:'old-email@aexp.com',status:'sent'});
+  await Ledger.collection.insertOne({userId:userA._id,recipientEmail:contacts[3].email,status:'delivered'});
+  await Dispatch.collection.insertOne({userId:userA._id,recipientEmail:contacts[4].email,status:'unknown_outcome'});
+  // Another owner's evidence must not suppress this owner's eligible contact.
+  await RecipientSuppression.create({userId:userB._id,email:contacts[5].email,reason:'Other owner blocked',source:'owner_block'});
+  const rows=contacts.map(c=>({contactId:String(c._id),subject:'Application',body:'Exact body'}));
+  const preview=await campaignService.previewCampaign(userA._id,{immediate:true,senderId:'smtp-account-1',recipients:rows});
+  for(let i=0;i<contacts.length;i++){
+    const liveReason=await campaignService.recipientReason(userA,contacts[i].toObject(),rows[i]);
+    assert.equal(preview.blocked.find(r=>r.contactId===String(contacts[i]._id))?.reason||null,liveReason);
+  }
+  assert.deepEqual(preview.snapshot.recipients.map(r=>r.contactId),[String(contacts[5]._id),String(contacts[6]._id)]);
+  const manyDuplicates=Array.from({length:26},()=>rows[5]);
+  const duplicatePreview=await campaignService.previewCampaign(userA._id,{immediate:true,senderId:'smtp-account-1',recipients:manyDuplicates});
+  assert.equal(duplicatePreview.snapshot.recipients.length,1);
+  assert.equal(duplicatePreview.blocked.length,25);
+  assert.ok(duplicatePreview.blocked.every(r=>r.reason==='Duplicate recipient in selection'));
 });
