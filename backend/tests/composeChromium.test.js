@@ -353,8 +353,25 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     await modal.getByRole('link',{name:'Email Checks',exact:true}).waitFor();
     await modal.getByText(/All selected recipients were excluded. Review each reason above/).waitFor();
     assert.equal(await Campaign.countDocuments({userId:ownerId,state:'scheduled'}),2);
+    await modal.getByRole('button',{name:'Back to Edit',exact:true}).click();
+    const unverifiedChoice=page.getByLabel('Include unverified contacts for this campaign',{exact:true});
+    assert.equal(await unverifiedChoice.isChecked(),false);
+    await unverifiedChoice.check();
+    await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await modal.waitFor();
+    await modal.getByText(/Unverified recipients: 1/).waitFor();
+    await modal.getByText(/Mailbox unverified/).waitFor();
+    await modal.getByText(/I explicitly accept the labelled unverified contacts/).waitFor();
+    const unverifiedDraft=await Campaign.findOne({userId:ownerId,'snapshot.allowUnverifiedContacts':true}).sort({createdAt:-1});
+    assert.equal(unverifiedDraft.snapshot.recipients[0].mailboxStatus,'unverified');
+    assert.equal(unverifiedDraft.state,'draft');
+    assert.equal(await modal.getByRole('button',{name:/Approve & Queue Now/}).isDisabled(),true);
+    await modal.locator('input[type="checkbox"]').check();
+    await modal.getByRole('button',{name:/Approve & Queue Now/}).click();await modal.waitFor({state:'detached'});
+    assert.equal((await Campaign.findById(unverifiedDraft._id)).state,'scheduled');
+    assert.equal(await Campaign.countDocuments({userId:ownerId,state:'scheduled'}),3);
+    assert.equal((await Campaign.findById(scheduledCampaigns[0]._id)).snapshot.allowUnverifiedContacts,undefined);
+    assert.equal(await require('../models/MailboxProof').countDocuments(),0);
     process.env.CONTACT_ADMISSION_ENABLED='false';
-
 
     // 7. Verify zero outbound provider calls
     const logs = await MailLog.countDocuments({ userId: ownerId });

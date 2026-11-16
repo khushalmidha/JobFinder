@@ -1,6 +1,6 @@
 # Contact validity pipeline
 
-Production sets `CONTACT_ADMISSION_ENABLED=true`. Imports, extension sync, research intake and model writes require an owner-scoped, unexpired server-created Hunter verifier receipt and a usable mail route before admitting a new active contact. Browser-supplied validity fields are ignored. Unknown addresses go to **Email Checks**, not the active contact list. Existing contacts and their history are preserved pending evidence; sending also requires a fresh receipt.
+Production sets `CONTACT_ADMISSION_ENABLED=true`. Imports, extension sync, research intake and model writes require an owner-scoped, unexpired server-created Hunter verifier receipt and a usable mail route before admitting a new active contact. Browser-supplied validity fields are ignored. Unknown addresses go to **Email Checks**, not the active contact list. Existing contacts and their history are preserved pending evidence. Sending defaults to a fresh receipt. The owner may explicitly opt a campaign into labelled unverified recipients, review its exact frozen list, and acknowledge that allowance at approval; confirmed-invalid, blocked, opted-out, replied and duplicate-history recipients remain excluded. This campaign exception does not admit new contacts or create verification receipts.
 
 DNS/MX or successful SMTP connections do not prove a mailbox exists. Catch-all, timeout, unavailable DNS, unsupported syntax and old manually assigned invalid labels cannot justify deletion. A valid provider result is a dated assertion, not a permanent delivery guarantee. Receipts expire after 30 days.
 
@@ -43,3 +43,15 @@ The November 15 full-directory review compared 1,000 scoped company labels and f
 
 
 The follow-up identity review adds four officially sourced groups (32 additional groups in total): JPMorgan Chase, Fidelity Investments/FMR, Bharti Airtel Foundation and LTM including historical Mindtree/LTIMindtree labels. Official source URLs are stored with each group. Current LTM naming was checked against its March 17, 2026 change-of-name filing. Fidelity International, the Bharti Airtel telecom business and L&T Technology Services remain separate. Historical company research/salary evidence and original contact labels are not rewritten to assert current eligibility.
+
+## Explicit unverified outreach approval
+
+Contacts → Send includes **Include unverified contacts for this campaign**, off by default. Selecting it allows existing owned unknown, domain-only, inferred and catch-all contacts to be considered. The preview labels every accepted address with server-derived mailbox/evidence status and warns that domain or SMTP acceptance does not prove mailbox validity. Existing records remain unverified. No provider credits are used.
+
+The policy and each recipient's label are part of the SHA-256 snapshot. Both approval APIs require `approveUnverifiedContacts: true` in addition to the exact approved digest for such campaigns; merely sending the flag cannot expand an older snapshot. Editing the policy invalidates the preview. Saving or previewing alone never starts dispatch. Legacy campaigns never acquire this permission automatically.
+
+The worker derives permission from the approved campaign snapshot and rechecks ownership, syntax, persistent suppression, contact invalid/opt-out/reply flags, duplicate-contact suppression, latest trusted-invalid results and delivery history before each dispatch. An unverified allowance never bypasses those checks. Recorded Null MX/confirmed-invalid hygiene results also remain blocked. New trusted-invalid results or owner blocks after preview reject approval or suppress the queued recipient at dispatch. Catch-all is uncertain, not a verified mailbox.
+
+Mailbox evidence and salary evidence are independent. The composer separately offers **Allow companies without verified salary evidence for this campaign**. This existing research-override policy is explicit in the per-recipient preview and never qualifies a company or treats salary estimates as verified fixed-base pay.
+
+Rollback: disable sending/worker gates before reverting. Keep opt-in campaigns paused/cancelled while running an older worker; preserve snapshots, receipts, suppression and delivery history. Do not edit old approvals or mass-promote contact validity. There is no destructive data migration for this feature.

@@ -42,6 +42,8 @@ exports.previewImmediate = async (req, res) => {
       return res.status(400).json({ error: 'Select at least one contact to preview.' });
     }
 
+    if(req.body.allowUnverifiedContacts!==undefined&&typeof req.body.allowUnverifiedContacts!=='boolean')throw new Error('Choose whether to include unverified contacts explicitly');
+
     // 2. Resolve template defaults if overrides are not directly provided
     let defaultSubject = '';
     let defaultBody = '';
@@ -152,6 +154,7 @@ exports.previewImmediate = async (req, res) => {
           dailyLimit: dailyLimit || campaignService.senderCap(user)*(senderPolicy?.approvedSenders.length||1),
           ...(senderPolicy||{}),
           ...(req.body.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{}),
+          ...(req.body.allowUnverifiedContacts===true?{allowUnverifiedContacts:true}:{}),
           intervalSeconds: effectiveInterval,
           recipients: []
         },
@@ -172,7 +175,7 @@ exports.previewImmediate = async (req, res) => {
       name: name || (immediate ? 'Immediate batch outreach' : 'Scheduled batch outreach'),
       senderId: sender.id,
       immediate, timezone, localDateTime,
-      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds, pauseOnDailyLimit:req.body.pauseOnDailyLimit,
+      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds, pauseOnDailyLimit:req.body.pauseOnDailyLimit, allowUnverifiedContacts:req.body.allowUnverifiedContacts,
       dailyLimit,
       intervalSeconds: effectiveInterval,
       recipients
@@ -226,7 +229,7 @@ exports.sendBatch = async (req, res) => {
     }
 
     const now = new Date();
-    const campaign = await campaignService.approveCampaign(req.user._id, campaignId, approvedDigest, now);
+    const campaign = await campaignService.approveCampaign(req.user._id, campaignId, approvedDigest, now, {approveUnverifiedContacts:req.body.approveUnverifiedContacts===true});
 
     res.json({
       success: true,
