@@ -394,7 +394,7 @@ const Logs = () => {
             <p className="text-sm font-medium text-zinc-400">Emails in Queue</p>
             <h2 className="text-3xl font-bold text-zinc-100 mt-1">{queueStatus.pending || 0}</h2>
             <p className="text-xs text-zinc-500 mt-1">
-              Sending 1 email every {queueStatus.intervalSeconds || 180} seconds ({Math.round((queueStatus.intervalSeconds || 180) / 60)} min safe pace).
+              Sending 1 email every {queueStatus.intervalSeconds || 3} seconds, subject to SMTP processing and configured limits.
             </p>
           </div>
         </div>

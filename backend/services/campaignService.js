@@ -129,9 +129,9 @@ async function previewCampaign(userId,input,now=new Date()) {
   if(input.pauseOnDailyLimit!==undefined&&typeof input.pauseOnDailyLimit!=='boolean')throw new Error('Invalid daily-limit pause choice');
   if(input.pauseOnDailyLimit===true&&input.autoSwitchSenders===true)throw new Error('Choose automatic switching or pause at the daily limit');
   const policy=senderPolicy(user,input),maximum=senderCap(user)*(policy?.approvedSenders.length||1);
-  const dailyLimit=input.dailyLimit??maximum,intervalSeconds=input.intervalSeconds??180;
+  const dailyLimit=input.dailyLimit??maximum,intervalSeconds=input.intervalSeconds??3;
   if(!Number.isInteger(dailyLimit)||dailyLimit<1||dailyLimit>maximum)throw new Error('Daily limit exceeds configured sender safety limit');
-  if(!Number.isInteger(intervalSeconds)||intervalSeconds<180||intervalSeconds>86400)throw new Error('Use an interval between 180 and 86400 seconds');
+  if(!Number.isInteger(intervalSeconds)||intervalSeconds<3||intervalSeconds>86400)throw new Error('Use an interval between 3 and 86400 seconds');
   // Queue size is independent of daily dispatch budgets; never truncate the approved selection.
   if(!Array.isArray(input.recipients)||input.recipients.length<1)throw new Error('Select at least one recipient');
   const blocked=[],recipients=[],emails=new Set();
@@ -181,6 +181,37 @@ async function approveCampaign(userId,id,approvedDigest,now=new Date(),{approveU
   if(!updated)throw new Error('Campaign changed during approval; review again');
   return updated;
 }
+function effectiveInterval(campaign){
+  const override=campaign.pacingOverride;
+  if(override&&override.approvedDigest===campaign.approvedDigest&&String(override.approvedBy)===String(campaign.userId)&&Number.isInteger(override.intervalSeconds)&&override.intervalSeconds>=3&&override.intervalSeconds<=86400)return override.intervalSeconds;
+  return campaign.snapshot?.intervalSeconds||3;
+}
+async function changeCampaignInterval(userId,id,approvedDigest,intervalSeconds,reason,now=new Date()){
+  if(!Number.isInteger(intervalSeconds)||intervalSeconds<3||intervalSeconds>86400)throw new Error('Use an interval between 3 and 86400 seconds');
+  if(typeof reason!=='string'||reason.trim().length<10||reason.length>500)throw new Error('Describe the owner-authorized pacing change');
+  const Runtime=require('../models/OutreachRuntime');
+  try{await Runtime.updateOne({_id:'global'},{$setOnInsert:{leaseUntil:new Date(0),nextAllowedAt:new Date(0)}},{upsert:true});}catch(e){if(e.code!==11000)throw e;}
+  const token=crypto.randomUUID();
+  const lock=await Runtime.findOneAndUpdate({_id:'global',leaseUntil:{$lte:now}},{$set:{leaseToken:token,leaseUntil:new Date(+now+120000)}},{returnDocument:'after'});
+  if(!lock)throw new Error('Worker is busy; retry the pacing change after its in-flight send');
+  try{
+    if(await Dispatch.exists({status:'sending'}))throw new Error('Wait for in-flight delivery before changing pacing');
+    const campaign=await Campaign.findOne({_id:objectId(id),userId,state:{$in:['scheduled','running','paused','needs_review']}});
+    if(!campaign||!approvedDigest||campaign.approvedDigest!==approvedDigest||campaign.digest!==approvedDigest||digest(campaign.snapshot)!==approvedDigest)throw new Error('Owned approved campaign changed; refresh before changing pacing');
+    const previous=effectiveInterval(campaign);
+    const set={pacingOverride:{intervalSeconds,approvedDigest,approvedBy:userId,approvedAt:now,previousIntervalSeconds:previous,reason:reason.trim()}};
+    if(['scheduled','running'].includes(campaign.state)&&campaign.startAtUtc<=now)set.nextAt=new Date(Math.max(+now,+(campaign.sendBoundaryAt||new Date(0))+intervalSeconds*1000));
+    const updated=await Campaign.findOneAndUpdate({_id:campaign._id,userId,state:campaign.state,revision:campaign.revision,approvedDigest},{$set:set,$push:{events:{$each:[{at:now,action:'owner_changed_pacing',reason:`${previous}s to ${intervalSeconds}s: ${reason.trim()}`}],$slice:-200}}},{returnDocument:'after'});
+    if(!updated)throw new Error('Campaign changed during pacing update');
+    // Only adjust the shared cooldown when its most recent attempt belongs to
+    // this campaign. Never shorten another campaign's approved send interval.
+    const last=await Dispatch.findOne({startedAt:{$exists:true}}).sort({startedAt:-1,_id:-1}).select('campaignId startedAt').lean();
+    if(last&&String(last.campaignId)===String(campaign._id)&&lock.lastDispatchAt&&Math.abs(+last.startedAt-+lock.lastDispatchAt)<5000){
+      await Runtime.updateOne({_id:'global',leaseToken:token},{$set:{nextAllowedAt:new Date(Math.max(+now,+lock.lastDispatchAt+intervalSeconds*1000))}});
+    }
+    return updated;
+  }finally{await Runtime.updateOne({_id:'global',leaseToken:token},{$set:{leaseUntil:new Date(0)},$unset:{leaseToken:1}});}
+}
 async function controlCampaign(userId,id,action,now=new Date()) {
   const campaign=await Campaign.findOne({_id:objectId(id),userId});if(!campaign)throw new Error('Campaign not found');
   const states={pause:['scheduled','running'],resume:['paused','needs_review'],cancel:['draft','scheduled','running','paused','needs_review','failed']};
@@ -198,4 +229,4 @@ async function controlCampaign(userId,id,action,now=new Date()) {
   if(action==='cancel')await Dispatch.updateMany({campaignId:campaign._id,status:'queued'},{$set:{status:'cancelled',reason:'Owner cancelled'}});
   return updated;
 }
-module.exports={permanentContactReason,senderCap,senderIdentity,senderPolicy,resolveApprovedSenders,normalizeEmail,validEmail,digest,objectId,configuredLimit,senderOptions,resolveSender,recipientReason,duplicateReason,previewCampaign,saveCampaign,approveCampaign,controlCampaign};
+module.exports={effectiveInterval,changeCampaignInterval,permanentContactReason,senderCap,senderIdentity,senderPolicy,resolveApprovedSenders,normalizeEmail,validEmail,digest,objectId,configuredLimit,senderOptions,resolveSender,recipientReason,duplicateReason,previewCampaign,saveCampaign,approveCampaign,controlCampaign};

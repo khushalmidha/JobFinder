@@ -268,3 +268,55 @@ test('pause-at-limit choice is digest-bound, validates conflicts and does not ch
   await fallbackSetup();
   await assert.rejects(service.previewCampaign(user._id,{...fallbackInput(),pauseOnDailyLimit:true},now),/switching or pause/);
 });
+
+
+test('new campaigns default to three seconds and never dispatch sooner; longer reviewed intervals remain supported',async()=>{
+  const data={...input(),intervalSeconds:undefined};
+  assert.equal((await service.previewCampaign(user._id,data,now)).snapshot.intervalSeconds,3);
+  await assert.rejects(service.previewCampaign(user._id,{...data,intervalSeconds:2},now),/between 3/);
+  assert.equal((await service.previewCampaign(user._id,input(),now)).snapshot.intervalSeconds,180);
+  await approved(data);let calls=0;const send=async()=>({providerMessageId:'synthetic-three-second-'+(++calls)});
+  assert.equal((await runCampaignWorkerOnce({now:due,enabled:()=>true,send})).status,'sent');
+  assert.equal((await runCampaignWorkerOnce({now:new Date(+due+2000),enabled:()=>true,send})).status,'cooldown');
+  assert.equal((await runCampaignWorkerOnce({now:new Date(+due+3000),enabled:()=>true,send})).status,'sent');assert.equal(calls,2);
+});
+
+test('owner-authorized pacing change preserves frozen content/digests and safely shortens only its own active cooldown',async()=>{
+  const campaign=await approved();let calls=0;const send=async()=>({providerMessageId:'synthetic-paced-'+(++calls)});
+  await runCampaignWorkerOnce({now:due,enabled:()=>true,send});
+  const updated=await service.changeCampaignInterval(user._id,campaign._id,campaign.approvedDigest,3,'Owner explicitly requested three-second delivery',new Date(+due+1000));
+  assert.equal(updated.state,'running');assert.equal(updated.snapshot.intervalSeconds,180);assert.equal(updated.approvedDigest,campaign.approvedDigest);
+  assert.equal(service.effectiveInterval(updated),3);assert.equal(updated.pacingOverride.previousIntervalSeconds,180);
+  assert.equal((await Runtime.findById('global')).nextAllowedAt.toISOString(),new Date(+due+3000).toISOString());
+  assert.equal((await request('/mail/queue-status')).data.intervalSeconds,3);
+  assert.equal((await runCampaignWorkerOnce({now:new Date(+due+2000),enabled:()=>true,send})).status,'cooldown');
+  assert.equal((await runCampaignWorkerOnce({now:new Date(+due+3000),enabled:()=>true,send})).status,'sent');assert.equal(calls,2);
+  assert.ok((await Dispatch.find({campaignId:campaign._id})).every(r=>r.approvedDigest===campaign.approvedDigest));
+});
+
+test('pacing changes respect ownership, digest, worker lease, other-campaign cooldowns and paused state',async()=>{
+  const campaign=await approved();
+  await assert.rejects(service.changeCampaignInterval(other._id,campaign._id,campaign.approvedDigest,3,'Unauthorized owner tries to change pacing',due),/Owned approved/);
+  await assert.rejects(service.changeCampaignInterval(user._id,campaign._id,'wrong-digest',3,'Stale digest must never update pacing',due),/changed/);
+  await Runtime.updateOne({_id:'global'},{$set:{leaseUntil:new Date(+due+10000)}});
+  await assert.rejects(service.changeCampaignInterval(user._id,campaign._id,campaign.approvedDigest,3,'Wait for worker before pacing change',due),/busy/);
+  const foreignCooldown=new Date(+due+180000);
+  await Runtime.updateOne({_id:'global'},{$set:{leaseUntil:new Date(0),lastDispatchAt:due,nextAllowedAt:foreignCooldown}});
+  await Dispatch.collection.insertOne({campaignId:new mongoose.Types.ObjectId(),userId:other._id,status:'sent',startedAt:due});
+  await service.controlCampaign(user._id,campaign._id,'pause',due);
+  const updated=await service.changeCampaignInterval(user._id,campaign._id,campaign.approvedDigest,3,'Owner changes pace without resuming paused queue',due);
+  assert.equal(updated.state,'paused');assert.equal(+(await Runtime.findById('global')).nextAllowedAt,+foreignCooldown);
+  assert.equal(await Dispatch.countDocuments({campaignId:campaign._id,status:'queued'}),2);
+});
+
+test('actual scheduler wakes for a three-second queue rather than waiting for the former thirty-second cron', {timeout:20000},async()=>{
+  const realNow=new Date();const draft=await service.saveCampaign(user._id,{...input(),immediate:true,localDateTime:null,intervalSeconds:3},null,realNow);
+  await service.approveCampaign(user._id,draft._id,draft.digest,realNow);
+  const times=[];process.env.OUTREACH_WORKER_ENABLED='true';
+  const scheduler=require('../services/campaignWorkerService').initCampaignScheduler({run:()=>runCampaignWorkerOnce({enabled:()=>true,send:async()=>{times.push(Date.now());return {providerMessageId:'synthetic-timer-'+times.length};}})});
+  try{
+    const deadline=Date.now()+12000;
+    while(times.length<2&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
+    assert.equal(times.length,2);assert.ok(times[1]-times[0]>=3000);assert.ok(times[1]-times[0]<12000);
+  }finally{await scheduler.stop();process.env.OUTREACH_WORKER_ENABLED='false';}
+});

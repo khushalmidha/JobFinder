@@ -8,7 +8,7 @@ const emptyDraft = (options = {}) => {
   const senders=options.senders||[],fallbackSenderIds=senders.slice(1,10).map(sender=>sender.id);
   const autoSwitchSenders=fallbackSenderIds.length>0;
   return {name:'',senderId:senders[0]?.id||'',localDateTime:'',timezone:'Asia/Kolkata',
-    dailyLimit:(options.maxDailyLimit||450)*(1+fallbackSenderIds.length),intervalSeconds:180,
+    dailyLimit:(options.maxDailyLimit||450)*(1+fallbackSenderIds.length),intervalSeconds:3,
     autoSwitchSenders,pauseOnDailyLimit:!autoSwitchSenders,fallbackSenderIds,allowUnverifiedContacts:false,recipients:[]};
 };
 const statusOf = campaign => campaign?.state || campaign?.status || 'draft';
@@ -160,7 +160,7 @@ export default function Campaigns({ embedded = false }) {
     const snapshot = campaign.snapshot || campaign;
     change({ name: campaign.name || snapshot.name || '', senderId: snapshot.senderId || '',
       localDateTime: snapshot.localDateTime || '', timezone: snapshot.timezone || 'Asia/Kolkata',
-      dailyLimit: snapshot.dailyLimit || 450, intervalSeconds: snapshot.intervalSeconds || 180,
+      dailyLimit: snapshot.dailyLimit || 450, intervalSeconds: snapshot.intervalSeconds || 3,
       allowUnverifiedContacts:snapshot.allowUnverifiedContacts===true, autoSwitchSenders: snapshot.autoSwitchSenders === true, pauseOnDailyLimit:snapshot.pauseOnDailyLimit===true, fallbackSenderIds: snapshot.fallbackSenderIds || [],
       recipients: (snapshot.recipients || []).map(row => ({ contactId: String(row.contactId), subject: row.subject, body: row.body, overrideSalary: !!row.overrideSalary })) });
     setEditingId(campaign._id);
@@ -195,7 +195,7 @@ export default function Campaigns({ embedded = false }) {
         <label>Start date and local time<input type="datetime-local" className={field} value={draft.localDateTime} onChange={event => change({ ...draft, localDateTime: event.target.value })} /></label>
         <label>Timezone<input list="campaign-timezones" className={field} value={draft.timezone} onChange={event => change({ ...draft, timezone: event.target.value })} /><datalist id="campaign-timezones">{['Asia/Kolkata', 'UTC', 'America/New_York', 'Europe/London', 'Asia/Singapore', 'Australia/Sydney'].map(zone => <option key={zone} value={zone} />)}</datalist></label>
         <label>Maximum per day<input type="number" min="1" max={(options.maxDailyLimit || 450) * (draft.autoSwitchSenders ? 1 + (draft.fallbackSenderIds || []).length : 1)} className={field} value={draft.dailyLimit} onChange={event => change({ ...draft, dailyLimit: Number(event.target.value) })} /></label>
-        <label>Minimum seconds between messages<input type="number" min="180" className={field} value={draft.intervalSeconds} onChange={event => change({ ...draft, intervalSeconds: Number(event.target.value) })} /></label>
+        <label>Minimum seconds between messages<input type="number" min="3" className={field} value={draft.intervalSeconds} onChange={event => change({ ...draft, intervalSeconds: Number(event.target.value) })} /></label>
       </div>
       <SenderFallbackPicker senders={options.senders} primaryId={draft.senderId} enabled={draft.autoSwitchSenders} selectedIds={draft.fallbackSenderIds || []} perSenderLimit={options.maxDailyLimit || 450} onChange={(enabled, ids) => change({ ...draft, autoSwitchSenders: enabled, pauseOnDailyLimit:!enabled, fallbackSenderIds: ids, dailyLimit: (options.maxDailyLimit || 450) * (enabled ? 1 + ids.length : 1) })} />
       <label className="block rounded border border-amber-800 p-3 text-amber-200"><input type="checkbox" checked={draft.allowUnverifiedContacts===true} onChange={event=>change({...draft,allowUnverifiedContacts:event.target.checked})} /> Include unverified contacts for this campaign</label>

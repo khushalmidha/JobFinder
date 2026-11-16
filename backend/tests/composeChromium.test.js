@@ -208,7 +208,7 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
 
     // Verify Operational Flags & Cooldown Interval
     await modal.getByText('Immediate durable dispatch queue').waitFor();
-    await modal.getByText('180s interval between sends').waitFor();
+    await modal.getByText('3s interval between sends').waitFor();
     await modal.getByText('DISABLED (OUTREACH_SENDING_ENABLED=false)').waitFor();
     await modal.getByText('STANDBY / DISABLED (OUTREACH_WORKER_ENABLED=false)').waitFor();
     await modal.getByText(/Immediate outreach queues for the next worker poll cycle subject to cooldown interval/).waitFor();

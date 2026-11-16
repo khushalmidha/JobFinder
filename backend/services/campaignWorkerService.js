@@ -1,7 +1,7 @@
 const crypto=require('node:crypto');
 const Campaign=require('../models/OutreachCampaign'),Dispatch=require('../models/OutreachDispatch'),Runtime=require('../models/OutreachRuntime');
 const User=require('../models/User'),Contact=require('../models/Contact'),MailLog=require('../models/MailLog'),DeliveryLedger=require('../models/DeliveryLedger');
-const {digest,resolveSender,recipientReason,configuredLimit,normalizeEmail,resolveApprovedSenders,senderCap}=require('./campaignService');
+const {digest,resolveSender,recipientReason,configuredLimit,normalizeEmail,resolveApprovedSenders,senderCap,effectiveInterval}=require('./campaignService');
 const LEASE_MS=120000;
 const active=['scheduled','running'];
 const gates=()=>process.env.OUTREACH_SENDING_ENABLED==='true'&&process.env.OUTREACH_WORKER_ENABLED==='true';
@@ -88,12 +88,13 @@ async function runCampaignWorkerOnce({now:fixedNow,clock=()=>fixedNow?new Date(f
     now=clock();if(!enabled())return {status:'disabled'};
     const renewed=await Runtime.updateOne({...ownership,leaseUntil:{$gt:now}},{$set:{leaseUntil:new Date(+now+LEASE_MS)}});
     if(!renewed.matchedCount)return {status:'lease_lost'};
-    const boundary=await Campaign.updateOne({_id:campaign._id,state:{$in:active},revision:campaign.revision,approvedDigest:campaign.approvedDigest},{$set:{state:'running',reason:'',startedAt:campaign.startedAt||now,activeDispatchId:row._id,sendBoundaryAt:now,activeSenderId:sender.id,activeSenderEmail:sender.email,nextAt:new Date(+now+campaign.snapshot.intervalSeconds*1000)},...(campaign.activeSenderId!==sender.id?{$push:{events:{$each:[{at:now,action:campaign.activeSenderId?'sender_switched':'sender_selected',reason:`Approved sender ${sender.email}; app-tracked daily quota available`}],$slice:-200}}}:{})});
+    const intervalSeconds=effectiveInterval(campaign);
+    const boundary=await Campaign.updateOne({_id:campaign._id,state:{$in:active},revision:campaign.revision,approvedDigest:campaign.approvedDigest},{$set:{state:'running',reason:'',startedAt:campaign.startedAt||now,activeDispatchId:row._id,sendBoundaryAt:now,activeSenderId:sender.id,activeSenderEmail:sender.email,nextAt:new Date(+now+intervalSeconds*1000)},...(campaign.activeSenderId!==sender.id?{$push:{events:{$each:[{at:now,action:campaign.activeSenderId?'sender_switched':'sender_selected',reason:`Approved sender ${sender.email}; app-tracked daily quota available`}],$slice:-200}}}:{})});
     if(!boundary.matchedCount)return {status:'stopped'};
     const claimed=await Dispatch.findOneAndUpdate({_id:row._id,status:'queued',approvedDigest:row.approvedDigest,recipientEmail:row.recipientEmail,subject:row.subject,body:row.body,senderEmail:row.senderEmail},{$set:{status:'sending',senderId:sender.id,senderName:sender.name,senderEmail:sender.email,approvedSenderEmail:campaign.snapshot.senderEmail,leaseToken:token,leaseUntil:new Date(+now+LEASE_MS),startedAt:now},$inc:{attempts:1}},{returnDocument:'after'});
     if(!claimed)return {status:'already_claimed'};
     const finalTime=clock();
-    const fenced=await Runtime.updateOne({...ownership,leaseUntil:{$gt:finalTime}},{$set:{nextAllowedAt:new Date(+finalTime+campaign.snapshot.intervalSeconds*1000),lastDispatchAt:finalTime}});
+    const fenced=await Runtime.updateOne({...ownership,leaseUntil:{$gt:finalTime}},{$set:{nextAllowedAt:new Date(+finalTime+intervalSeconds*1000),lastDispatchAt:finalTime}});
     if(!fenced.matchedCount || !enabled()){
       await Dispatch.updateOne({_id:row._id,status:'sending',leaseToken:token},{$set:{status:'unknown_outcome',reason:'Final lease or sending gate lost; provider call not made by this worker'}});
       await note(campaign._id,'needs_review','Send boundary interrupted; reconcile before further dispatch',finalTime);
@@ -110,7 +111,7 @@ async function runCampaignWorkerOnce({now:fixedNow,clock=()=>fixedNow?new Date(f
       await MailLog.updateOne({dispatchId:row._id},{$setOnInsert:{campaignId:campaign._id,dispatchId:row._id,userId:campaign.userId,contactId:row.contactId,recipientEmail:row.recipientEmail,senderEmail:sender.email,subject:row.subject,body:row.body,messageHash:digest({recipient:row.recipientEmail,subject:row.subject,body:row.body}),status:'sent',providerMessageId:result.providerMessageId,sentAt:now}},{upsert:true});
       await Contact.updateOne({_id:row.contactId,userId:campaign.userId,status:{$in:['pending','failed','follow_up_later']}},{$set:{status:'sent',lastMailedAt:now}});
       await finishCampaign(campaign,now);
-      return {status:'sent',dispatchId:row._id};
+      return {status:'sent',dispatchId:row._id,nextAt:new Date(+finalTime+intervalSeconds*1000)};
     }catch(error){
       await Dispatch.updateOne({_id:row._id,status:'sending',leaseToken:token},{$set:{status:'unknown_outcome',reason:'Provider outcome uncertain; compare provider history before manual reconciliation'}});
       await note(campaign._id,'needs_review','Provider outcome uncertain; no automatic retry',clock());
@@ -119,10 +120,20 @@ async function runCampaignWorkerOnce({now:fixedNow,clock=()=>fixedNow?new Date(f
     }
   }finally{await Runtime.updateOne(ownership,{$set:{leaseUntil:new Date(0)},$unset:{leaseToken:1}});}
 }
-function initCampaignScheduler(){
+function initCampaignScheduler({run=runCampaignWorkerOnce}={}){
   if(process.env.OUTREACH_WORKER_ENABLED!=='true')return;
-  // Cron is merely a wake-up signal; every schedule, cooldown and claim lives in Mongo.
-  const tick=()=>runCampaignWorkerOnce().catch(()=>console.error('Outreach worker failed; inspect durable queue status'));
-  tick();return require('node-cron').schedule('*/30 * * * * *',tick,{timezone:'UTC'});
+  // Serial adaptive wake-ups; Mongo remains authoritative for all cooldowns,
+  // leases and queue state. A 30-second cron cannot serve a 3-second interval.
+  let timer,stopped=false,current=Promise.resolve();
+  const tick=async()=>{
+    let delay=3000;
+    try{
+      const result=await run();
+      if(result?.nextAt&&['sent','cooldown'].includes(result.status))delay=Math.max(100,Math.min(30000,+new Date(result.nextAt)-Date.now()));
+    }catch{console.error('Outreach worker failed; inspect durable queue status');}
+    if(!stopped){timer=setTimeout(startTick,delay);timer.unref?.();}
+  };
+  const startTick=()=>{current=tick();};
+  startTick();return {async stop(){stopped=true;clearTimeout(timer);await current;}};
 }
 module.exports={runCampaignWorkerOnce,initCampaignScheduler,recoverExpired,quotaAvailable};
