@@ -43,6 +43,9 @@ exports.previewImmediate = async (req, res) => {
     }
 
     if(req.body.allowUnverifiedContacts!==undefined&&typeof req.body.allowUnverifiedContacts!=='boolean')throw new Error('Choose whether to include unverified contacts explicitly');
+    if(req.body.allowResend!==undefined&&typeof req.body.allowResend!=='boolean')throw new Error('Choose whether to allow resending explicitly');
+    const allowUnverifiedContacts = req.body.allowUnverifiedContacts === true;
+    const allowResend = req.body.allowResend !== false;
 
     // 2. Resolve template defaults if overrides are not directly provided
     let defaultSubject = '';
@@ -118,7 +121,8 @@ exports.previewImmediate = async (req, res) => {
         contactId: String(c._id),
         subject,
         body,
-        overrideSalary: overrideSalary === true
+        overrideSalary: overrideSalary === true,
+        allowResend
       });
     }
 
@@ -154,7 +158,8 @@ exports.previewImmediate = async (req, res) => {
           dailyLimit: dailyLimit || campaignService.senderCap(user)*(senderPolicy?.approvedSenders.length||1),
           ...(senderPolicy||{}),
           ...(req.body.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{}),
-          ...(req.body.allowUnverifiedContacts===true?{allowUnverifiedContacts:true}:{}),
+          ...(allowUnverifiedContacts?{allowUnverifiedContacts:true}:{}),
+          ...(allowResend?{allowResend:true}:{}),
           intervalSeconds: effectiveInterval,
           recipients: []
         },
@@ -175,7 +180,9 @@ exports.previewImmediate = async (req, res) => {
       name: name || (immediate ? 'Immediate batch outreach' : 'Scheduled batch outreach'),
       senderId: sender.id,
       immediate, timezone, localDateTime,
-      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds, pauseOnDailyLimit:req.body.pauseOnDailyLimit, allowUnverifiedContacts:req.body.allowUnverifiedContacts,
+      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds, pauseOnDailyLimit:req.body.pauseOnDailyLimit,
+      allowUnverifiedContacts,
+      allowResend,
       dailyLimit,
       intervalSeconds: effectiveInterval,
       recipients

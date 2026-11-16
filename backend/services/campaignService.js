@@ -42,9 +42,11 @@ function resolveApprovedSenders(user,snapshot){
     const sender=resolveSender(user,entry.id);return {...sender,dailyLimit:Math.min(entry.dailyLimit,frozen.dailyLimit)};
   });
 }
-async function duplicateReason(userId,contactId,email,excludeDispatchId) {
-  if(await MailLog.exists({userId,status:{$in:['sent','delivered']},$or:[{contactId},{recipientEmail:email}]}))return 'Already sent: contact or recipient history';
-  if(await DeliveryLedger.exists({userId,status:{$in:['sent','delivered']},$or:[{contactId},{recipientEmail:email}]}))return 'Already sent: contact or recipient history';
+async function duplicateReason(userId,contactId,email,excludeDispatchId,allowResend=false) {
+  if(!allowResend){
+    if(await MailLog.exists({userId,status:{$in:['sent','delivered']},$or:[{contactId},{recipientEmail:email}]}))return 'Already sent: contact or recipient history';
+    if(await DeliveryLedger.exists({userId,status:{$in:['sent','delivered']},$or:[{contactId},{recipientEmail:email}]}))return 'Already sent: contact or recipient history';
+  }
   if(await Dispatch.exists({userId,recipientEmail:email,status:{$in:['sending','sent','unknown_outcome']},...(excludeDispatchId?{_id:{$ne:excludeDispatchId}}:{})}))return 'Previous send or unresolved delivery outcome';
   return null;
 }
@@ -106,11 +108,11 @@ async function recipientReason(user,contact,row,now=new Date(),dispatchId,eviden
   const company=evidence?evidence.companies.get(String(contact.companyId)):(contact.companyId?await Company.findById(contact.companyId).lean():null);
   if(qualifyCompany(company||{},now).qualificationStatus!=='qualified' && row.overrideSalary!==true)return 'Company fixed-base qualification is unverified; explicit research override required';
   if(evidence){
-    if(evidence.sentIds.has(String(contact._id))||evidence.sentEmails.has(email))return 'Already sent: contact or recipient history';
+    if(!row.allowResend && (evidence.sentIds.has(String(contact._id))||evidence.sentEmails.has(email)))return 'Already sent: contact or recipient history';
     if(evidence.uncertainEmails.has(email))return 'Previous send or unresolved delivery outcome';
     return null;
   }
-  return duplicateReason(user._id,contact._id,email,dispatchId);
+  return duplicateReason(user._id,contact._id,email,dispatchId,row.allowResend);
 }
 async function previewCampaign(userId,input,now=new Date()) {
   const user=await User.findById(userId);if(!user)throw new Error('User not found');
@@ -126,6 +128,7 @@ async function previewCampaign(userId,input,now=new Date()) {
     if(start-now>366*86400000)throw new Error('Schedule within the next year');
   }
   if(input.allowUnverifiedContacts!==undefined&&typeof input.allowUnverifiedContacts!=='boolean')throw new Error('Choose whether to include unverified contacts explicitly');
+  if(input.allowResend!==undefined&&typeof input.allowResend!=='boolean')throw new Error('Choose whether to allow resending explicitly');
   if(input.pauseOnDailyLimit!==undefined&&typeof input.pauseOnDailyLimit!=='boolean')throw new Error('Invalid daily-limit pause choice');
   if(input.pauseOnDailyLimit===true&&input.autoSwitchSenders===true)throw new Error('Choose automatic switching or pause at the daily limit');
   const policy=senderPolicy(user,input),maximum=senderCap(user)*(policy?.approvedSenders.length||1);
@@ -144,7 +147,7 @@ async function previewCampaign(userId,input,now=new Date()) {
   for(let offset=0;offset<input.recipients.length;offset+=25){
     const checked=await Promise.all(input.recipients.slice(offset,offset+25).map(async row=>{
       const contact=map.get(String(row.contactId)),email=contact?.email?normalizeEmail(contact.email):null;
-      return {row,contact,email,reason:await recipientReason(user,contact, {...row,allowUnverifiedContact:input.allowUnverifiedContacts===true},now,undefined,evidence)};
+      return {row,contact,email,reason:await recipientReason(user,contact, {...row,allowUnverifiedContact:input.allowUnverifiedContacts===true,allowResend:input.allowResend===true||row.allowResend===true},now,undefined,evidence)};
     }));
     for(const {row,contact,email,reason:checkedReason} of checked){
       let reason=checkedReason;
@@ -152,10 +155,10 @@ async function previewCampaign(userId,input,now=new Date()) {
       if(typeof row.subject!=='string'||!row.subject.trim()||/[\r\n]/.test(row.subject)||row.subject.length>200||typeof row.body!=='string'||!row.body.trim()||row.body.length>10000)reason='Valid subject (up to 200 characters) and body (up to 10000) required';
       if(reason){blocked.push({contactId:String(row.contactId),email:contact?email:null,reason});continue;}
       if(email)emails.add(email);
-      recipients.push({contactId:String(contact._id),recipientEmail:email,company:contact.company,subject:row.subject,body:row.body,overrideSalary:row.overrideSalary===true,...(input.allowUnverifiedContacts===true?{allowUnverifiedContact:true,mailboxStatus:trustedMailboxStatus(evidence.proofs.get(email),email),contactEvidenceStatus:contact.verificationStatus||'unknown',inferred:contact.inferenceFlag===true}:{})});
+      recipients.push({contactId:String(contact._id),recipientEmail:email,company:contact.company,subject:row.subject,body:row.body,overrideSalary:row.overrideSalary===true,...(input.allowResend===true||row.allowResend===true?{allowResend:true}:{}),...(input.allowUnverifiedContacts===true?{allowUnverifiedContact:true,mailboxStatus:trustedMailboxStatus(evidence.proofs.get(email),email),contactEvidenceStatus:contact.verificationStatus||'unknown',inferred:contact.inferenceFlag===true}:{})});
     }
   }
-  const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients,...(policy||{}),...(input.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{}),...(input.allowUnverifiedContacts===true?{allowUnverifiedContacts:true}:{})};
+  const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients,...(policy||{}),...(input.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{}),...(input.allowResend===true?{allowResend:true}:{}),...(input.allowUnverifiedContacts===true?{allowUnverifiedContacts:true}:{})};
   return {snapshot,digest:digest(snapshot),blocked,startAtUtc:start.toISOString(),immediate:isImmediate,estimatedMinutes:Math.max(0,recipients.length-1)*intervalSeconds/60,minimumDays:Math.ceil(recipients.length/dailyLimit),costEstimate:'INR 0 additional infrastructure/API credits; existing SMTP provider terms apply',quotaDay:'UTC'};
 }
 async function saveCampaign(userId,input,existingId,now=new Date()) {

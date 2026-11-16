@@ -18,6 +18,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   const [perSenderLimit, setPerSenderLimit] = useState(450);
   const [allowUnverifiedContacts,setAllowUnverifiedContacts]=useState(false);
   const [overrideSalary,setOverrideSalary]=useState(false);
+  const [allowResend,setAllowResend]=useState(true);
 
   const [subjectOverride, setSubjectOverride] = useState('');
   const [bodyOverride, setBodyOverride] = useState('');
@@ -119,7 +120,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     }
   };
 
-  const handlePreview = async (smtpIdToUse = null) => {
+  const handlePreview = async (smtpIdToUse = null, overrides = {}) => {
     const effectiveSmtpId = smtpIdToUse !== null ? smtpIdToUse : selectedSmtpId;
 
     // Check if an SMTP connection is selected
@@ -134,9 +135,15 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     const alternativeCount=(capacityLoaded?senderCapacity:smtpAccounts).filter(account=>account._id!==effectiveSmtpId).length;
     const switchingEnabled=autoSwitchSenders&&alternativeCount>0;
     if (switchingEnabled && !fallbackIds.length) { setError('Choose at least one additional approved sender for automatic switching.'); return; }
+    const unverifiedChoice = overrides.allowUnverifiedContacts !== undefined ? overrides.allowUnverifiedContacts : allowUnverifiedContacts;
+    const salaryChoice = overrides.overrideSalary !== undefined ? overrides.overrideSalary : overrideSalary;
+    const resendChoice = overrides.allowResend !== undefined ? overrides.allowResend : allowResend;
+
     const payload = { 
       autoSwitchSenders:switchingEnabled, pauseOnDailyLimit:!switchingEnabled, ...(switchingEnabled ? { fallbackSenderIds: fallbackIds } : {}),
-      allowUnverifiedContacts,overrideSalary,
+      allowUnverifiedContacts: unverifiedChoice,
+      overrideSalary: salaryChoice,
+      allowResend: resendChoice,
       mode: deliveryMode,
       ...(deliveryMode === 'scheduled' ? { localDateTime: `${scheduleDate}T${scheduleTime}`, timezone: scheduleTimezone } : {}),
       contactIds: selectedIds,
@@ -343,8 +350,10 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
           <SenderFallbackPicker senders={capacityLoaded ? senderCapacity.map(account => ({ id: account._id, email: account.user, name: account.name })) : smtpAccounts.map(account => ({ id: account._id, email: account.user, name: account.name }))} primaryId={selectedSmtpId} enabled={autoSwitchSenders} selectedIds={fallbackSenderIds} perSenderLimit={perSenderLimit} capacity={senderCapacity} onChange={(enabled, ids) => { setAutoSwitchSenders(enabled); setFallbackSenderIds(ids); setPreviewData(null); setApprovalChecked(false); setError(''); }} />
           <fieldset className="space-y-3 rounded-xl border border-amber-800/70 p-4 text-sm text-amber-200">
             <legend className="px-1 font-bold">Evidence choices for this campaign</legend>
+            <label className="flex items-start gap-2"><input type="checkbox" checked={allowResend} onChange={event=>{setAllowResend(event.target.checked);invalidateTiming();}} /><span>Allow sending to explicitly selected contacts with prior send history</span></label>
+            <p className="text-xs text-zinc-400">Previous send history will not exclude these selected contacts. In-flight messages, opt-outs, confirmed-invalid and same-batch duplicates remain strictly prevented.</p>
             <label className="flex items-start gap-2"><input type="checkbox" checked={allowUnverifiedContacts} onChange={event=>{setAllowUnverifiedContacts(event.target.checked);invalidateTiming();}} /><span>Include unverified contacts for this campaign</span></label>
-            <p className="text-xs text-zinc-400">Missing, domain-only, inferred and catch-all mailbox evidence stays labelled unverified. Your final approval must explicitly accept these recipients. Confirmed-invalid, blocked, opted-out, replied and already-contacted addresses remain excluded.</p>
+            <p className="text-xs text-zinc-400">Missing, domain-only, inferred and catch-all mailbox evidence stays labelled unverified. Your final approval must explicitly accept these recipients. Confirmed-invalid, blocked, opted-out, replied and in-flight addresses remain excluded.</p>
             <label className="flex items-start gap-2"><input type="checkbox" checked={overrideSalary} onChange={event=>{setOverrideSalary(event.target.checked);invalidateTiming();}} /><span>Allow companies without verified salary evidence for this campaign</span></label>
             <p className="text-xs text-zinc-400">Separate research override: this does not classify an employer as offering a verified fixed base above ₹15 LPA.</p>
           </fieldset>
@@ -779,12 +788,27 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     className="mt-0.5 rounded border-zinc-700 text-yellow-500 focus:ring-yellow-500/20"
                   />
                   <span className="text-xs text-zinc-200 leading-snug">
-                    I have reviewed all {previewData.eligibleCount} frozen recipient messages, personalized subjects, bodies, exclusions, sender account{previewData.snapshot?.autoSwitchSenders ? ' and every approved fallback account with its per-sender cap' : ''}, and cooldown interval. I explicitly approve {previewData.snapshot?.immediate ? 'immediate' : 'scheduled'} outreach with the displayed start time and timezone.{previewData.snapshot?.allowUnverifiedContacts && ' I explicitly accept the labelled unverified contacts and their delivery uncertainty for this campaign.'}
+                    I have reviewed all {previewData.eligibleCount} frozen recipient messages, personalized subjects, bodies, exclusions, sender account{previewData.snapshot?.autoSwitchSenders ? ' and every approved fallback account with its per-sender cap' : ''}, and cooldown interval. I explicitly approve {previewData.snapshot?.immediate ? 'immediate' : 'scheduled'} outreach with the displayed start time and timezone.{previewData.snapshot?.allowResend && ' I explicitly approve resending to previously-contacted recipients in this selection.'}{previewData.snapshot?.allowUnverifiedContacts && ' I explicitly accept the labelled unverified contacts and their delivery uncertainty for this campaign.'}
                   </span>
                 </label>
               ) : (
-                <div className="p-3 bg-red-950/30 border border-red-800/40 rounded-xl text-xs text-red-300 text-center">
-                  All selected recipients were excluded. Review each reason above; missing verification does not mean confirmed invalid. Nothing to send.
+                <div className="p-3 bg-red-950/30 border border-red-800/40 rounded-xl text-xs text-red-300 text-center space-y-2">
+                  <p>All selected recipients were excluded. Review each reason above; missing verification does not mean confirmed invalid. Nothing to send.</p>
+                  {previewData.blocked?.some(row => row.reason?.includes('Fresh trusted mailbox') || row.reason?.includes('Individual recruiting contact requires') || row.reason?.includes('qualification is unverified')) && (
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => {
+                        setAllowUnverifiedContacts(true);
+                        setOverrideSalary(true);
+                        setAllowResend(true);
+                        handlePreview(null, { allowUnverifiedContacts: true, overrideSalary: true, allowResend: true });
+                      }}
+                      className="w-full py-2 px-3 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-xs transition cursor-pointer shadow-md"
+                    >
+                      ⚡ Include unverified & unresearched contacts & re-preview now
+                    </button>
+                  )}
                 </div>
               )}
             </div>
