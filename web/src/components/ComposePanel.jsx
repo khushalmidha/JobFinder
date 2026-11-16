@@ -608,7 +608,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                 </div>}
                 <div className="flex justify-between items-center">
                   <span className="text-zinc-400">Configured Cooldown:</span>
-                  <span className="font-mono text-zinc-300 font-semibold">{previewData.intervalSeconds || previewData.snapshot?.intervalSeconds || 180}s interval between sends</span>
+                  <span className="font-mono text-zinc-300 font-semibold">{previewData.intervalSeconds || previewData.snapshot?.intervalSeconds || 3}s interval between sends</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-zinc-400">Daily Quota Cap:</span>

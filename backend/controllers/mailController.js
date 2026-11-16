@@ -125,7 +125,7 @@ exports.previewImmediate = async (req, res) => {
     const now = new Date();
     const sendingEnabled = process.env.OUTREACH_SENDING_ENABLED === 'true';
     const workerEnabled = process.env.OUTREACH_WORKER_ENABLED === 'true';
-    const effectiveInterval = (Number.isInteger(intervalSeconds) && intervalSeconds >= 180 && intervalSeconds <= 86400) ? intervalSeconds : 180;
+    const effectiveInterval = (Number.isInteger(intervalSeconds) && intervalSeconds >= 3 && intervalSeconds <= 86400) ? intervalSeconds : 3;
     const mode = req.body.mode === undefined ? 'immediate' : req.body.mode;
     if (!['immediate', 'scheduled'].includes(mode)) throw new Error('Choose immediate or scheduled delivery');
     const immediate = mode === 'immediate';
@@ -289,7 +289,7 @@ exports.getQueueStatus = async (req,res) => {
     let dailyLimit=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
     const senders=senderOptions(user);
     const [campaigns,pending,sending,activeLogIds,limitFailedCount]=await Promise.all([
-      Campaign.find({userId,state:{$in:['scheduled','running','paused','needs_review']}}).select('state reason snapshot activeSenderId activeSenderEmail nextAt').lean(),
+      Campaign.find({userId,state:{$in:['scheduled','running','paused','needs_review']}}).select('userId approvedDigest state reason snapshot pacingOverride activeSenderId activeSenderEmail nextAt').lean(),
       Dispatch.countDocuments({userId,status:'queued'}),Dispatch.countDocuments({userId,status:'sending'}),
       MailLog.distinct('_id', {userId,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),
       Contact.countDocuments({userId,status:'failed'})
@@ -303,7 +303,7 @@ exports.getQueueStatus = async (req,res) => {
     });
     const isPaused=campaigns.some(c=>['paused','needs_review'].includes(c.state));
     const activeCampaign = campaigns.find(c => c.state==='running') || campaigns.find(c=>c.state==='scheduled') || campaigns[0];
-    const intervalSeconds = activeCampaign?.snapshot?.intervalSeconds || 180;
+    const intervalSeconds = campaignService.effectiveInterval(activeCampaign||{});
     if(activeCampaign?.snapshot?.autoSwitchSenders)dailyLimit=activeCampaign.snapshot.dailyLimit;
     const {dailyUsage,senderQuotaKey}=require('../services/senderQuotaService');
     const quotaUsage=await dailyUsage({userId,campaignId:activeCampaign?._id,emails:senders.map(s=>s.email)});

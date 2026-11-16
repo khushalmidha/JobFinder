@@ -302,13 +302,13 @@ test('immediate outreach executes through SAME durable campaign worker without s
   const updatedContact1 = await Contact.findById(contactA1._id);
   assert.equal(updatedContact1.status, 'sent');
 
-  // Second dispatch is in cooldown until interval (180s)
-  const cooldownTick = await runCampaignWorkerOnce({ now: new Date(+runTime + 60000), enabled: () => true, send: fakeSend });
+  // Second dispatch is in cooldown until the default 3-second interval
+  const cooldownTick = await runCampaignWorkerOnce({ now: new Date(+runTime + 2000), enabled: () => true, send: fakeSend });
   assert.equal(cooldownTick.status, 'cooldown');
   assert.equal(sentCount, 1);
 
-  // At +180s, second dispatch executes
-  const tick2 = await runCampaignWorkerOnce({ now: new Date(+runTime + 180000), enabled: () => true, send: fakeSend });
+  // At +3s, second dispatch executes
+  const tick2 = await runCampaignWorkerOnce({ now: new Date(+runTime + 3000), enabled: () => true, send: fakeSend });
   assert.equal(tick2.status, 'sent');
   assert.equal(sentCount, 2);
 

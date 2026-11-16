@@ -5,6 +5,10 @@ const schema = new mongoose.Schema({
   snapshot: { type: mongoose.Schema.Types.Mixed, required: true },
   digest: { type: String, required: true },
   approvedDigest: String, approvedAt: Date, approvedBy: mongoose.Schema.Types.ObjectId,
+  pacingOverride: { type: new mongoose.Schema({
+    intervalSeconds: Number, approvedDigest: String, approvedBy: mongoose.Schema.Types.ObjectId,
+    approvedAt: Date, previousIntervalSeconds: Number, reason: String
+  }, {_id:false}), default:undefined },
   revision: { type: Number, default: 1 },
   state: { type: String, enum: ['draft','scheduled','running','paused','completed','cancelled','needs_review','failed'], default: 'draft' },
   startAtUtc: { type: Date, required: true }, nextAt: Date, startedAt: Date,

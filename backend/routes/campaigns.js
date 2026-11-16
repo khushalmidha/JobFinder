@@ -32,6 +32,7 @@ router.get('/:id',wrap(async(req,res)=>{
   res.json({campaign,dispatches});
 }));
 router.patch('/:id',wrap(async(req,res)=>res.json(await service.saveCampaign(req.user._id,req.body,req.params.id))));
+router.post('/:id/interval',wrap(async(req,res)=>res.json(await service.changeCampaignInterval(req.user._id,req.params.id,req.body.approvedDigest,req.body.intervalSeconds,req.body.reason))));
 router.post('/:id/approve',wrap(async(req,res)=>res.json(await service.approveCampaign(req.user._id,req.params.id,req.body.digest,new Date(),{approveUnverifiedContacts:req.body.approveUnverifiedContacts===true}))));
 for(const action of ['pause','resume','cancel'])router.post(`/:id/${action}`,wrap(async(req,res)=>res.json(await service.controlCampaign(req.user._id,req.params.id,action))));
 router.post('/:id/dispatches/:dispatchId/reconcile',wrap(async(req,res)=>{
