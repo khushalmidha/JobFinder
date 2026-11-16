@@ -48,21 +48,33 @@ async function duplicateReason(userId,contactId,email,excludeDispatchId) {
   if(await Dispatch.exists({userId,recipientEmail:email,status:{$in:['sending','sent','unknown_outcome']},...(excludeDispatchId?{_id:{$ne:excludeDispatchId}}:{})}))return 'Previous send or unresolved delivery outcome';
   return null;
 }
+function permanentContactReason(contact){
+  if(!contact)return 'Contact not found';
+  if(contact.vendorStatus==='invalid'||contact.verificationStatus==='invalid'||contact.deliverabilityStatus==='invalid'||contact.hygieneDisposition==='confirmed_invalid'||contact.smtpConnectivity?.domainStatus==='null_mx')return 'Confirmed-invalid contact';
+  if(contact.optOutAt||contact.suppressedAt||contact.repliedAt||['bounced','removed','replied','reply_received','positive_response','negative_response'].includes(contact.status))return 'Contact suppressed or already replied';
+  return null;
+}
+function trustedMailboxStatus(proof,email){
+  return proof?.outcome==='valid'&&new Date(proof.expiresAt)>new Date()&&require('./smtpConnectivityService').syntaxDisposition(email)==='supported'?'verified':'unverified';
+}
 async function previewEvidence(user,contacts) {
   const ids=contacts.map(c=>c._id),emails=[...new Set(contacts.map(c=>normalizeEmail(c.email)))];
   const historyFilter={userId:user._id,status:{$in:['sent','delivered']},$or:[{contactId:{$in:ids}},{recipientEmail:{$in:emails}}]};
-  const [suppressions,same,companies,logs,ledger,dispatches]=await Promise.all([
+  const [suppressions,same,companies,logs,ledger,dispatches,proofs]=await Promise.all([
     RecipientSuppression.find({userId:user._id,email:{$in:emails}}).select('email').lean(),
     // Include all owned email spellings to retain case-insensitive duplicate suppression.
-    Contact.find({userId:user._id}).select('email optOutAt suppressedAt deliverabilityStatus status').lean(),
+    Contact.find({userId:user._id}).select('email optOutAt suppressedAt deliverabilityStatus verificationStatus vendorStatus hygieneDisposition smtpConnectivity.domainStatus repliedAt status').lean(),
     Company.find({_id:{$in:contacts.filter(c=>c.companyId).map(c=>c.companyId)}}).lean(),
     MailLog.find(historyFilter).select('contactId recipientEmail').lean(),
     DeliveryLedger.find(historyFilter).select('contactId recipientEmail').lean(),
-    Dispatch.find({userId:user._id,recipientEmail:{$in:emails},status:{$in:['sending','sent','unknown_outcome']}}).select('recipientEmail').lean()
+    Dispatch.find({userId:user._id,recipientEmail:{$in:emails},status:{$in:['sending','sent','unknown_outcome']}}).select('recipientEmail').lean(),
+    require('../models/MailboxProof').find({userId:user._id,email:{$in:emails}}).sort({checkedAt:-1,_id:-1}).lean()
   ]);
+  const latestProofs=new Map();for(const proof of proofs)if(!latestProofs.has(proof.email))latestProofs.set(proof.email,proof);
   return {
+    proofs:latestProofs,
     suppressed:new Set(suppressions.map(c=>c.email)),
-    blockedDuplicates:new Set(same.filter(c=>c.optOutAt||c.suppressedAt||c.deliverabilityStatus==='invalid'||['bounced','removed','replied','reply_received','positive_response','negative_response'].includes(c.status)).map(c=>normalizeEmail(c.email))),
+    blockedDuplicates:new Set(same.filter(c=>permanentContactReason(c)).map(c=>normalizeEmail(c.email))),
     companies:new Map(companies.map(c=>[String(c._id),c])),
     sentIds:new Set([...logs,...ledger].map(c=>String(c.contactId))),
     sentEmails:new Set([...logs,...ledger].map(c=>c.recipientEmail)),
@@ -73,9 +85,15 @@ async function recipientReason(user,contact,row,now=new Date(),dispatchId,eviden
   if(!contact || String(contact.userId)!==String(user._id))return 'Owned contact not found';
   if(!validEmail(normalizeEmail(contact.email)))return 'Unsupported or invalid recipient syntax';
   if(evidence?evidence.suppressed.has(normalizeEmail(contact.email)):await RecipientSuppression.exists({userId:user._id,email:normalizeEmail(contact.email)}))return 'Recipient has a persistent suppression record';
-  if(require('./contactAdmissionService').enabled() && !await require('./contactAdmissionService').validProof(user._id,contact.email))return 'Fresh trusted mailbox verification required';
-  const blocked=contactBlockReason(contact);if(blocked)return blocked;
-  if(!['publicly_sourced','vendor_verified'].includes(contact.verificationStatus))return 'Individual recruiting contact requires public or provider evidence';
+  const hardBlock=permanentContactReason(contact);if(hardBlock)return hardBlock;
+  const proof=evidence?evidence.proofs.get(normalizeEmail(contact.email)):await require('./contactAdmissionService').latestProof(user._id,contact.email);
+  if(proof?.outcome==='invalid')return 'Trusted verifier reports invalid mailbox';
+  const allowUnverified=row.allowUnverifiedContact===true;
+  if(!allowUnverified&&require('./contactAdmissionService').enabled()&&trustedMailboxStatus(proof,contact.email)!=='verified')return 'Fresh trusted mailbox verification required';
+  if(!allowUnverified){
+    const blocked=contactBlockReason(contact);if(blocked)return blocked;
+    if(!['publicly_sourced','vendor_verified'].includes(contact.verificationStatus))return 'Individual recruiting contact requires public or provider evidence';
+  }
   if((user.blockedCompanies||[]).some(c=>require('./companyIdentityService').companyKey(c)===require('./companyIdentityService').companyKey(contact.company)))return 'Company is on your do-not-contact list';
   // Duplicate contact rows cannot bypass an existing suppression for this owner.
   const email=normalizeEmail(contact.email);
@@ -83,7 +101,7 @@ async function recipientReason(user,contact,row,now=new Date(),dispatchId,eviden
     if(evidence.blockedDuplicates.has(email))return 'Recipient suppressed or replied in another contact record';
   }else{
     const same=await Contact.find({userId:user._id,email:{$regex:`^${email.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,$options:'i'}}).lean();
-    if(same.some(c=>c.optOutAt||c.suppressedAt||c.deliverabilityStatus==='invalid'||['bounced','removed','replied','reply_received','positive_response','negative_response'].includes(c.status)))return 'Recipient suppressed or replied in another contact record';
+    if(same.some(c=>permanentContactReason(c)))return 'Recipient suppressed or replied in another contact record';
   }
   const company=evidence?evidence.companies.get(String(contact.companyId)):(contact.companyId?await Company.findById(contact.companyId).lean():null);
   if(qualifyCompany(company||{},now).qualificationStatus!=='qualified' && row.overrideSalary!==true)return 'Company fixed-base qualification is unverified; explicit research override required';
@@ -107,6 +125,7 @@ async function previewCampaign(userId,input,now=new Date()) {
     if(start<=now)throw new Error('Choose a future start time');
     if(start-now>366*86400000)throw new Error('Schedule within the next year');
   }
+  if(input.allowUnverifiedContacts!==undefined&&typeof input.allowUnverifiedContacts!=='boolean')throw new Error('Choose whether to include unverified contacts explicitly');
   if(input.pauseOnDailyLimit!==undefined&&typeof input.pauseOnDailyLimit!=='boolean')throw new Error('Invalid daily-limit pause choice');
   if(input.pauseOnDailyLimit===true&&input.autoSwitchSenders===true)throw new Error('Choose automatic switching or pause at the daily limit');
   const policy=senderPolicy(user,input),maximum=senderCap(user)*(policy?.approvedSenders.length||1);
@@ -125,7 +144,7 @@ async function previewCampaign(userId,input,now=new Date()) {
   for(let offset=0;offset<input.recipients.length;offset+=25){
     const checked=await Promise.all(input.recipients.slice(offset,offset+25).map(async row=>{
       const contact=map.get(String(row.contactId)),email=contact?.email?normalizeEmail(contact.email):null;
-      return {row,contact,email,reason:await recipientReason(user,contact,row,now,undefined,evidence)};
+      return {row,contact,email,reason:await recipientReason(user,contact, {...row,allowUnverifiedContact:input.allowUnverifiedContacts===true},now,undefined,evidence)};
     }));
     for(const {row,contact,email,reason:checkedReason} of checked){
       let reason=checkedReason;
@@ -133,10 +152,10 @@ async function previewCampaign(userId,input,now=new Date()) {
       if(typeof row.subject!=='string'||!row.subject.trim()||/[\r\n]/.test(row.subject)||row.subject.length>200||typeof row.body!=='string'||!row.body.trim()||row.body.length>10000)reason='Valid subject (up to 200 characters) and body (up to 10000) required';
       if(reason){blocked.push({contactId:String(row.contactId),email:contact?email:null,reason});continue;}
       if(email)emails.add(email);
-      recipients.push({contactId:String(contact._id),recipientEmail:email,company:contact.company,subject:row.subject,body:row.body,overrideSalary:row.overrideSalary===true});
+      recipients.push({contactId:String(contact._id),recipientEmail:email,company:contact.company,subject:row.subject,body:row.body,overrideSalary:row.overrideSalary===true,...(input.allowUnverifiedContacts===true?{allowUnverifiedContact:true,mailboxStatus:trustedMailboxStatus(evidence.proofs.get(email),email),contactEvidenceStatus:contact.verificationStatus||'unknown',inferred:contact.inferenceFlag===true}:{})});
     }
   }
-  const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients,...(policy||{}),...(input.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{})};
+  const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients,...(policy||{}),...(input.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{}),...(input.allowUnverifiedContacts===true?{allowUnverifiedContacts:true}:{})};
   return {snapshot,digest:digest(snapshot),blocked,startAtUtc:start.toISOString(),immediate:isImmediate,estimatedMinutes:Math.max(0,recipients.length-1)*intervalSeconds/60,minimumDays:Math.ceil(recipients.length/dailyLimit),costEstimate:'INR 0 additional infrastructure/API credits; existing SMTP provider terms apply',quotaDay:'UTC'};
 }
 async function saveCampaign(userId,input,existingId,now=new Date()) {
@@ -148,9 +167,10 @@ async function saveCampaign(userId,input,existingId,now=new Date()) {
   await Dispatch.updateMany({campaignId:updated._id,revision:{$lt:updated.revision},status:'queued'},{$set:{status:'cancelled',reason:'Campaign edited; approval invalidated'}});
   return updated;
 }
-async function approveCampaign(userId,id,approvedDigest,now=new Date()) {
+async function approveCampaign(userId,id,approvedDigest,now=new Date(),{approveUnverifiedContacts=false}={}) {
   const campaign=await Campaign.findOne({_id:objectId(id),userId});if(!campaign)throw new Error('Campaign not found');
   if(campaign.state!=='draft'||campaign.digest!==approvedDigest||digest(campaign.snapshot)!==approvedDigest)throw new Error('Preview changed; review the exact saved campaign again');
+  if(campaign.snapshot.allowUnverifiedContacts===true&&approveUnverifiedContacts!==true)throw new Error('Explicit campaign approval of unverified contacts required');
   const check=await previewCampaign(userId,{...campaign.snapshot,recipients:campaign.snapshot.recipients},now);
   if(check.blocked.length||check.digest!==approvedDigest)throw new Error('Sender, recipient or evidence changed; edit and preview again');
   const rows=campaign.snapshot.recipients.map(r=>({campaignId:campaign._id,userId,contactId:r.contactId,revision:campaign.revision,recipientEmail:r.recipientEmail,subject:r.subject,body:r.body,senderEmail:campaign.snapshot.senderEmail,approvedDigest,scheduledAtUtc:campaign.startAtUtc,providerIdempotencyKey:digest({campaignId:String(campaign._id),recipient:r.recipientEmail,revision:campaign.revision})}));
@@ -178,4 +198,4 @@ async function controlCampaign(userId,id,action,now=new Date()) {
   if(action==='cancel')await Dispatch.updateMany({campaignId:campaign._id,status:'queued'},{$set:{status:'cancelled',reason:'Owner cancelled'}});
   return updated;
 }
-module.exports={senderCap,senderIdentity,senderPolicy,resolveApprovedSenders,normalizeEmail,validEmail,digest,objectId,configuredLimit,senderOptions,resolveSender,recipientReason,duplicateReason,previewCampaign,saveCampaign,approveCampaign,controlCampaign};
+module.exports={permanentContactReason,senderCap,senderIdentity,senderPolicy,resolveApprovedSenders,normalizeEmail,validEmail,digest,objectId,configuredLimit,senderOptions,resolveSender,recipientReason,duplicateReason,previewCampaign,saveCampaign,approveCampaign,controlCampaign};

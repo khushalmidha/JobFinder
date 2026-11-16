@@ -14,6 +14,7 @@ router.get('/options',wrap(async(req,res)=>{
   const map=new Map(companies.map(c=>[String(c._id),c]));
   const contacts=rows.map(c=>({_id:c._id,email:c.email,company:c.company,hrName:c.hrName,verificationStatus:c.verificationStatus,provenance:c.provenance,
     blockReason:contactBlockReason(c)||(!['publicly_sourced','vendor_verified'].includes(c.verificationStatus)?'Requires publicly sourced or provider-verified contact':null),
+    permanentBlockReason:service.permanentContactReason(c),
     salaryQualified:qualifyCompany(map.get(String(c.companyId))||{}).qualificationStatus==='qualified'}));
   const runtime=await Runtime.findById('global').select('lastPollAt lastDispatchAt lastError nextAllowedAt').lean();
   res.json({senders:service.senderOptions(user).map(({id,email,name,provider})=>({id,email,name,provider})),contacts,sendingEnabled:process.env.OUTREACH_SENDING_ENABLED==='true',workerEnabled:process.env.OUTREACH_WORKER_ENABLED==='true',maxDailyLimit:Math.min(user.dailyEmailLimit||450,service.configuredLimit('OUTREACH_MAX_DAILY',450)),globalDailyLimit:service.configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450,45000),quotaDay:'UTC',runtime,admin:user.role==='admin',contactsTruncated:rows.length===1000});
@@ -31,7 +32,7 @@ router.get('/:id',wrap(async(req,res)=>{
   res.json({campaign,dispatches});
 }));
 router.patch('/:id',wrap(async(req,res)=>res.json(await service.saveCampaign(req.user._id,req.body,req.params.id))));
-router.post('/:id/approve',wrap(async(req,res)=>res.json(await service.approveCampaign(req.user._id,req.params.id,req.body.digest))));
+router.post('/:id/approve',wrap(async(req,res)=>res.json(await service.approveCampaign(req.user._id,req.params.id,req.body.digest,new Date(),{approveUnverifiedContacts:req.body.approveUnverifiedContacts===true}))));
 for(const action of ['pause','resume','cancel'])router.post(`/:id/${action}`,wrap(async(req,res)=>res.json(await service.controlCampaign(req.user._id,req.params.id,action))));
 router.post('/:id/dispatches/:dispatchId/reconcile',wrap(async(req,res)=>{
   const campaign=await Campaign.findOne({_id:service.objectId(req.params.id),userId:req.user._id});
