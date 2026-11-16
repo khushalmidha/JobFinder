@@ -9,6 +9,7 @@ const schema = new mongoose.Schema({
   state: { type: String, enum: ['draft','scheduled','running','paused','completed','cancelled','needs_review','failed'], default: 'draft' },
   startAtUtc: { type: Date, required: true }, nextAt: Date, startedAt: Date,
   reason: { type: String, default: '' },
+  activeSenderId: String, activeSenderEmail: String,
   activeDispatchId: mongoose.Schema.Types.ObjectId, sendBoundaryAt: Date,
   events: [{ at: Date, action: String, reason: String }]
 }, { timestamps: true });

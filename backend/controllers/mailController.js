@@ -133,6 +133,7 @@ exports.previewImmediate = async (req, res) => {
     const timezone = immediate ? 'Asia/Kolkata' : req.body.timezone;
     const localDateTime = immediate ? null : req.body.localDateTime;
     const plannedStart = immediate ? now : require('../services/campaignTimeService').localTimeToUtc(localDateTime, timezone);
+    const senderPolicy=campaignService.senderPolicy(user,{senderId:sender.id,autoSwitchSenders:req.body.autoSwitchSenders,fallbackSenderIds:req.body.fallbackSenderIds});
     if (!immediate && plannedStart <= now) throw new Error('Choose a future start time');
     if (!immediate && plannedStart - now > 366 * 86400000) throw new Error('Schedule within the next year');
 
@@ -151,7 +152,8 @@ exports.previewImmediate = async (req, res) => {
           provider: sender.provider,
           startAtUtc: plannedStart.toISOString(),
           immediate, timezone, localDateTime,
-          dailyLimit: dailyLimit || Math.min(user.dailyEmailLimit || 450, 450),
+          dailyLimit: dailyLimit || campaignService.senderCap(user)*(senderPolicy?.approvedSenders.length||1),
+          ...(senderPolicy||{}),
           intervalSeconds: effectiveInterval,
           recipients: []
         },
@@ -172,6 +174,7 @@ exports.previewImmediate = async (req, res) => {
       name: name || (immediate ? 'Immediate batch outreach' : 'Scheduled batch outreach'),
       senderId: sender.id,
       immediate, timezone, localDateTime,
+      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds,
       dailyLimit,
       intervalSeconds: effectiveInterval,
       recipients
@@ -184,12 +187,15 @@ exports.previewImmediate = async (req, res) => {
     }
 
     const allBlocked = [...initialBlocked, ...preview.blocked];
+    const approvedSenders=preview.snapshot.approvedSenders||[{id:sender.id,email:sender.email,name:sender.name,dailyLimit:campaignService.senderCap(user)}];
+    const usage=await require('../services/senderQuotaService').dailyUsage({userId,emails:approvedSenders.map(s=>s.email),now});
+    const senderQuota=approvedSenders.map(s=>({...s,usedToday:usage.senders[require('../services/senderQuotaService').senderQuotaKey(s.email)]||0,remainingToday:Math.max(0,s.dailyLimit-(usage.senders[require('../services/senderQuotaService').senderQuotaKey(s.email)]||0))}));
 
     res.json({
       campaignId: draft ? draft._id : null,
       digest: draft ? draft.digest : preview.digest,
       snapshot: draft ? draft.snapshot : preview.snapshot,
-      blocked: allBlocked,
+      blocked: allBlocked, senderQuota, globalDailyLimit:campaignService.configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450,45000),
       eligibleCount: preview.snapshot.recipients.length,
       blockedCount: allBlocked.length,
       selectedCount: rawContactIds.length,
@@ -279,10 +285,10 @@ exports.getQueueStatus = async (req,res) => {
     if(!user)return res.status(404).json({error:'User not found'});
     const start=new Date();start.setUTCHours(0,0,0,0);
     const {senderOptions,configuredLimit}=require('../services/campaignService');
-    const dailyLimit=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
+    let dailyLimit=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
     const senders=senderOptions(user);
     const [campaigns,pending,sending,activeLogIds,limitFailedCount]=await Promise.all([
-      Campaign.find({userId,state:{$in:['scheduled','running','paused','needs_review']}}).select('state reason snapshot').lean(),
+      Campaign.find({userId,state:{$in:['scheduled','running','paused','needs_review']}}).select('state reason snapshot activeSenderId activeSenderEmail nextAt').lean(),
       Dispatch.countDocuments({userId,status:'queued'}),Dispatch.countDocuments({userId,status:'sending'}),
       MailLog.distinct('_id', {userId,status:{$in:['sent','delivered']},sentAt:{$gte:start}}),
       Contact.countDocuments({userId,status:'failed'})
@@ -295,8 +301,12 @@ exports.getQueueStatus = async (req,res) => {
       originalMailLogId: {$nin: activeLogIds}
     });
     const isPaused=campaigns.some(c=>['paused','needs_review'].includes(c.state));
-    const activeCampaign = campaigns.find(c => ['running', 'scheduled'].includes(c.state)) || campaigns[0];
+    const activeCampaign = campaigns.find(c => c.state==='running') || campaigns.find(c=>c.state==='scheduled') || campaigns[0];
     const intervalSeconds = activeCampaign?.snapshot?.intervalSeconds || 180;
+    if(activeCampaign?.snapshot?.autoSwitchSenders)dailyLimit=activeCampaign.snapshot.dailyLimit;
+    const {dailyUsage,senderQuotaKey}=require('../services/senderQuotaService');
+    const quotaUsage=await dailyUsage({userId,campaignId:activeCampaign?._id,emails:senders.map(s=>s.email)});
+    const activeSenderId=activeCampaign?.activeSenderId||user.selectedSmtpId;
     const sentToday = sentTodayLogs + sentTodayLedger;
     const accounts=await Promise.all(senders.map(async s=>{
       const activeSenderLogIds = await MailLog.distinct('_id', {userId,senderEmail:s.email,status:{$in:['sent','delivered']},sentAt:{$gte:start}});
@@ -309,20 +319,25 @@ exports.getQueueStatus = async (req,res) => {
         originalMailLogId: {$nin: activeSenderLogIds}
       });
       const count = countLogs + countLedger;
-      return {_id:s.id,name:s.name,user:s.email,host:s.host,port:s.port,sentToday:count,dailyLimit,remaining:Math.max(0,dailyLimit-count),isActive:s.id===user.selectedSmtpId};
+      const accountLimit=campaignService.senderCap(user),used=quotaUsage.senders[senderQuotaKey(s.email)]||0;
+      return {_id:s.id,name:s.name,user:s.email,host:s.host,port:s.port,sentToday:count,quotaUsedToday:used,dailyLimit:accountLimit,remaining:Math.max(0,accountLimit-used),isActive:s.id===activeSenderId};
     }));
+    const remaining=activeCampaign?.snapshot?.autoSwitchSenders ? Math.max(0,Math.min(dailyLimit-quotaUsage.campaign,configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450,45000)-quotaUsage.global,activeCampaign.snapshot.approvedSenders.reduce((sum,s)=>sum+Math.max(0,Math.min(s.dailyLimit,campaignService.senderCap(user))-(quotaUsage.senders[senderQuotaKey(s.email)]||0)),0))) : Math.max(0,dailyLimit-quotaUsage.owner);
     res.json({
       pending:pending+sending,
       size:pending,
       isPaused,
       pauseReason:isPaused?'CAMPAIGN_REVIEW':null,
       limitType:null,
-      limitMessage:campaigns.find(c=>c.reason)?.reason||null,
+      limitMessage:activeCampaign?.reason||campaigns.find(c=>c.reason)?.reason||null,
       limitFailedCount,
       sentToday,
       dailyLimit,
-      remaining:Math.max(0,dailyLimit-sentToday),
-      activeSender:senders.find(s=>s.id===user.selectedSmtpId)?.email||senders[0]?.email||'',
+      remaining,
+      activeSender:activeCampaign?.activeSenderEmail||senders.find(s=>s.id===activeSenderId)?.email||senders[0]?.email||'',
+      automaticSenderSwitching:activeCampaign?.snapshot?.autoSwitchSenders===true,
+      globalDailyLimit:configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450,45000),
+      quotaUsedToday:quotaUsage.owner,
       accounts,
       campaignsPath:'/campaigns',
       quotaDay:'UTC',

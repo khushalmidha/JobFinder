@@ -1,7 +1,7 @@
 const crypto=require('node:crypto');
 const Campaign=require('../models/OutreachCampaign'),Dispatch=require('../models/OutreachDispatch'),Runtime=require('../models/OutreachRuntime');
 const User=require('../models/User'),Contact=require('../models/Contact'),MailLog=require('../models/MailLog'),DeliveryLedger=require('../models/DeliveryLedger');
-const {digest,resolveSender,recipientReason,configuredLimit,normalizeEmail}=require('./campaignService');
+const {digest,resolveSender,recipientReason,configuredLimit,normalizeEmail,resolveApprovedSenders,senderCap}=require('./campaignService');
 const LEASE_MS=120000;
 const active=['scheduled','running'];
 const gates=()=>process.env.OUTREACH_SENDING_ENABLED==='true'&&process.env.OUTREACH_WORKER_ENABLED==='true';
@@ -22,26 +22,17 @@ async function recoverExpired(now){
   const unresolved=await Dispatch.distinct('campaignId',{status:'unknown_outcome'});
   if(unresolved.length)await Campaign.updateMany({_id:{$in:unresolved},state:{$nin:['cancelled','needs_review']}},{$set:{state:'needs_review',reason:'Unresolved delivery outcome; automatic retry blocked'}});
 }
-async function quotaAvailable(campaign,user,now){
-  const start=dayStart(now),legacy={sentAt:{$gte:start},status:{$in:['sent','delivered']},dispatchId:{$exists:false}};
-  const legacyLogIds = await MailLog.distinct('_id', legacy);
-  const legacyGlobal = legacyLogIds.length;
-  const legacyOwner = await MailLog.countDocuments({...legacy,userId:user._id});
-  const legacyAccount = await MailLog.countDocuments({...legacy,senderEmail:campaign.snapshot.senderEmail});
-  const dedupedLedger = {...legacy, originalMailLogId: {$nin: legacyLogIds}};
-  const [global,owner,account,perCampaign,ledgerGlobal,ledgerOwner,ledgerAccount]=await Promise.all([
-    Dispatch.countDocuments({startedAt:{$gte:start}}),
-    Dispatch.countDocuments({userId:user._id,startedAt:{$gte:start}}),
-    Dispatch.countDocuments({senderEmail:campaign.snapshot.senderEmail,startedAt:{$gte:start}}),
-    Dispatch.countDocuments({campaignId:campaign._id,startedAt:{$gte:start}}),
-    DeliveryLedger.countDocuments(dedupedLedger),
-    DeliveryLedger.countDocuments({...dedupedLedger,userId:user._id}),
-    DeliveryLedger.countDocuments({...dedupedLedger,senderEmail:campaign.snapshot.senderEmail})
-  ]);
-  if(global+legacyGlobal+ledgerGlobal>=configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450))return 'Global daily cap reached (UTC day)';
-  const cap=Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
-  if(owner+legacyOwner+ledgerOwner>=cap||account+legacyAccount+ledgerAccount>=cap||perCampaign>=campaign.snapshot.dailyLimit)return 'User, sender or campaign daily cap reached (UTC day)';
+function quotaReason(campaign,user,sender,usage){
+  if(usage.global>=configuredLimit('OUTREACH_GLOBAL_MAX_DAILY',450,45000))return 'Global daily cap reached (UTC day)';
+  const cap=senderCap(user);
+  if((campaign.snapshot.autoSwitchSenders!==true&&usage.owner>=cap)||usage.campaign>=campaign.snapshot.dailyLimit)return 'User or campaign daily cap reached (UTC day)';
+  const {senderQuotaKey}=require('./senderQuotaService');
+  if((usage.senders[senderQuotaKey(sender.email)]||0)>=Math.min(cap,sender.dailyLimit??cap))return 'Sender daily cap reached (UTC day)';
   return null;
+}
+async function quotaAvailable(campaign,user,now,sender={email:campaign.snapshot.senderEmail},usage){
+  usage=usage||await require('./senderQuotaService').dailyUsage({userId:user._id,campaignId:campaign._id,emails:[sender.email],now});
+  return quotaReason(campaign,user,sender,usage);
 }
 async function finishCampaign(campaign,now){
   if(await Dispatch.exists({campaignId:campaign._id,revision:campaign.revision,status:'queued'}))return;
@@ -69,15 +60,18 @@ async function runCampaignWorkerOnce({now:fixedNow,clock=()=>fixedNow?new Date(f
     if(!campaign.approvedDigest || campaign.approvedDigest!==campaign.digest || digest(campaign.snapshot)!==campaign.approvedDigest){await note(campaign._id,'needs_review','Approval snapshot no longer matches',now);return {status:'approval_invalid'};}
     const user=await User.findById(campaign.userId);
     if(!user){await note(campaign._id,'needs_review','Sender owner missing',now);return {status:'sender_missing'};}
-    let sender;
-    try{sender=resolveSender(user,campaign.snapshot.senderId);}catch{await note(campaign._id,'needs_review','Approved sender no longer configured',now);return {status:'sender_missing'};}
-    if(sender.email!==campaign.snapshot.senderEmail||sender.name!==campaign.snapshot.senderName||sender.host!==campaign.snapshot.senderHost||sender.port!==campaign.snapshot.senderPort){await note(campaign._id,'needs_review','Sender identity changed; fresh approval required',now);return {status:'sender_changed'};}
-    const quota=await quotaAvailable(campaign,user,now);
-    if(quota){await note(campaign._id,campaign.state,quota,now,{nextAt:tomorrow(now)});return {status:'daily_limit'};}
+    let senders;
+    try{senders=resolveApprovedSenders(user,campaign.snapshot);}catch{await note(campaign._id,'needs_review','Approved sender pool missing or changed; fresh review required',now);return {status:'sender_missing'};}
+    const primary=senders[0];
+    if(primary.email!==campaign.snapshot.senderEmail||primary.name!==campaign.snapshot.senderName||primary.host!==campaign.snapshot.senderHost||primary.port!==campaign.snapshot.senderPort){await note(campaign._id,'needs_review','Sender identity changed; fresh approval required',now);return {status:'sender_changed'};}
+    const usage=await require('./senderQuotaService').dailyUsage({userId:user._id,campaignId:campaign._id,emails:senders.map(s=>s.email),now});
+    let sender,quota;
+    for(const candidate of senders){quota=quotaReason(campaign,user,candidate,usage);if(!quota){sender=candidate;break;}if(!quota.startsWith('Sender daily cap'))break;}
+    if(!sender){await note(campaign._id,campaign.state,campaign.snapshot.autoSwitchSenders&&quota?.startsWith('Sender daily cap')?'All approved senders reached daily capacity; automatic continuation after UTC reset':quota||'Daily capacity reached; automatic continuation after UTC reset',now,{nextAt:usage.nextReset});return {status:'daily_limit',nextAt:usage.nextReset};}
     const row=await Dispatch.findOne({campaignId:campaign._id,revision:campaign.revision,status:'queued'}).sort({_id:1}).lean();
     if(!row){await finishCampaign(campaign,now);return {status:'complete'};}
     const approved=campaign.snapshot.recipients.find(r=>r.contactId===String(row.contactId));
-    if(!approved||row.approvedDigest!==campaign.approvedDigest||approved.recipientEmail!==row.recipientEmail||approved.subject!==row.subject||approved.body!==row.body||row.senderEmail!==sender.email){await note(campaign._id,'needs_review','Dispatch differs from exact approved message',now);return {status:'approval_invalid'};}
+    if(!approved||row.approvedDigest!==campaign.approvedDigest||approved.recipientEmail!==row.recipientEmail||approved.subject!==row.subject||approved.body!==row.body||row.senderEmail!==campaign.snapshot.senderEmail){await note(campaign._id,'needs_review','Dispatch differs from exact approved message',now);return {status:'approval_invalid'};}
     const contact=await Contact.findOne({_id:row.contactId,userId:campaign.userId}).lean();
     let blocked=await recipientReason(user,contact,approved,now,row._id);
     if(contact && normalizeEmail(contact.email)!==row.recipientEmail)blocked='Recipient address changed after approval';
@@ -88,9 +82,9 @@ async function runCampaignWorkerOnce({now:fixedNow,clock=()=>fixedNow?new Date(f
     now=clock();if(!enabled())return {status:'disabled'};
     const renewed=await Runtime.updateOne({...ownership,leaseUntil:{$gt:now}},{$set:{leaseUntil:new Date(+now+LEASE_MS)}});
     if(!renewed.matchedCount)return {status:'lease_lost'};
-    const boundary=await Campaign.updateOne({_id:campaign._id,state:{$in:active},revision:campaign.revision,approvedDigest:campaign.approvedDigest},{$set:{state:'running',startedAt:campaign.startedAt||now,activeDispatchId:row._id,sendBoundaryAt:now,nextAt:new Date(+now+campaign.snapshot.intervalSeconds*1000)}});
+    const boundary=await Campaign.updateOne({_id:campaign._id,state:{$in:active},revision:campaign.revision,approvedDigest:campaign.approvedDigest},{$set:{state:'running',reason:'',startedAt:campaign.startedAt||now,activeDispatchId:row._id,sendBoundaryAt:now,activeSenderId:sender.id,activeSenderEmail:sender.email,nextAt:new Date(+now+campaign.snapshot.intervalSeconds*1000)},...(campaign.activeSenderId!==sender.id?{$push:{events:{$each:[{at:now,action:campaign.activeSenderId?'sender_switched':'sender_selected',reason:`Approved sender ${sender.email}; app-tracked daily quota available`}],$slice:-200}}}:{})});
     if(!boundary.matchedCount)return {status:'stopped'};
-    const claimed=await Dispatch.findOneAndUpdate({_id:row._id,status:'queued'},{$set:{status:'sending',leaseToken:token,leaseUntil:new Date(+now+LEASE_MS),startedAt:now},$inc:{attempts:1}},{returnDocument:'after'});
+    const claimed=await Dispatch.findOneAndUpdate({_id:row._id,status:'queued',approvedDigest:row.approvedDigest,recipientEmail:row.recipientEmail,subject:row.subject,body:row.body,senderEmail:row.senderEmail},{$set:{status:'sending',senderId:sender.id,senderName:sender.name,senderEmail:sender.email,approvedSenderEmail:campaign.snapshot.senderEmail,leaseToken:token,leaseUntil:new Date(+now+LEASE_MS),startedAt:now},$inc:{attempts:1}},{returnDocument:'after'});
     if(!claimed)return {status:'already_claimed'};
     const finalTime=clock();
     const fenced=await Runtime.updateOne({...ownership,leaseUntil:{$gt:finalTime}},{$set:{nextAllowedAt:new Date(+finalTime+campaign.snapshot.intervalSeconds*1000),lastDispatchAt:finalTime}});

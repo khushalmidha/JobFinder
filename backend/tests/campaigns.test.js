@@ -4,6 +4,7 @@ const mongoose=require('mongoose'),express=require('express'),jwt=require('jsonw
 const {MongoMemoryServer}=require('mongodb-memory-server');
 const User=require('../models/User'),Contact=require('../models/Contact'),Company=require('../models/Company');
 const Campaign=require('../models/OutreachCampaign'),Dispatch=require('../models/OutreachDispatch'),Runtime=require('../models/OutreachRuntime'),MailLog=require('../models/MailLog');
+const Ledger=require('../models/DeliveryLedger');
 const service=require('../services/campaignService');
 const {runCampaignWorkerOnce}=require('../services/campaignWorkerService');
 const {localTimeToUtc}=require('../services/campaignTimeService');
@@ -17,13 +18,13 @@ async function approved(data=input()) {const row=await service.saveCampaign(user
 before(async()=>{
   process.env.JWT_SECRET='campaign-synthetic-only';process.env.OUTREACH_SENDING_ENABLED='false';process.env.OUTREACH_WORKER_ENABLED='false';process.env.OUTREACH_MAX_DAILY='10';process.env.OUTREACH_GLOBAL_MAX_DAILY='10';
   mongo=await MongoMemoryServer.create();await mongoose.connect(mongo.getUri());
-  await Promise.all([User,Contact,Company,Campaign,Dispatch,Runtime,MailLog].map(M=>M.init()));
+  await Promise.all([User,Contact,Company,Campaign,Dispatch,Runtime,MailLog,Ledger].map(M=>M.init()));
   const app=express();app.use(express.json());app.use('/campaigns',require('../routes/campaigns'));app.use('/mail',require('../routes/mail'));
   await new Promise(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});base=`http://127.0.0.1:${server.address().port}`;
 },{timeout:300000});
 after(async()=>{if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();if(mongo)await mongo.stop();});
 beforeEach(async()=>{
-  await Promise.all([User,Contact,Company,Campaign,Dispatch,Runtime,MailLog].map(M=>M.deleteMany({})));
+  await Promise.all([User,Contact,Company,Campaign,Dispatch,Runtime,MailLog,Ledger].map(M=>M.deleteMany({})));
   user=await User.create({name:'Fixture Owner',email:'owner@example.org',passwordHash:'not-a-real-login',smtpConfigs:[{_id:'fixture-smtp',name:'Synthetic account',host:'smtp.example.org',port:465,user:'sender@example.org',pass:'FAKE_TEST_SECRET'}]});
   other=await User.create({name:'Other Fixture',email:'other@example.org',passwordHash:'not-a-real-login'});
   company=await Company.create({name:'Synthetic Employer',domain:'employer.example',careersUrl:'https://employer.example/careers',salaryEvidence:[{role:'SWE I',roleFamily:'software_engineering',level:'entry',experienceMin:0,experienceMax:2,location:'India',indiaEligibility:true,indiaEligibilitySourceUrl:'https://employer.example/jobs',salaryBaseMinINR:1600000,salaryBaseMaxINR:1600000,currency:'INR',payPeriod:'year',baseVsCTC:'fixed_base',salarySourceUrl:'https://employer.example/jobs',salarySourceType:'official_job',reportedOn:now,lastCheckedAt:now,evidenceConfidence:'high',evidenceExcerpt:'Synthetic salary fixture only'}]});
@@ -167,4 +168,77 @@ test('450 quota is consistent across options, preview and worker with no old 10/
     assert.match(await quota(c,user,due),/daily cap/);
     process.env.OUTREACH_MAX_DAILY='20';assert.equal((await request('/campaigns/options')).data.maxDailyLimit,20);
   } finally {process.env.OUTREACH_MAX_DAILY=oldMax;process.env.OUTREACH_GLOBAL_MAX_DAILY=oldGlobal;}
+});
+
+
+async function fallbackSetup(){
+  process.env.OUTREACH_MAX_DAILY='450';process.env.OUTREACH_GLOBAL_MAX_DAILY='1800';
+  await User.updateOne({_id:user._id},{$set:{selectedSmtpId:'fixture-smtp'},$push:{smtpConfigs:{_id:'fallback-smtp',name:'Backup account',host:'smtp.backup.example',port:465,user:'backup@example.org',pass:'FAKE_BACKUP_SECRET'}}});user=await User.findById(user._id);
+}
+const fallbackInput=()=>({...input(),immediate:true,localDateTime:null,dailyLimit:undefined,autoSwitchSenders:true,fallbackSenderIds:['fallback-smtp']});
+async function seedUsage(email,count,owner=user._id,at=now){
+  if(count)await MailLog.insertMany(Array.from({length:count},(_,i)=>({userId:owner,contactId:new mongoose.Types.ObjectId(),recipientEmail:`old-${i}@history.example`,senderEmail:email,subject:'Synthetic prior quota '+i,body:'Historical fixture only',status:'sent',sentAt:at})));
+}
+
+test('fallback requires explicit owned, distinct sender approval and freezes a secret-free 450-per-account policy',async()=>{
+  await fallbackSetup();const data=fallbackInput();const preview=await service.previewCampaign(user._id,data,now);assert.equal(preview.snapshot.dailyLimit,900);assert.equal(preview.snapshot.approvedSenders.length,2);assert.deepEqual(preview.snapshot.approvedSenders.map(s=>s.dailyLimit),[450,450]);assert.ok(!JSON.stringify(preview.snapshot).includes('SECRET'));
+  await assert.rejects(service.previewCampaign(user._id,{...data,autoSwitchSenders:false},now),/Enable automatic/);
+  await assert.rejects(service.previewCampaign(user._id,{...data,fallbackSenderIds:['foreign-smtp']},now),/owned SMTP/);
+  await assert.rejects(service.previewCampaign(user._id,{...data,fallbackSenderIds:['fixture-smtp']},now),/only once/);
+  await User.updateOne({_id:user._id},{$push:{smtpConfigs:{_id:'same-mailbox',host:'smtp.example.org',port:465,user:'SENDER@example.org',pass:'FAKE'}}});
+  await assert.rejects(service.previewCampaign(user._id,{...data,fallbackSenderIds:['same-mailbox']},now),/same mailbox/);
+});
+
+test('full primary automatically routes remaining exact messages to an approved backup without pausing or changing default settings',async()=>{
+  await fallbackSetup();const c=await approved(fallbackInput());await seedUsage('sender@example.org',450);const seen=[];const send=async(sender,row)=>{seen.push(sender.email);assert.equal(row.senderEmail,sender.email);assert.equal(row.approvedSenderEmail,'sender@example.org');assert.equal(row.body,c.snapshot.recipients.find(r=>r.recipientEmail===row.recipientEmail).body);return {providerMessageId:'synthetic-'+seen.length};};
+  assert.equal((await runCampaignWorkerOnce({now,enabled:()=>true,send})).status,'sent');
+  const progress=await Campaign.findById(c._id);assert.equal(progress.state,'running');assert.equal(progress.activeSenderId,'fallback-smtp');assert.equal((await User.findById(user._id)).selectedSmtpId,'fixture-smtp');
+  const status=await request('/mail/queue-status');assert.equal(status.data.activeSender,'backup@example.org');assert.equal(status.data.dailyLimit,900);assert.equal(status.data.accounts.find(s=>s._id==='fallback-smtp').dailyLimit,450);assert.equal(status.data.isPaused,false);
+  assert.equal((await runCampaignWorkerOnce({now:new Date(+now+180000),enabled:()=>true,send})).status,'sent');assert.deepEqual(seen,['backup@example.org','backup@example.org']);assert.equal((await Campaign.findById(c._id)).state,'completed');
+});
+
+test('a sender uses its last slot once, then the next worker cycle switches accounts with the same cooldown and digest',async()=>{
+  await fallbackSetup();const c=await approved(fallbackInput());await seedUsage('sender@example.org',449);const seen=[];const send=async sender=>{seen.push(sender.email);return {providerMessageId:'synthetic-slot-'+seen.length};};
+  assert.equal((await runCampaignWorkerOnce({now,enabled:()=>true,send})).status,'sent');assert.equal((await runCampaignWorkerOnce({now:new Date(+now+60000),enabled:()=>true,send})).status,'cooldown');
+  assert.equal((await runCampaignWorkerOnce({now:new Date(+now+180000),enabled:()=>true,send})).status,'sent');assert.deepEqual(seen,['sender@example.org','backup@example.org']);assert.equal((await Campaign.findById(c._id)).approvedDigest,c.approvedDigest);
+  const usage=await require('../services/senderQuotaService').dailyUsage({userId:user._id,emails:seen,now});assert.equal(usage.senders['sender@example.org'],450);assert.equal(usage.senders['backup@example.org'],1);
+});
+
+test('all approved accounts exhausted wait for the next UTC reset and continue without manual resume',async()=>{
+  await fallbackSetup();const c=await approved(fallbackInput());await seedUsage('sender@example.org',450);await seedUsage('backup@example.org',450);let calls=0;const send=async()=>{calls++;return {providerMessageId:'synthetic-reset'};};
+  const held=await runCampaignWorkerOnce({now,enabled:()=>true,send});assert.equal(held.status,'daily_limit');assert.equal(calls,0);const waiting=await Campaign.findById(c._id);assert.equal(waiting.state,'scheduled');assert.equal(waiting.nextAt.toISOString(),'2026-11-08T00:00:00.000Z');assert.match(waiting.reason,/automatic continuation/);
+  assert.equal((await runCampaignWorkerOnce({now:waiting.nextAt,enabled:()=>true,send})).status,'sent');assert.equal(calls,1);
+});
+
+test('sender budgets are shared across owners and consumer Gmail aliases, while custom-domain dots stay distinct',async()=>{
+  await fallbackSetup();await User.updateOne({_id:user._id},{$set:{'smtpConfigs.0.user':'mail.box@gmail.com'}});const c=await approved(fallbackInput());await seedUsage('m.a.i.l.b.o.x+old@googlemail.com',450,other._id);
+  const q=require('../services/senderQuotaService'),usage=await q.dailyUsage({userId:user._id,emails:['mail.box@gmail.com'],now});assert.equal(usage.senders['mailbox@gmail.com'],450);assert.notEqual(q.senderQuotaKey('john.smith@business.example'),q.senderQuotaKey('johnsmith@business.example'));
+  let actual;assert.equal((await runCampaignWorkerOnce({now,enabled:()=>true,send:async sender=>{actual=sender.email;return {providerMessageId:'synthetic-alias'};}})).status,'sent');assert.equal(actual,'backup@example.org');
+});
+
+test('global and legacy owner caps still stop sending rather than silently switching unapproved identities',async()=>{
+  await fallbackSetup();await approved(fallbackInput());await seedUsage('sender@example.org',450);process.env.OUTREACH_GLOBAL_MAX_DAILY='450';let calls=0;const send=async()=>{calls++;return {providerMessageId:'never'};};
+  assert.equal((await runCampaignWorkerOnce({now,enabled:()=>true,send})).status,'daily_limit');assert.equal(calls,0);
+  await Campaign.deleteMany({});await Dispatch.deleteMany({});process.env.OUTREACH_GLOBAL_MAX_DAILY='1800';await approved({...input(),senderId:'fallback-smtp',immediate:true,localDateTime:null,dailyLimit:450});
+  assert.equal((await runCampaignWorkerOnce({now,enabled:()=>true,send})).status,'daily_limit');assert.equal(calls,0);
+});
+
+test('fallback never retries an uncertain delivery from a different sender',async()=>{
+  await fallbackSetup();await approved(fallbackInput());await seedUsage('sender@example.org',450);let calls=0;const send=async()=>{calls++;throw new Error('Synthetic ambiguous provider result');};
+  assert.equal((await runCampaignWorkerOnce({now,enabled:()=>true,send})).status,'unknown_outcome');assert.equal((await runCampaignWorkerOnce({now:new Date(+now+180000),enabled:()=>true,send})).status,'needs_review');assert.equal(calls,1);assert.equal(await Dispatch.countDocuments({status:'unknown_outcome'}),1);assert.equal(await Dispatch.countDocuments({status:'queued'}),1);
+});
+
+test('changing any approved fallback identity invalidates preview approval and holds an already approved campaign',async()=>{
+  await fallbackSetup();const data=fallbackInput();const draft=await service.saveCampaign(user._id,data,null,now);await User.updateOne({_id:user._id},{$set:{'smtpConfigs.1.name':'Changed account name'}});
+  await assert.rejects(service.approveCampaign(user._id,draft._id,draft.digest,now),/changed/);assert.equal(await Dispatch.countDocuments(),0);
+  await User.updateOne({_id:user._id},{$set:{'smtpConfigs.1.name':'Backup account'}});await service.approveCampaign(user._id,draft._id,draft.digest,now);await User.updateOne({_id:user._id},{$set:{'smtpConfigs.1.user':'different@example.org'}});
+  let calls=0;const result=await runCampaignWorkerOnce({now,enabled:()=>true,send:async()=>{calls++;}});assert.equal(result.status,'sender_missing');assert.equal(calls,0);assert.equal((await Campaign.findById(draft._id)).state,'needs_review');
+});
+
+test('retained ledger duplicates do not mint or double-count sender capacity, and UTC-day bounds exclude future records',async()=>{
+  await fallbackSetup();await seedUsage('sender@example.org',1);const log=await MailLog.findOne();await Ledger.create({originalMailLogId:log._id,userId:log.userId,contactId:log.contactId,recipientEmail:log.recipientEmail,senderEmail:log.senderEmail,status:'sent',sentAt:log.sentAt});
+  const q=require('../services/senderQuotaService');assert.equal((await q.dailyUsage({userId:user._id,emails:['sender@example.org'],now})).senders['sender@example.org'],1);
+  await MailLog.deleteOne({_id:log._id});assert.equal((await q.dailyUsage({userId:user._id,emails:['sender@example.org'],now})).senders['sender@example.org'],1);
+  await Ledger.updateOne({originalMailLogId:log._id},{$set:{status:'bounced'}});assert.equal((await q.dailyUsage({userId:user._id,emails:['sender@example.org'],now})).senders['sender@example.org'],1);
+  await seedUsage('sender@example.org',1,user._id,new Date('2026-11-08T01:00:00Z'));assert.equal((await q.dailyUsage({userId:user._id,emails:['sender@example.org'],now})).senders['sender@example.org'],1);
 });

@@ -22,6 +22,26 @@ function resolveSender(user,id) {
   if(!option)throw new Error('Choose an existing owned SMTP sender with complete credentials');
   return {...option,config:id==='legacy-smtp'?user.smtpConfig:user.smtpConfigs.find(s=>String(s._id)===id)};
 }
+const senderCap=user=>Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450));
+const senderIdentity=sender=>({id:sender.id,email:sender.email,name:sender.name,host:sender.host,port:sender.port,provider:sender.provider});
+function senderPolicy(user,input){
+  if(input.autoSwitchSenders!==undefined&&typeof input.autoSwitchSenders!=='boolean')throw new Error('Sender fallback needs explicit approval');
+  if(input.autoSwitchSenders!==true){if(input.fallbackSenderIds?.length)throw new Error('Enable automatic sender switching before selecting fallback accounts');return null;}
+  if(!Array.isArray(input.fallbackSenderIds)||input.fallbackSenderIds.length<1||input.fallbackSenderIds.length>9||input.fallbackSenderIds.some(id=>typeof id!=='string'))throw new Error('Select 1 to 9 additional owned sender accounts');
+  const ids=[String(input.senderId),...input.fallbackSenderIds];if(new Set(ids).size!==ids.length)throw new Error('Select each sender only once');
+  const pool=ids.map(id=>({...senderIdentity(resolveSender(user,id)),dailyLimit:senderCap(user)}));
+  const {senderQuotaKey}=require('./senderQuotaService');if(new Set(pool.map(s=>senderQuotaKey(s.email))).size!==pool.length)throw new Error('Aliases of the same mailbox share one quota; choose distinct sender accounts');
+  if(pool.some(s=>!s.host||![465,587].includes(s.port)))throw new Error('Approved sender accounts require SMTP TLS port 465 or 587');
+  return {autoSwitchSenders:true,fallbackSenderIds:[...input.fallbackSenderIds],approvedSenders:pool};
+}
+function resolveApprovedSenders(user,snapshot){
+  if(snapshot.autoSwitchSenders!==true)return [resolveSender(user,snapshot.senderId)];
+  const current=senderPolicy(user,snapshot);if(!Array.isArray(snapshot.approvedSenders)||current.approvedSenders.length!==snapshot.approvedSenders.length)throw new Error('Approved sender pool changed');
+  return current.approvedSenders.map((entry,index)=>{
+    const frozen=snapshot.approvedSenders[index];if(!Number.isInteger(frozen.dailyLimit)||frozen.dailyLimit<1||frozen.dailyLimit>450)throw new Error('Invalid approved sender cap');if(digest(senderIdentity(entry))!==digest(senderIdentity(frozen)))throw new Error('Approved sender identity changed');
+    const sender=resolveSender(user,entry.id);return {...sender,dailyLimit:Math.min(entry.dailyLimit,frozen.dailyLimit)};
+  });
+}
 async function duplicateReason(userId,contactId,email,excludeDispatchId) {
   if(await MailLog.exists({userId,status:{$in:['sent','delivered']},$or:[{contactId},{recipientEmail:email}]}))return 'Already sent: contact or recipient history';
   if(await DeliveryLedger.exists({userId,status:{$in:['sent','delivered']},$or:[{contactId},{recipientEmail:email}]}))return 'Already sent: contact or recipient history';
@@ -56,8 +76,9 @@ async function previewCampaign(userId,input,now=new Date()) {
     if(start<=now)throw new Error('Choose a future start time');
     if(start-now>366*86400000)throw new Error('Schedule within the next year');
   }
-  const dailyLimit=input.dailyLimit??Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450)),intervalSeconds=input.intervalSeconds??180;
-  if(!Number.isInteger(dailyLimit)||dailyLimit<1||dailyLimit>Math.min(user.dailyEmailLimit||450,configuredLimit('OUTREACH_MAX_DAILY',450)))throw new Error('Daily limit exceeds configured sender safety limit');
+  const policy=senderPolicy(user,input),maximum=senderCap(user)*(policy?.approvedSenders.length||1);
+  const dailyLimit=input.dailyLimit??maximum,intervalSeconds=input.intervalSeconds??180;
+  if(!Number.isInteger(dailyLimit)||dailyLimit<1||dailyLimit>maximum)throw new Error('Daily limit exceeds configured sender safety limit');
   if(!Number.isInteger(intervalSeconds)||intervalSeconds<180||intervalSeconds>86400)throw new Error('Use an interval between 180 and 86400 seconds');
   if(!Array.isArray(input.recipients)||input.recipients.length<1||input.recipients.length>1000)throw new Error('Select 1 to 1000 recipients');
   const blocked=[],recipients=[],emails=new Set();
@@ -73,7 +94,7 @@ async function previewCampaign(userId,input,now=new Date()) {
     if(email)emails.add(email);
     recipients.push({contactId:String(contact._id),recipientEmail:email,company:contact.company,subject:row.subject,body:row.body,overrideSalary:row.overrideSalary===true});
   }
-  const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients};
+  const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients,...(policy||{})};
   return {snapshot,digest:digest(snapshot),blocked,startAtUtc:start.toISOString(),immediate:isImmediate,estimatedMinutes:Math.max(0,recipients.length-1)*intervalSeconds/60,minimumDays:Math.ceil(recipients.length/dailyLimit),costEstimate:'INR 0 additional infrastructure/API credits; existing SMTP provider terms apply',quotaDay:'UTC'};
 }
 async function saveCampaign(userId,input,existingId,now=new Date()) {
@@ -115,4 +136,4 @@ async function controlCampaign(userId,id,action,now=new Date()) {
   if(action==='cancel')await Dispatch.updateMany({campaignId:campaign._id,status:'queued'},{$set:{status:'cancelled',reason:'Owner cancelled'}});
   return updated;
 }
-module.exports={normalizeEmail,validEmail,digest,objectId,configuredLimit,senderOptions,resolveSender,recipientReason,duplicateReason,previewCampaign,saveCampaign,approveCampaign,controlCampaign};
+module.exports={senderCap,senderIdentity,senderPolicy,resolveApprovedSenders,normalizeEmail,validEmail,digest,objectId,configuredLimit,senderOptions,resolveSender,recipientReason,duplicateReason,previewCampaign,saveCampaign,approveCampaign,controlCampaign};

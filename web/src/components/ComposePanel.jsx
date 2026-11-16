@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
+import SenderFallbackPicker from './SenderFallbackPicker';
 import { X, Send, Mail, FileText, CheckCircle2, AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Star, Sparkles, Settings as SettingsIcon, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onSuccess }) => {
@@ -10,6 +11,11 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   const [smtpAccounts, setSmtpAccounts] = useState([]);
   const [selectedSmtpId, setSelectedSmtpId] = useState('');
   const [hasBrevo, setHasBrevo] = useState(false);
+  const [autoSwitchSenders, setAutoSwitchSenders] = useState(false);
+  const [fallbackSenderIds, setFallbackSenderIds] = useState([]);
+  const [senderCapacity, setSenderCapacity] = useState([]);
+  const [capacityLoaded, setCapacityLoaded] = useState(false);
+  const [perSenderLimit, setPerSenderLimit] = useState(450);
 
   const [subjectOverride, setSubjectOverride] = useState('');
   const [bodyOverride, setBodyOverride] = useState('');
@@ -77,6 +83,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
         // Brevo check (for informational status only; durable worker requires SMTP)
         const brevoAvailable = !!data.brevoApiKey;
         setHasBrevo(brevoAvailable);
+        setPerSenderLimit(Math.min(data.dailyEmailLimit || 450, 450));
+        api.get('/mail/queue-status').then(response => { setSenderCapacity(response.data.accounts || []); setCapacityLoaded(true); if(response.data.accounts?.[0]?.dailyLimit)setPerSenderLimit(response.data.accounts[0].dailyLimit); }).catch(() => {});
 
         // Determine selected SMTP
         const activeSmtpId = data.selectedSmtpId || (smtps.length > 0 ? smtps[0]._id : '');
@@ -114,7 +122,10 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
 
     if (deliveryMode === 'scheduled' && (!scheduleDate || !scheduleTime || !scheduleTimezone)) { setError('Choose a send date, time and timezone before previewing.'); return; }
 
+    const fallbackIds = fallbackSenderIds.filter(id => id !== effectiveSmtpId);
+    if (autoSwitchSenders && !fallbackIds.length) { setError('Choose at least one additional approved sender for automatic switching.'); return; }
     const payload = { 
+      autoSwitchSenders, ...(autoSwitchSenders ? { fallbackSenderIds: fallbackIds } : {}),
       mode: deliveryMode,
       ...(deliveryMode === 'scheduled' ? { localDateTime: `${scheduleDate}T${scheduleTime}`, timezone: scheduleTimezone } : {}),
       contactIds: selectedIds,
@@ -272,6 +283,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                       type="button"
                       onClick={() => {
                         setSelectedSmtpId(acc._id);
+                        setFallbackSenderIds(ids => ids.filter(id => id !== acc._id));
                         setPreviewData(null);
                         setApprovalChecked(false);
                       }}
@@ -315,6 +327,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
               </div>
             )}
           </div>
+
+          <SenderFallbackPicker senders={capacityLoaded ? senderCapacity.map(account => ({ id: account._id, email: account.user, name: account.name })) : smtpAccounts.map(account => ({ id: account._id, email: account.user, name: account.name }))} primaryId={selectedSmtpId} enabled={autoSwitchSenders} selectedIds={fallbackSenderIds} perSenderLimit={perSenderLimit} capacity={senderCapacity} onChange={(enabled, ids) => { setAutoSwitchSenders(enabled); setFallbackSenderIds(ids); setPreviewData(null); setApprovalChecked(false); setError(''); }} />
 
           {/* TEMPLATE SELECTOR */}
           <div>
@@ -495,6 +509,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     type="button"
                     onClick={() => {
                       setSelectedSmtpId(acc._id);
+                        setFallbackSenderIds(ids => ids.filter(id => id !== acc._id));
                       setPreviewData(null);
                       setApprovalChecked(false);
                       setShowSmtpModal(false);
@@ -599,6 +614,13 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                   </p>
                 </div>
               </div>
+
+              {previewData.snapshot?.autoSwitchSenders && <section className="space-y-2 rounded-xl border border-yellow-500/30 p-3 text-xs">
+                <h4 className="font-bold text-yellow-300">Approved sending accounts — automatic fallback</h4>
+                {previewData.snapshot.approvedSenders.map((sender, index) => <p key={sender.id} className="break-words">{index === 0 ? 'Primary' : `Fallback ${index}`}: {sender.name} &lt;{sender.email}&gt; · {sender.dailyLimit}/day</p>)}
+                <p>App-tracked usage today (UTC): {(previewData.senderQuota || []).map(sender => `${sender.email}: ${sender.remainingToday} left`).join(' · ')}</p>
+                <p>The actual sender is selected at dispatch from this exact approved list. Current usage is informational for future schedules. Shared server ceiling: {previewData.globalDailyLimit}/day.</p>
+              </section>}
 
               {/* Counts summary */}
               <div className="grid grid-cols-3 gap-2">
@@ -732,7 +754,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                     className="mt-0.5 rounded border-zinc-700 text-yellow-500 focus:ring-yellow-500/20"
                   />
                   <span className="text-xs text-zinc-200 leading-snug">
-                    I have reviewed all {previewData.eligibleCount} frozen recipient messages, personalized subjects, bodies, exclusions, sender account, and cooldown interval. I explicitly approve {previewData.snapshot?.immediate ? 'immediate' : 'scheduled'} outreach with the displayed start time and timezone.
+                    I have reviewed all {previewData.eligibleCount} frozen recipient messages, personalized subjects, bodies, exclusions, sender account{previewData.snapshot?.autoSwitchSenders ? ' and every approved fallback account with its per-sender cap' : ''}, and cooldown interval. I explicitly approve {previewData.snapshot?.immediate ? 'immediate' : 'scheduled'} outreach with the displayed start time and timezone.
                   </span>
                 </label>
               ) : (
