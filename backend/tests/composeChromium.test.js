@@ -185,6 +185,13 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     await page.getByText('Primary Gmail SMTP').waitFor();
     await page.getByText('sender@example.org').first().waitFor();
 
+    const autoRedirect=page.getByLabel('Automatically switch between approved sender accounts when a daily limit is reached',{exact:true});
+    assert.equal(await autoRedirect.isChecked(),true,'Automatic redirection defaults on');
+    assert.equal(await page.getByLabel('Approve fallback backup@example.org',{exact:true}).isChecked(),true);
+    assert.equal(await page.getByLabel('Approve fallback alternate@example.org',{exact:true}).isChecked(),true);
+    await autoRedirect.uncheck();
+    await page.getByText(/Automatic redirection is off. At the daily limit the queue pauses/).waitFor();
+
     // Fill Template Placeholders in Subject & Body
     const subjectInput = page.locator('input[placeholder*="Application for Software Engineer"]');
     await subjectInput.fill('Application for {{role}} at {{companyName}}');
@@ -216,6 +223,8 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     await modal.getByText(/Excluded Contacts \(1\)/).waitFor();
     await modal.getByText('eve.unverified@alphatech.example').waitFor();
     await modal.getByText('Contact requires sourced evidence and review').waitFor();
+
+    await modal.getByText(/Automatic redirection is OFF/).waitFor();
 
     // Verify Frozen Recipient 1: Alice Senior HR
     await modal.getByText('alice.hr@alphatech.example').waitFor();
@@ -284,6 +293,8 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     const scheduledCampaigns = await Campaign.find({ userId: ownerId, state: 'scheduled' });
     assert.equal(scheduledCampaigns.length, 1, 'Exactly 1 campaign scheduled in Mongo');
     assert.equal(scheduledCampaigns[0].snapshot.immediate, true, 'Campaign snapshot immediate is true');
+    assert.equal(scheduledCampaigns[0].snapshot.pauseOnDailyLimit,true);
+    assert.equal(scheduledCampaigns[0].snapshot.autoSwitchSenders,undefined);
     assert.equal(scheduledCampaigns[0].snapshot.recipients.length, 2, '2 frozen recipients in snapshot');
 
     const dispatches = await Dispatch.find({ campaignId: scheduledCampaigns[0]._id });
@@ -302,7 +313,9 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     await page.getByLabel('Send date',{exact:true}).fill('2020-01-01');await page.getByLabel('Send time',{exact:true}).fill('10:00');await page.getByLabel('Schedule timezone',{exact:true}).selectOption('Asia/Kolkata');
     await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await page.getByText('Choose a future start time',{exact:true}).waitFor();
     await page.getByLabel('Send date',{exact:true}).fill(scheduleDay);
-    await page.getByLabel('Automatically switch between approved sender accounts when a daily limit is reached',{exact:true}).check();
+    assert.equal(await autoRedirect.isChecked(),true);
+    await page.getByLabel('Approve fallback backup@example.org',{exact:true}).uncheck();
+    await page.getByLabel('Approve fallback alternate@example.org',{exact:true}).uncheck();
     await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await page.getByText('Choose at least one additional approved sender for automatic switching.',{exact:true}).waitFor();
     await page.getByLabel('Approve fallback backup@example.org',{exact:true}).check();
     await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await modal.waitFor();
@@ -331,6 +344,17 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     assert.equal(await advanced.getByLabel('Maximum per day',{exact:true}).inputValue(),'1350');
     await advanced.getByRole('combobox',{name:/Sender account/}).selectOption('smtp-browser-backup');assert.equal(await advanced.getByLabel('Maximum per day',{exact:true}).inputValue(),'900');
     console.log('PASS: exact approved sender list/caps in main composer, sender edits clear approval, and promoting a fallback clamps the advanced campaign budget; real delivery=0');
+    process.env.CONTACT_ADMISSION_ENABLED='true';
+    await page.goto(base+'/');
+    await page.getByLabel('Select carol.hr@alphatech.example',{exact:true}).check();
+    await page.getByRole('button',{name:'Send (1)',exact:true}).click();
+    await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await modal.waitFor();
+    await modal.getByText(/These addresses lack a current trusted mailbox-verification result/).waitFor();
+    await modal.getByRole('link',{name:'Email Checks',exact:true}).waitFor();
+    await modal.getByText(/All selected recipients were excluded. Review each reason above/).waitFor();
+    assert.equal(await Campaign.countDocuments({userId:ownerId,state:'scheduled'}),2);
+    process.env.CONTACT_ADMISSION_ENABLED='false';
+
 
     // 7. Verify zero outbound provider calls
     const logs = await MailLog.countDocuments({ userId: ownerId });

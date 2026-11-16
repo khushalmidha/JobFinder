@@ -67,7 +67,13 @@ async function runCampaignWorkerOnce({now:fixedNow,clock=()=>fixedNow?new Date(f
     const usage=await require('./senderQuotaService').dailyUsage({userId:user._id,campaignId:campaign._id,emails:senders.map(s=>s.email),now});
     let sender,quota;
     for(const candidate of senders){quota=quotaReason(campaign,user,candidate,usage);if(!quota){sender=candidate;break;}if(!quota.startsWith('Sender daily cap'))break;}
-    if(!sender){await note(campaign._id,campaign.state,campaign.snapshot.autoSwitchSenders&&quota?.startsWith('Sender daily cap')?'All approved senders reached daily capacity; automatic continuation after UTC reset':quota||'Daily capacity reached; automatic continuation after UTC reset',now,{nextAt:usage.nextReset});return {status:'daily_limit',nextAt:usage.nextReset};}
+    if(!sender){
+      const pause=campaign.snapshot.pauseOnDailyLimit===true&&campaign.snapshot.autoSwitchSenders!==true;
+      const reason=pause?`${quota||'Daily capacity reached'}; automatic redirection is off; owner must resume queue`:
+        campaign.snapshot.autoSwitchSenders&&quota?.startsWith('Sender daily cap')?'All approved senders reached daily capacity; automatic continuation after UTC reset':quota||'Daily capacity reached; automatic continuation after UTC reset';
+      await note(campaign._id,pause?'paused':campaign.state,reason,now,{nextAt:usage.nextReset});
+      return {status:'daily_limit',paused:pause,nextAt:usage.nextReset};
+    }
     const row=await Dispatch.findOne({campaignId:campaign._id,revision:campaign.revision,status:'queued'}).sort({_id:1}).lean();
     if(!row){await finishCampaign(campaign,now);return {status:'complete'};}
     const approved=campaign.snapshot.recipients.find(r=>r.contactId===String(row.contactId));

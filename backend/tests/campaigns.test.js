@@ -242,3 +242,29 @@ test('retained ledger duplicates do not mint or double-count sender capacity, an
   await Ledger.updateOne({originalMailLogId:log._id},{$set:{status:'bounced'}});assert.equal((await q.dailyUsage({userId:user._id,emails:['sender@example.org'],now})).senders['sender@example.org'],1);
   await seedUsage('sender@example.org',1,user._id,new Date('2026-11-08T01:00:00Z'));assert.equal((await q.dailyUsage({userId:user._id,emails:['sender@example.org'],now})).senders['sender@example.org'],1);
 });
+
+
+test('explicit automatic-redirection OFF pauses at quota without using an available backup or resuming after reset',async()=>{
+  await fallbackSetup();
+  const data={...input(),immediate:true,localDateTime:null,pauseOnDailyLimit:true};
+  const c=await approved(data);await seedUsage('sender@example.org',450);
+  let calls=0;const send=async()=>{calls++;return {providerMessageId:'synthetic-owner-resume'};};
+  const held=await runCampaignWorkerOnce({now,enabled:()=>true,send});
+  assert.equal(held.status,'daily_limit');assert.equal(held.paused,true);assert.equal(calls,0);
+  const paused=await Campaign.findById(c._id);assert.equal(paused.state,'paused');assert.match(paused.reason,/redirection is off/);
+  assert.equal((await request('/mail/queue-status')).data.isPaused,true);
+  assert.equal((await runCampaignWorkerOnce({now:held.nextAt,enabled:()=>true,send})).status,'idle');assert.equal(calls,0);
+  await service.controlCampaign(user._id,c._id,'resume',held.nextAt);
+  assert.equal((await runCampaignWorkerOnce({now:held.nextAt,enabled:()=>true,send})).status,'sent');assert.equal(calls,1);
+  assert.equal((await Campaign.findById(c._id)).activeSenderEmail,'sender@example.org');
+});
+
+test('pause-at-limit choice is digest-bound, validates conflicts and does not change legacy campaign approvals',async()=>{
+  const data={...input(),immediate:true,localDateTime:null};
+  const original=await service.previewCampaign(user._id,data,now);
+  const optedOut=await service.previewCampaign(user._id,{...data,pauseOnDailyLimit:true},now);
+  assert.notEqual(original.digest,optedOut.digest);assert.equal(original.snapshot.pauseOnDailyLimit,undefined);
+  await assert.rejects(service.previewCampaign(user._id,{...data,pauseOnDailyLimit:'true'},now),/Invalid daily-limit/);
+  await fallbackSetup();
+  await assert.rejects(service.previewCampaign(user._id,{...fallbackInput(),pauseOnDailyLimit:true},now),/switching or pause/);
+});
