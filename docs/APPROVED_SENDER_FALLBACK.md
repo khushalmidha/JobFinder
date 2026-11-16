@@ -2,7 +2,7 @@
 
 Sender fallback is part of the existing Contacts → Send form and Queue & Logs controls. It adds no sidebar destination.
 
-In Contacts → Send, choose a primary SMTP account, enable automatic sender switching, and select additional owned accounts. Preview displays the exact sender list, From names/addresses, individual daily caps, combined campaign budget and shared server ceiling. The explicit campaign approval authorizes that list. Switching after approval needs no second popup or manual resume. Editing sender selection clears preview approval.
+In Contacts → Send, choose a primary SMTP account, review automatic sender switching (on by default for new campaigns), and the preselected additional owned accounts. Uncheck automatic switching to use only the primary and pause the queue at its daily limit until you explicitly resume it. Preview displays the exact sender list, From names/addresses, individual daily caps, combined campaign budget and shared server ceiling. The explicit campaign approval authorizes that list. Switching after approval needs no second popup or manual resume. Editing sender selection or the switch/pause choice clears preview approval. Existing saved campaigns retain their reviewed settings; changing defaults does not expand them.
 
 Queue length has no application-imposed recipient-count cap. The full eligible selection is frozen for preview and approval; daily sending budgets control dispatch over subsequent days rather than rejecting a large queue. HTTP request and database document byte-size limits still apply.
 
@@ -17,7 +17,7 @@ Queue length has no application-imposed recipient-count cap. The full eligible s
 
 ## Configuration and rollback
 
-`OUTREACH_MAX_DAILY` continues to cap each sender at 450. `OUTREACH_GLOBAL_MAX_DAILY` is a separate aggregate server ceiling (default 450, bounded at 45,000). Following the owner's explicit choice of 450/day per approved sender, this existing deployment uses a 1,800/day aggregate ceiling for its four configured distinct sender addresses. It is not raised automatically when new accounts are added. Sending and worker enable flags stay false; no previously saved campaign is reapproved or given extra sender permissions.
+`OUTREACH_MAX_DAILY` continues to cap each sender at 450. `OUTREACH_GLOBAL_MAX_DAILY` is a separate aggregate server ceiling (default 450, bounded at 45,000). Following the owner's explicit choice of 450/day per approved sender, this existing deployment uses a 1,800/day aggregate ceiling for its four configured distinct sender addresses. It is not raised automatically when new accounts are added. Compose reads sending and worker enable flags from the private root deployment environment, defaulting both to false. Enable them only after auditing the existing queue; no previously saved campaign is reapproved or given extra sender permissions. Unverified mailbox receipts, persistent suppression and exact campaign approval remain separate gates.
 
 Campaign snapshots gain optional frozen sender-policy fields only when explicitly enabled. Dispatches gain optional actual-sender metadata and campaigns gain current-sender metadata. Additive date-first indexes keep daily quota reads bounded. Existing records need no rewrite. No paid provider calls or AWS provisioning are involved.
 
@@ -26,3 +26,9 @@ Take a private preimage of the root Compose environment before changing its aggr
 ## Validation
 
 Real temporary-Mongo tests cover owned/distinct secret-free sender snapshots, the last primary slot and automatic handoff, all-full reset without resume, cross-owner/Gmail-alias accounting, unchanged legacy/global limits, unknown outcomes, identity changes, archived-ledger/bounce deduplication and day bounds. Actual Chromium covers primary/fallback selection, exact reviewed sender caps, changed sender-list approval invalidation and the advanced-editor budget after promoting a fallback to primary. All delivery in tests is synthetic; production sending is not enabled by this feature.
+
+## Enabling delivery
+
+For the existing reviewed deployment, set `OUTREACH_SENDING_ENABLED=true` and `OUTREACH_WORKER_ENABLED=true` in the private root Compose `.env`, then recreate the backend. Do not commit credentials or live environment files. First verify there are no queued/in-flight/unknown-outcome dispatches or active campaigns that would unexpectedly run. Keep per-sender caps and the aggregate server ceiling configured. Verify health and the authenticated queue API after restart. To stop delivery, set both flags false and recreate the backend; do not erase durable queue or suppression data.
+
+The new-campaign default selects available owned backups, and preview freezes their full identity list before explicit approval. Automatic redirection OFF records a digest-bound pause-at-limit policy, rather than resuming the next day or trying another account. Automatic redirection ON preserves the reviewed pool and normal UTC-reset continuation when all approved senders are full.

@@ -107,6 +107,8 @@ async function previewCampaign(userId,input,now=new Date()) {
     if(start<=now)throw new Error('Choose a future start time');
     if(start-now>366*86400000)throw new Error('Schedule within the next year');
   }
+  if(input.pauseOnDailyLimit!==undefined&&typeof input.pauseOnDailyLimit!=='boolean')throw new Error('Invalid daily-limit pause choice');
+  if(input.pauseOnDailyLimit===true&&input.autoSwitchSenders===true)throw new Error('Choose automatic switching or pause at the daily limit');
   const policy=senderPolicy(user,input),maximum=senderCap(user)*(policy?.approvedSenders.length||1);
   const dailyLimit=input.dailyLimit??maximum,intervalSeconds=input.intervalSeconds??180;
   if(!Number.isInteger(dailyLimit)||dailyLimit<1||dailyLimit>maximum)throw new Error('Daily limit exceeds configured sender safety limit');
@@ -134,7 +136,7 @@ async function previewCampaign(userId,input,now=new Date()) {
       recipients.push({contactId:String(contact._id),recipientEmail:email,company:contact.company,subject:row.subject,body:row.body,overrideSalary:row.overrideSalary===true});
     }
   }
-  const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients,...(policy||{})};
+  const snapshot={name:String(input.name||(isImmediate?'Immediate outreach':'Recruitment outreach')).trim().slice(0,120),senderId:sender.id,senderEmail:sender.email,senderName:sender.name,senderHost:sender.host,senderPort:sender.port,provider:sender.provider,timezone,localDateTime:input.localDateTime||null,startAtUtc:start.toISOString(),immediate:isImmediate,dailyLimit,intervalSeconds,recipients,...(policy||{}),...(input.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{})};
   return {snapshot,digest:digest(snapshot),blocked,startAtUtc:start.toISOString(),immediate:isImmediate,estimatedMinutes:Math.max(0,recipients.length-1)*intervalSeconds/60,minimumDays:Math.ceil(recipients.length/dailyLimit),costEstimate:'INR 0 additional infrastructure/API credits; existing SMTP provider terms apply',quotaDay:'UTC'};
 }
 async function saveCampaign(userId,input,existingId,now=new Date()) {

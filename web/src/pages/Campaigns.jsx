@@ -4,7 +4,13 @@ import SenderFallbackPicker from '../components/SenderFallbackPicker';
 
 const field = 'w-full rounded border border-zinc-700 bg-zinc-950 p-2.5';
 const button = 'rounded border border-zinc-600 px-3 py-2 disabled:opacity-40 hover:bg-zinc-800';
-const emptyDraft = () => ({ name: '', senderId: '', localDateTime: '', timezone: 'Asia/Kolkata', dailyLimit: 450, intervalSeconds: 180, autoSwitchSenders: false, fallbackSenderIds: [], recipients: [] });
+const emptyDraft = (options = {}) => {
+  const senders=options.senders||[],fallbackSenderIds=senders.slice(1,10).map(sender=>sender.id);
+  const autoSwitchSenders=fallbackSenderIds.length>0;
+  return {name:'',senderId:senders[0]?.id||'',localDateTime:'',timezone:'Asia/Kolkata',
+    dailyLimit:(options.maxDailyLimit||450)*(1+fallbackSenderIds.length),intervalSeconds:180,
+    autoSwitchSenders,pauseOnDailyLimit:!autoSwitchSenders,fallbackSenderIds,recipients:[]};
+};
 const statusOf = campaign => campaign?.state || campaign?.status || 'draft';
 const errorText = error => error.response?.data?.error || error.message;
 const recipientEmail = row => row.recipientEmail || row.normalizedRecipientEmail || row.email || row.recipient || '';
@@ -64,7 +70,7 @@ export default function Campaigns({ embedded = false }) {
   useEffect(() => {
     let active = true;
     Promise.all([api.get('/campaigns/options'), api.get('/campaigns')]).then(([a, b]) => {
-      if (active) { setOptions(a.data); setDraft(previous => ({ ...previous, dailyLimit: Math.min(previous.dailyLimit, a.data.maxDailyLimit || 450) })); setCampaigns(b.data.campaigns || []); }
+      if (active) { setOptions(a.data); setDraft(previous => previous.name||previous.recipients.length?previous:emptyDraft(a.data)); setCampaigns(b.data.campaigns || []); }
     }).catch(error => { if (active) setMessage(errorText(error)); });
     return () => { active = false; };
   }, []);
@@ -127,7 +133,7 @@ export default function Campaigns({ embedded = false }) {
     await api.post(`/campaigns/${campaign._id}/approve`, { digest: preview.digest });
     setConfirming(false);
     setSelected((await api.get(`/campaigns/${campaign._id}`)).data);
-    setSaved(null); setEditingId(null); setPreview(null); setDraft(emptyDraft());
+    setSaved(null); setEditingId(null); setPreview(null); setDraft(emptyDraft(options));
     await refresh();
     setMessage('Campaign approved and scheduled. Dispatch still requires the configured sending gate and a running backend worker.');
   }
@@ -155,7 +161,7 @@ export default function Campaigns({ embedded = false }) {
     change({ name: campaign.name || snapshot.name || '', senderId: snapshot.senderId || '',
       localDateTime: snapshot.localDateTime || '', timezone: snapshot.timezone || 'Asia/Kolkata',
       dailyLimit: snapshot.dailyLimit || 450, intervalSeconds: snapshot.intervalSeconds || 180,
-      autoSwitchSenders: snapshot.autoSwitchSenders === true, fallbackSenderIds: snapshot.fallbackSenderIds || [],
+      autoSwitchSenders: snapshot.autoSwitchSenders === true, pauseOnDailyLimit:snapshot.pauseOnDailyLimit===true, fallbackSenderIds: snapshot.fallbackSenderIds || [],
       recipients: (snapshot.recipients || []).map(row => ({ contactId: String(row.contactId), subject: row.subject, body: row.body, overrideSalary: !!row.overrideSalary })) });
     setEditingId(campaign._id);
     setMessage('Draft loaded for editing. Run a new preview before approval.');
@@ -182,7 +188,7 @@ export default function Campaigns({ embedded = false }) {
     {message && <p role="status" className="rounded border border-yellow-700 p-4 whitespace-pre-wrap">{message}</p>}
     <details open={editorOpen} onToggle={event => setEditorOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm text-zinc-400">Advanced campaign editor</summary>
     <section aria-labelledby="campaign-editor" className="rounded border border-zinc-700 p-4 md:p-6 space-y-5">
-      <div className="flex flex-wrap justify-between gap-3"><h2 id="campaign-editor" className="text-xl font-semibold">{editingId ? 'Edit campaign draft' : 'Create a campaign'}</h2>{editingId && <button type="button" className={button} disabled={busy} onClick={() => { change(emptyDraft()); setEditingId(null); }}>Start a new draft</button>}</div>
+      <div className="flex flex-wrap justify-between gap-3"><h2 id="campaign-editor" className="text-xl font-semibold">{editingId ? 'Edit campaign draft' : 'Create a campaign'}</h2>{editingId && <button type="button" className={button} disabled={busy} onClick={() => { change(emptyDraft(options)); setEditingId(null); }}>Start a new draft</button>}</div>
       <div className="grid gap-4 md:grid-cols-2">
         <label>Campaign name<input className={field} maxLength={120} value={draft.name} onChange={event => change({ ...draft, name: event.target.value })} /></label>
         <label>Sender account<select className={field} value={draft.senderId} onChange={event => { const ids = (draft.fallbackSenderIds || []).filter(id => id !== event.target.value); const maximum = (options.maxDailyLimit || 450) * (draft.autoSwitchSenders ? 1 + ids.length : 1); change({ ...draft, senderId: event.target.value, fallbackSenderIds: ids, dailyLimit: Math.min(draft.dailyLimit, maximum) }); }}><option value="">Select your configured sender</option>{options.senders.map(row => <option key={row.id} value={row.id}>{row.name || row.email} — {row.email}</option>)}</select></label>
@@ -191,7 +197,7 @@ export default function Campaigns({ embedded = false }) {
         <label>Maximum per day<input type="number" min="1" max={(options.maxDailyLimit || 450) * (draft.autoSwitchSenders ? 1 + (draft.fallbackSenderIds || []).length : 1)} className={field} value={draft.dailyLimit} onChange={event => change({ ...draft, dailyLimit: Number(event.target.value) })} /></label>
         <label>Minimum seconds between messages<input type="number" min="180" className={field} value={draft.intervalSeconds} onChange={event => change({ ...draft, intervalSeconds: Number(event.target.value) })} /></label>
       </div>
-      <SenderFallbackPicker senders={options.senders} primaryId={draft.senderId} enabled={draft.autoSwitchSenders} selectedIds={draft.fallbackSenderIds || []} perSenderLimit={options.maxDailyLimit || 450} onChange={(enabled, ids) => change({ ...draft, autoSwitchSenders: enabled, fallbackSenderIds: ids, dailyLimit: (options.maxDailyLimit || 450) * (enabled ? 1 + ids.length : 1) })} />
+      <SenderFallbackPicker senders={options.senders} primaryId={draft.senderId} enabled={draft.autoSwitchSenders} selectedIds={draft.fallbackSenderIds || []} perSenderLimit={options.maxDailyLimit || 450} onChange={(enabled, ids) => change({ ...draft, autoSwitchSenders: enabled, pauseOnDailyLimit:!enabled, fallbackSenderIds: ids, dailyLimit: (options.maxDailyLimit || 450) * (enabled ? 1 + ids.length : 1) })} />
       <p className="text-sm text-zinc-400">The selected time starts processing at or after that instant. Daily limits use UTC days and are shared across your campaigns; your account cap is {options.maxDailyLimit || 'enforced by the server'}. Daily limits can spread delivery over several days. Ambiguous or nonexistent daylight-saving times must be corrected.</p>
       <div className="grid md:grid-cols-2 gap-4">
         <label>Subject for newly selected recipients<input className={field} value={subjectTemplate} maxLength={200} onChange={event => setSubjectTemplate(event.target.value)} /></label>

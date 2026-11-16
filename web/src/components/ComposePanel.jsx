@@ -11,7 +11,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   const [smtpAccounts, setSmtpAccounts] = useState([]);
   const [selectedSmtpId, setSelectedSmtpId] = useState('');
   const [hasBrevo, setHasBrevo] = useState(false);
-  const [autoSwitchSenders, setAutoSwitchSenders] = useState(false);
+  const [autoSwitchSenders, setAutoSwitchSenders] = useState(true);
   const [fallbackSenderIds, setFallbackSenderIds] = useState([]);
   const [senderCapacity, setSenderCapacity] = useState([]);
   const [capacityLoaded, setCapacityLoaded] = useState(false);
@@ -84,11 +84,17 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
         const brevoAvailable = !!data.brevoApiKey;
         setHasBrevo(brevoAvailable);
         setPerSenderLimit(Math.min(data.dailyEmailLimit || 450, 450));
-        api.get('/mail/queue-status').then(response => { setSenderCapacity(response.data.accounts || []); setCapacityLoaded(true); if(response.data.accounts?.[0]?.dailyLimit)setPerSenderLimit(response.data.accounts[0].dailyLimit); }).catch(() => {});
+        api.get('/mail/queue-status').then(response => {
+          const accounts=response.data.accounts||[];
+          setSenderCapacity(accounts);setCapacityLoaded(true);
+          setFallbackSenderIds(accounts.filter(account=>account._id!==activeSmtpId).slice(0,9).map(account=>account._id));
+          if(accounts[0]?.dailyLimit)setPerSenderLimit(accounts[0].dailyLimit);
+        }).catch(() => {});
 
         // Determine selected SMTP
         const activeSmtpId = data.selectedSmtpId || (smtps.length > 0 ? smtps[0]._id : '');
         setSelectedSmtpId(activeSmtpId);
+        setFallbackSenderIds(smtps.filter(account=>account._id!==activeSmtpId).slice(0,9).map(account=>account._id));
 
       } catch (err) {
         console.error('Failed to load settings in ComposePanel:', err);
@@ -123,9 +129,11 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     if (deliveryMode === 'scheduled' && (!scheduleDate || !scheduleTime || !scheduleTimezone)) { setError('Choose a send date, time and timezone before previewing.'); return; }
 
     const fallbackIds = fallbackSenderIds.filter(id => id !== effectiveSmtpId);
-    if (autoSwitchSenders && !fallbackIds.length) { setError('Choose at least one additional approved sender for automatic switching.'); return; }
+    const alternativeCount=(capacityLoaded?senderCapacity:smtpAccounts).filter(account=>account._id!==effectiveSmtpId).length;
+    const switchingEnabled=autoSwitchSenders&&alternativeCount>0;
+    if (switchingEnabled && !fallbackIds.length) { setError('Choose at least one additional approved sender for automatic switching.'); return; }
     const payload = { 
-      autoSwitchSenders, ...(autoSwitchSenders ? { fallbackSenderIds: fallbackIds } : {}),
+      autoSwitchSenders:switchingEnabled, pauseOnDailyLimit:!switchingEnabled, ...(switchingEnabled ? { fallbackSenderIds: fallbackIds } : {}),
       mode: deliveryMode,
       ...(deliveryMode === 'scheduled' ? { localDateTime: `${scheduleDate}T${scheduleTime}`, timezone: scheduleTimezone } : {}),
       contactIds: selectedIds,
@@ -615,6 +623,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                 </div>
               </div>
 
+              {previewData.snapshot?.pauseOnDailyLimit && <p className="text-xs text-amber-300">Automatic redirection is OFF. When a daily limit is reached, this queue pauses until you resume it; no other sender is used.</p>}
+              {previewData.blocked?.some(row=>row.reason?.includes('Fresh trusted mailbox verification')) && <p className="rounded border border-amber-700 p-3 text-sm text-amber-200">These addresses lack a current trusted mailbox-verification result. This does not mean they are confirmed invalid. Domain/SMTP connectivity alone cannot verify an inbox. Review them in <a className="underline" href="/?section=email-checks">Email Checks</a>; no paid verification runs automatically.</p>}
               {previewData.snapshot?.autoSwitchSenders && <section className="space-y-2 rounded-xl border border-yellow-500/30 p-3 text-xs">
                 <h4 className="font-bold text-yellow-300">Approved sending accounts — automatic fallback</h4>
                 {previewData.snapshot.approvedSenders.map((sender, index) => <p key={sender.id} className="break-words">{index === 0 ? 'Primary' : `Fallback ${index}`}: {sender.name} &lt;{sender.email}&gt; · {sender.dailyLimit}/day</p>)}
@@ -759,7 +769,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                 </label>
               ) : (
                 <div className="p-3 bg-red-950/30 border border-red-800/40 rounded-xl text-xs text-red-300 text-center">
-                  All selected recipients were excluded due to existing outreach history, suppression, or qualification rules. Nothing to send.
+                  All selected recipients were excluded. Review each reason above; missing verification does not mean confirmed invalid. Nothing to send.
                 </div>
               )}
             </div>

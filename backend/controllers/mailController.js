@@ -151,6 +151,7 @@ exports.previewImmediate = async (req, res) => {
           immediate, timezone, localDateTime,
           dailyLimit: dailyLimit || campaignService.senderCap(user)*(senderPolicy?.approvedSenders.length||1),
           ...(senderPolicy||{}),
+          ...(req.body.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{}),
           intervalSeconds: effectiveInterval,
           recipients: []
         },
@@ -171,7 +172,7 @@ exports.previewImmediate = async (req, res) => {
       name: name || (immediate ? 'Immediate batch outreach' : 'Scheduled batch outreach'),
       senderId: sender.id,
       immediate, timezone, localDateTime,
-      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds,
+      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds, pauseOnDailyLimit:req.body.pauseOnDailyLimit,
       dailyLimit,
       intervalSeconds: effectiveInterval,
       recipients

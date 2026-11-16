@@ -5,7 +5,8 @@ export default function SenderFallbackPicker({ senders, primaryId, enabled, sele
   return <fieldset className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
     <legend className="px-1 text-sm font-bold text-zinc-200">Sender fallback</legend>
     <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={enabled} disabled={!alternatives.length} onChange={event => onChange(event.target.checked, event.target.checked ? selectedIds : [])} /><span>Automatically switch between approved sender accounts when a daily limit is reached</span></label>
-    {!alternatives.length && <p className="text-xs text-zinc-400">Add another owned SMTP account in Settings to use automatic fallback.</p>}
+    {!enabled && <p className="text-xs text-amber-300">Automatic redirection is off. At the daily limit the queue pauses; it never switches accounts. Resume it yourself when ready.</p>}
+    {!alternatives.length && <p className="text-xs text-zinc-400">No backup sender is available. The queue pauses at the daily limit. Add another owned SMTP account in Settings to use automatic fallback.</p>}
     {enabled && <>
       <p className="text-xs text-zinc-400">The primary account is included. Select additional accounts below; approve the exact list in the preview. Each sender has a {perSenderLimit}/day app limit, shared across its campaigns. Existing pacing and provider restrictions still apply.</p>
       {alternatives.map(sender => {
