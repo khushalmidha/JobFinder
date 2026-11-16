@@ -23,7 +23,7 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     process.env.OUTREACH_SENDING_ENABLED = 'false';
     process.env.OUTREACH_WORKER_ENABLED = 'false';
     process.env.OUTREACH_MAX_DAILY = '450';
-    process.env.OUTREACH_GLOBAL_MAX_DAILY = '450';
+    process.env.OUTREACH_GLOBAL_MAX_DAILY = '1800';
 
     mongo = await MongoMemoryServer.create();
     await mongoose.connect(mongo.getUri());
@@ -56,7 +56,7 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
         port: 465,
         user: 'sender@example.org',
         pass: 'synthetic-fake-password'
-      }]
+      },{_id:'smtp-browser-backup',name:'Approved backup SMTP',host:'smtp.backup.example',port:465,user:'backup@example.org',pass:'FAKE_BACKUP_SECRET'},{_id:'smtp-browser-third',name:'Third owned SMTP',host:'smtp.third.example',port:465,user:'alternate@example.org',pass:'FAKE_THIRD_SECRET'}]
     });
 
     // 2. Qualified Company
@@ -301,20 +301,36 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     const scheduleDay=new Date(Date.now()+2*86400000).toISOString().slice(0,10);
     await page.getByLabel('Send date',{exact:true}).fill('2020-01-01');await page.getByLabel('Send time',{exact:true}).fill('10:00');await page.getByLabel('Schedule timezone',{exact:true}).selectOption('Asia/Kolkata');
     await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await page.getByText('Choose a future start time',{exact:true}).waitFor();
-    await page.getByLabel('Send date',{exact:true}).fill(scheduleDay);await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await modal.waitFor();
+    await page.getByLabel('Send date',{exact:true}).fill(scheduleDay);
+    await page.getByLabel('Automatically switch between approved sender accounts when a daily limit is reached',{exact:true}).check();
+    await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await page.getByText('Choose at least one additional approved sender for automatic switching.',{exact:true}).waitFor();
+    await page.getByLabel('Approve fallback backup@example.org',{exact:true}).check();
+    await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await modal.waitFor();
+    await modal.getByText('Approved sending accounts — automatic fallback',{exact:true}).waitFor();
+
     await modal.getByText('Scheduled durable dispatch queue',{exact:true}).waitFor();await modal.getByText('Scheduled start (UTC): '+scheduleDay+'T04:30:00.000Z',{exact:true}).waitFor();
     const oldScheduled=await Campaign.findOne({userId:ownerId,'snapshot.immediate':false}).sort({createdAt:-1});
+    assert.equal(oldScheduled.snapshot.dailyLimit,900);assert.equal(oldScheduled.snapshot.approvedSenders.length,2);
     await modal.getByRole('button',{name:'Back to Edit',exact:true}).click();
+    await page.getByLabel('Approve fallback backup@example.org',{exact:true}).uncheck();await page.getByLabel('Approve fallback alternate@example.org',{exact:true}).check();
     const changedDay=new Date(Date.now()+3*86400000).toISOString().slice(0,10);await page.getByLabel('Send date',{exact:true}).fill(changedDay);
     await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await modal.waitFor();
     assert.equal(await modal.getByRole('button',{name:/Approve & Schedule/}).isDisabled(),true);
     const latestScheduled=await Campaign.findOne({userId:ownerId,'snapshot.immediate':false}).sort({createdAt:-1});assert.notEqual(latestScheduled.digest,oldScheduled.digest);
     await modal.getByText('Scheduled start (UTC): '+changedDay+'T04:30:00.000Z',{exact:true}).waitFor();
     await modal.locator('input[type="checkbox"]').check();await modal.getByRole('button',{name:/Approve & Schedule/}).click();await modal.waitFor({state:'detached'});
-    const approvedSchedule=await Campaign.findById(latestScheduled._id);assert.equal(approvedSchedule.state,'scheduled');assert.equal(approvedSchedule.snapshot.immediate,false);assert.equal(+approvedSchedule.nextAt,+new Date(changedDay+'T04:30:00.000Z'));
+    const approvedSchedule=await Campaign.findById(latestScheduled._id);assert.equal(approvedSchedule.state,'scheduled');assert.equal(approvedSchedule.snapshot.immediate,false);assert.deepEqual(approvedSchedule.snapshot.approvedSenders.map(s=>s.email),['sender@example.org','alternate@example.org']);assert.equal(+approvedSchedule.nextAt,+new Date(changedDay+'T04:30:00.000Z'));
     assert.equal(await Campaign.countDocuments({userId:ownerId,state:'scheduled'}),2);assert.equal(await Dispatch.countDocuments({campaignId:latestScheduled._id,status:'queued'}),1);
     await page.reload();assert.equal((await Campaign.findById(latestScheduled._id)).approvedDigest,latestScheduled.digest);
     console.log('PASS: unified ColdMail composer immediate default, optional date/time/timezone, past-time rejection, schedule re-preview and durable approval; no real delivery');
+
+    await page.goto(base+'/campaigns');await page.getByRole('heading',{name:'Outreach Queue',exact:true}).waitFor();await page.getByText('Advanced campaign editor',{exact:true}).click();
+    const advanced=page.locator('section[aria-labelledby="campaign-editor"]');await advanced.getByRole('combobox',{name:/Sender account/}).selectOption('smtp-browser-primary');
+    await advanced.getByLabel('Automatically switch between approved sender accounts when a daily limit is reached',{exact:true}).check();
+    await advanced.getByLabel('Approve fallback backup@example.org',{exact:true}).check();await advanced.getByLabel('Approve fallback alternate@example.org',{exact:true}).check();
+    assert.equal(await advanced.getByLabel('Maximum per day',{exact:true}).inputValue(),'1350');
+    await advanced.getByRole('combobox',{name:/Sender account/}).selectOption('smtp-browser-backup');assert.equal(await advanced.getByLabel('Maximum per day',{exact:true}).inputValue(),'900');
+    console.log('PASS: exact approved sender list/caps in main composer, sender edits clear approval, and promoting a fallback clamps the advanced campaign budget; real delivery=0');
 
     // 7. Verify zero outbound provider calls
     const logs = await MailLog.countDocuments({ userId: ownerId });

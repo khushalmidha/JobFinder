@@ -5,7 +5,7 @@ const schema = new mongoose.Schema({
   contactId: { type: mongoose.Schema.Types.ObjectId, required: true },
   revision: { type: Number, required: true },
   recipientEmail: { type: String, required: true }, subject: String, body: String,
-  senderEmail: String, approvedDigest: String,
+  senderEmail: String, senderId: String, senderName: String, approvedSenderEmail: String, approvedDigest: String,
   scheduledAtUtc: Date,
   status: { type: String, enum: ['queued','sending','sent','failed','unknown_outcome','suppressed','cancelled'], default: 'queued' },
   attempts: { type: Number, default: 0 },
@@ -15,6 +15,7 @@ const schema = new mongoose.Schema({
 }, { timestamps: true });
 schema.index({ campaignId: 1, recipientEmail: 1, revision: 1 }, { unique: true });
 schema.index({ status: 1, leaseUntil: 1 });
+schema.index({ startedAt: 1, senderEmail: 1 });
 schema.index({ userId: 1, recipientEmail: 1, status: 1 });
 schema.index({ userId: 1, senderEmail: 1, startedAt: 1 });
 module.exports = mongoose.model('OutreachDispatch', schema);

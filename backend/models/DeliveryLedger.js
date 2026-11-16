@@ -21,6 +21,7 @@ deliveryLedgerSchema.index({ userId: 1, recipientEmail: 1, status: 1 });
 deliveryLedgerSchema.index({ userId: 1, contactId: 1, status: 1 });
 deliveryLedgerSchema.index({ userId: 1, providerMessageId: 1, recipientEmail: 1 });
 deliveryLedgerSchema.index({ userId: 1, sentAt: -1 });
+deliveryLedgerSchema.index({ sentAt: 1, status: 1, dispatchId: 1 });
 deliveryLedgerSchema.index({ providerMessageId: 1, recipientEmail: 1 });
 deliveryLedgerSchema.index({ dispatchId: 1 }, { sparse: true });
 

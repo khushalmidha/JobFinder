@@ -942,12 +942,12 @@ const Settings = () => {
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-sm font-bold text-zinc-100">Daily Outreach Safety Limit</h3>
                   <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded-full font-bold">
-                    Default: 450 / day (50 reserved for personal use)
+                    Default: 450 / sender / day
                   </span>
                 </div>
                 <p className="text-xs text-zinc-400 mt-1 max-w-xl leading-relaxed">
-                  Automatically stops sending emails once this daily limit is reached. 
-                  Gmail allows 500 emails/day — setting this to 450 reserves <strong>50 emails for your personal &amp; job emails</strong>!
+                  This is the daily cap per sender for explicitly approved multi-account campaigns. Single-sender campaigns retain their existing total cap. Each campaign preview shows its exact account list and combined budget.
+                  JobFinder tracks its own usage by UTC day. Your provider may enforce different or lower limits.
                 </p>
               </div>
             </div>
@@ -955,7 +955,7 @@ const Settings = () => {
               <input
                 type="number"
                 min="1"
-                max="500"
+                max="450"
                 name="dailyEmailLimit"
                 value={settings.dailyEmailLimit ?? 450}
                 onChange={handleChange}

@@ -18,6 +18,7 @@ const mailLogSchema = new mongoose.Schema({
 
 mailLogSchema.index({ userId: 1, sentAt: 1, status: 1, senderEmail: 1 });
 mailLogSchema.index({ userId: 1, sentAt: -1 });
+mailLogSchema.index({ sentAt: 1, status: 1, dispatchId: 1 });
 mailLogSchema.index({ userId: 1, contactId: 1, status: 1 });
 mailLogSchema.index({ userId: 1, recipientEmail: 1, status: 1 });
 mailLogSchema.index({ dispatchId: 1 }, { unique: true, partialFilterExpression: { dispatchId: { $type: 'objectId' } } });
