@@ -11,7 +11,8 @@ async function inspect(contact, domainCheck = admission.checkedDomain) {
   if (syntax === 'invalid') return { outcome:'confirmed_invalid', reason:'Invalid email syntax' };
   if (syntax !== 'supported') return { outcome:'inconclusive', reason:'Unsupported syntax; no mailbox-invalid assertion' };
   const suppressed = await Suppression.findOne({userId:contact.userId,email}).lean();
-  if (suppressed && ['authenticated_provider_5.1.1','confirmed_invalid_pipeline'].includes(suppressed.source)) return { outcome:'confirmed_invalid', reason:suppressed.reason };
+  if (suppressed && ['authenticated_provider_5.1.1','authenticated_provider_recipient_failure','confirmed_invalid_pipeline'].includes(suppressed.source)) return { outcome:'confirmed_invalid', reason:suppressed.reason };
+  if(contact.deliverabilityStatus==='invalid'&&await require('../models/DeliveryEventReceipt').exists({userId:contact.userId,recipientEmail:email,state:'completed',outcome:'confirmed_recipient_failure'}))return {outcome:'confirmed_invalid',reason:'Authenticated exact-recipient failure receipt'};
   const proof = await admission.latestProof(contact.userId,email);
   if (proof?.outcome === 'invalid' && new Date(proof.expiresAt) > new Date()) return {outcome:'confirmed_invalid',reason:'Trusted Hunter verifier reports invalid'};
   const domain = await domainCheck(email.split('@')[1]);
@@ -19,9 +20,10 @@ async function inspect(contact, domainCheck = admission.checkedDomain) {
   if (!['mx_found','implicit_mx'].includes(domain.status)) return {outcome:'inconclusive',reason:'DNS/route inconclusive; contact preserved',domainStatus:domain.status};
   return {outcome:await admission.validProof(contact.userId,email)?'mailbox_valid':'route_capable',reason:'DNS route is not mailbox existence proof',domainStatus:domain.status};
 }
-async function scan({userId,limit=200,afterId,force=false,apply=false,domainCheck=admission.checkedDomain,assertLease} = {}) {
+async function scan({userId,limit=200,afterId,force=false,apply=false,domainCheck=admission.checkedDomain,assertLease,contactIds} = {}) {
   if (!mongoose.isValidObjectId(userId) || !Number.isInteger(limit) || limit<1 || limit>500 || (afterId && !mongoose.isValidObjectId(afterId))) throw new Error('Valid owner and bounded scan required');
-  const now = new Date(), query={userId,...(afterId?{_id:{$gt:afterId}}:{}),...(!force?{$or:[{hygieneCheckedAt:{$exists:false}},{hygieneCheckedAt:{$lt:new Date(+now-86400000)}}]}:{})};
+  if(contactIds!==undefined&&(!Array.isArray(contactIds)||!contactIds.length||contactIds.length>500||contactIds.some(id=>!mongoose.isValidObjectId(id))))throw new Error('Explicit bounded owned contact IDs required');
+  const now = new Date(), query={userId,...((afterId||contactIds)?{_id:{...(afterId?{$gt:afterId}:{}),...(contactIds?{$in:contactIds}:{})}}:{}),...(!force?{$or:[{hygieneCheckedAt:{$exists:false}},{hygieneCheckedAt:{$lt:new Date(+now-86400000)}}]}:{})};
   const rows=await Contact.find(query).sort(force?{_id:1}:{hygieneCheckedAt:1,_id:1}).limit(limit).lean();
   const report={checked:rows.length,confirmedInvalid:0,removed:0,inconclusive:0,routeCapable:0,mailboxValid:0,heldForReconciliation:0,conflicts:0,nextCursor:rows.length?String(rows.at(-1)._id):null};
   for(let offset=0;offset<rows.length;offset+=5) await Promise.all(rows.slice(offset,offset+5).map(async contact=>{

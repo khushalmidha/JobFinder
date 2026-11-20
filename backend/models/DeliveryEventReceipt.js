@@ -9,6 +9,7 @@ const schema = new mongoose.Schema({
   eventType: String,
   enhancedStatus: String,
   state: { type: String, enum: ['processing', 'completed'], default: 'processing' },
+  authentication: { source:String, signingDomain:String, signatureId:String, rawSha256:String, reportedAt:Date },
   outcome: String
 }, { timestamps: true });
 // No TTL: old event identifiers must not become reusable.

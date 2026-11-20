@@ -33,6 +33,7 @@
     "express": "^5.2.1",
     "imapflow": "^2.11.0",
     "jsonwebtoken": "^9.0.3",
+    "mailauth": "^8.0.6",
     "mailparser": "^3.9.28",
     "mammoth": "^1.12.0",
     "mongoose": "^9.12.1",

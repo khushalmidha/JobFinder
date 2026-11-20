@@ -7,7 +7,7 @@ const Campaign=require('../models/OutreachCampaign'),Dispatch=require('../models
 const Proof=require('../models/MailboxProof'),Suppression=require('../models/RecipientSuppression'),MailLog=require('../models/MailLog'),Ledger=require('../models/DeliveryLedger');
 const service=require('../services/campaignService'),{runCampaignWorkerOnce}=require('../services/campaignWorkerService');
 let mongo,server,base,user,other,contacts,now;
-const models=[User,Contact,Company,Campaign,Dispatch,Runtime,Proof,Suppression,MailLog,Ledger];
+const models=[require('../models/DeliveryEventReceipt'),User,Contact,Company,Campaign,Dispatch,Runtime,Proof,Suppression,MailLog,Ledger];
 const request=async(path,body)=>{const response=await fetch(base+path,{method:'POST',headers:{Authorization:'Bearer '+jwt.sign({_id:String(user._id)},process.env.JWT_SECRET),'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,data:await response.json()};};
 const input=(indices=[0,4,5,6])=>({immediate:true,senderId:'fixture-smtp',allowUnverifiedContacts:true,recipients:indices.map(i=>({contactId:String(contacts[i]._id),subject:'Exact application',body:'Reviewed synthetic application; no real provider.',overrideSalary:true}))});
 before(async()=>{
@@ -107,4 +107,45 @@ test('mailbox opt-in does not silently override salary evidence or duplicate his
   const missing=await service.previewCampaign(user._id,foreign,now);
   assert.equal(missing.snapshot.recipients.length,0);assert.equal(missing.blocked[0].email,null);assert.match(missing.blocked[0].reason,/Owned contact not found/);
   assert.equal(await Proof.countDocuments({userId:user._id,email:contacts[0].email}),0);
+});
+
+
+test('explicit resend approval bypasses past sends but never creates duplicate current queue entries',async()=>{
+  await MailLog.collection.insertOne({userId:user._id,contactId:contacts[0]._id,recipientEmail:contacts[0].email,status:'sent'});
+  assert.match((await service.previewCampaign(user._id,input([0]),now)).blocked[0].reason,/Already sent/);
+  const data={...input([0]),allowPreviouslyContacted:true};const preview=await service.previewCampaign(user._id,data,now);
+  assert.equal(preview.snapshot.recipients[0].previouslyContacted,true);
+  const draft=await service.saveCampaign(user._id,data,null,now);
+  await assert.rejects(service.approveCampaign(user._id,draft._id,draft.digest,now,{approveUnverifiedContacts:true}),/resend/);
+  await service.approveCampaign(user._id,draft._id,draft.digest,now,{approveUnverifiedContacts:true,approvePreviouslyContacted:true});
+  assert.match((await service.previewCampaign(user._id,data,now)).blocked[0].reason,/already queued/);
+  let calls=0;const send=async()=>{calls++;return {providerMessageId:'synthetic-explicit-resend'};};
+  assert.equal((await runCampaignWorkerOnce({now,enabled:()=>true,send})).status,'sent');
+  await runCampaignWorkerOnce({now:new Date(+now+3000),enabled:()=>true,send});assert.equal(calls,1);
+});
+
+test('resend never bypasses unknown outcomes, persistent blocks or invalid contacts, and row-only opt-ins cannot forge permission',async()=>{
+  await MailLog.collection.insertOne({userId:user._id,recipientEmail:contacts[0].email,status:'sent'});
+  const forged={...input([0]),recipients:input([0]).recipients.map(r=>({...r,allowPreviouslyContacted:true}))};
+  assert.match((await service.previewCampaign(user._id,forged,now)).blocked[0].reason,/Already sent/);
+  await Dispatch.collection.insertOne({userId:user._id,recipientEmail:contacts[5].email,status:'unknown_outcome'});
+  const blocked=await service.previewCampaign(user._id,{...input([1,5,7]),allowPreviouslyContacted:true},now);
+  assert.equal(blocked.snapshot.recipients.length,0);assert.equal(blocked.blocked.length,3);
+});
+
+test('authenticated DSN application is owner/message correlated, idempotent and permits targeted invalid cleanup without touching valid contacts',async()=>{
+  const {applyProviderDsn}=require('../services/providerDsnService');
+  const Receipt=require('../models/DeliveryEventReceipt');await Receipt.deleteMany({});
+  const raw=Buffer.from('private synthetic signed source');
+  const inspect=async()=>({trusted:true,rawSha256:'fixture-hash',signingDomain:'googlemail.com',signatureId:'fixture-signature',reportedAt:now.toISOString(),evidence:[{recipientEmail:contacts[0].email,messageId:'<owned-dsn@jobfinder.invalid>',action:'failed',enhancedStatus:'5.1.3'},{recipientEmail:contacts[5].email,messageId:'<other-dsn@jobfinder.invalid>',action:'failed',enhancedStatus:'4.2.2'}]});
+  await MailLog.collection.insertOne({userId:user._id,contactId:contacts[0]._id,recipientEmail:contacts[0].email,providerMessageId:'<owned-dsn@jobfinder.invalid>',status:'sent'});
+  assert.equal((await applyProviderDsn(other._id,raw,{inspect})).confirmed.length,0);
+  const result=await applyProviderDsn(user._id,raw,{inspect});assert.deepEqual(result.confirmed,[contacts[0].email]);assert.equal(result.inconclusive,1);
+  assert.equal((await applyProviderDsn(user._id,raw,{inspect})).duplicates,1);
+  assert.equal((await Contact.findById(contacts[0]._id)).deliverabilityStatus,'invalid');
+  assert.equal((await Contact.findById(contacts[5]._id)).deliverabilityStatus,'unverified');
+  const cleanup=await require('../services/contactHygieneService').scan({userId:user._id,contactIds:[contacts[0]._id],force:true,apply:true});
+  assert.equal(cleanup.removed,1);assert.ok(await Contact.findById(contacts[5]._id));
+  assert.equal(await Suppression.countDocuments({userId:user._id,email:contacts[0].email}),1);
+  assert.equal((await MailLog.findOne({providerMessageId:'<owned-dsn@jobfinder.invalid>'})).status,'bounced');
 });

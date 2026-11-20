@@ -20,7 +20,7 @@ function authenticate(raw, headers, env = process.env, now = Date.now()) {
   if (!event || !/^[A-Za-z0-9_.:-]{1,160}$/.test(event.eventId || '') || typeof event.messageId !== 'string' || !event.messageId.trim() || event.messageId.length > 512 || typeof event.recipientEmail !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(event.recipientEmail)) throw fail('Event ID, exact message ID and recipient required');
   return { event, userId: env.MAIL_STATUS_WEBHOOK_OWNER_ID, digest: crypto.createHash('sha256').update(raw).digest('hex') };
 }
-async function applyEvent({ event, userId, digest }) {
+async function applyEvent({ event, userId, digest, authentication }) {
   const email = event.recipientEmail.trim().toLowerCase();
   const [mailLogs, ledgerEntries] = await Promise.all([
     MailLog.find({ userId, providerMessageId: event.messageId, recipientEmail: exactEmail(email) }).limit(2).lean(),
@@ -61,7 +61,8 @@ async function applyEvent({ event, userId, digest }) {
       recipientEmail: email,
       providerMessageId: event.messageId,
       eventType: String(event.eventType || '').slice(0, 100),
-      enhancedStatus: String(event.enhancedStatus || '').slice(0, 30)
+      enhancedStatus: String(event.enhancedStatus || '').slice(0, 30),
+      ...(authentication?{authentication}:{})
     });
   }
   catch (error) {
@@ -74,9 +75,9 @@ async function applyEvent({ event, userId, digest }) {
   // Only an authenticated provider adapter asserting the exact 5.1.1 recipient
   // failure can invalidate a mailbox. Policy, outage and quota failures cannot.
   let outcome = 'inconclusive_no_suppression';
-  if (event.eventType === 'permanent_failure' && event.enhancedStatus === '5.1.1') {
-    const reason = 'Authenticated provider recipient failure 5.1.1';
-    await Suppression.updateOne({ userId, email }, { $setOnInsert: { userId, email, reason, source: 'authenticated_provider_5.1.1', evidenceEventId: event.eventId } }, { upsert: true });
+  if (event.eventType === 'permanent_failure' && (event.enhancedStatus === '5.1.1' || (event.enhancedStatus === '5.1.3' && authentication?.source==='provider_dkim'))) {
+    const reason = 'Authenticated provider recipient failure '+event.enhancedStatus;
+    await Suppression.updateOne({ userId, email }, { $setOnInsert: { userId, email, reason, source: event.enhancedStatus==='5.1.1'?'authenticated_provider_5.1.1':'authenticated_provider_recipient_failure', evidenceEventId: event.eventId } }, { upsert: true });
     await Contact.updateMany({ userId, email: exactEmail(email) }, { $set: { deliverabilityStatus: 'invalid', verificationStatus: 'invalid' } });
     await Contact.updateMany({ userId, email: exactEmail(email), suppressedAt: null }, { $set: { suppressedAt: new Date(), suppressionReason: reason } });
 

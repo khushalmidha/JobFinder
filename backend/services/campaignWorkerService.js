@@ -79,7 +79,7 @@ async function runCampaignWorkerOnce({now:fixedNow,clock=()=>fixedNow?new Date(f
     const approved=campaign.snapshot.recipients.find(r=>r.contactId===String(row.contactId));
     if(!approved||row.approvedDigest!==campaign.approvedDigest||approved.recipientEmail!==row.recipientEmail||approved.subject!==row.subject||approved.body!==row.body||row.senderEmail!==campaign.snapshot.senderEmail){await note(campaign._id,'needs_review','Dispatch differs from exact approved message',now);return {status:'approval_invalid'};}
     const contact=await Contact.findOne({_id:row.contactId,userId:campaign.userId}).lean();
-    let blocked=await recipientReason(user,contact,{...approved,allowUnverifiedContact:campaign.snapshot.allowUnverifiedContacts===true,allowResend:campaign.snapshot.allowResend===true||approved.allowResend===true},now,row._id);
+    let blocked=await recipientReason(user,contact,{...approved,allowUnverifiedContact:campaign.snapshot.allowUnverifiedContacts===true,allowPreviouslyContacted:campaign.snapshot.allowPreviouslyContacted===true||campaign.snapshot.allowResend===true},now,row._id,undefined,campaign._id);
     if(contact && normalizeEmail(contact.email)!==row.recipientEmail)blocked='Recipient address changed after approval';
     if(blocked){await Dispatch.updateOne({_id:row._id,status:'queued'},{$set:{status:'suppressed',reason:blocked,finishedAt:now}});await finishCampaign(campaign,now);return {status:'suppressed',reason:blocked};}
     // No arbitrary hooks or network calls between final current-state checks and

@@ -42,10 +42,8 @@ exports.previewImmediate = async (req, res) => {
       return res.status(400).json({ error: 'Select at least one contact to preview.' });
     }
 
+    if(req.body.allowPreviouslyContacted!==undefined&&typeof req.body.allowPreviouslyContacted!=='boolean')throw new Error('Choose previously-contacted sending explicitly');
     if(req.body.allowUnverifiedContacts!==undefined&&typeof req.body.allowUnverifiedContacts!=='boolean')throw new Error('Choose whether to include unverified contacts explicitly');
-    if(req.body.allowResend!==undefined&&typeof req.body.allowResend!=='boolean')throw new Error('Choose whether to allow resending explicitly');
-    const allowUnverifiedContacts = req.body.allowUnverifiedContacts === true;
-    const allowResend = req.body.allowResend !== false;
 
     // 2. Resolve template defaults if overrides are not directly provided
     let defaultSubject = '';
@@ -121,8 +119,7 @@ exports.previewImmediate = async (req, res) => {
         contactId: String(c._id),
         subject,
         body,
-        overrideSalary: overrideSalary === true,
-        allowResend
+        overrideSalary: overrideSalary === true
       });
     }
 
@@ -158,8 +155,8 @@ exports.previewImmediate = async (req, res) => {
           dailyLimit: dailyLimit || campaignService.senderCap(user)*(senderPolicy?.approvedSenders.length||1),
           ...(senderPolicy||{}),
           ...(req.body.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{}),
-          ...(allowUnverifiedContacts?{allowUnverifiedContacts:true}:{}),
-          ...(allowResend?{allowResend:true}:{}),
+          ...(req.body.allowUnverifiedContacts===true?{allowUnverifiedContacts:true}:{}),
+          ...(req.body.allowPreviouslyContacted===true?{allowPreviouslyContacted:true}:{}),
           intervalSeconds: effectiveInterval,
           recipients: []
         },
@@ -180,9 +177,7 @@ exports.previewImmediate = async (req, res) => {
       name: name || (immediate ? 'Immediate batch outreach' : 'Scheduled batch outreach'),
       senderId: sender.id,
       immediate, timezone, localDateTime,
-      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds, pauseOnDailyLimit:req.body.pauseOnDailyLimit,
-      allowUnverifiedContacts,
-      allowResend,
+      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds, pauseOnDailyLimit:req.body.pauseOnDailyLimit, allowUnverifiedContacts:req.body.allowUnverifiedContacts, allowPreviouslyContacted:req.body.allowPreviouslyContacted,
       dailyLimit,
       intervalSeconds: effectiveInterval,
       recipients
@@ -236,7 +231,7 @@ exports.sendBatch = async (req, res) => {
     }
 
     const now = new Date();
-    const campaign = await campaignService.approveCampaign(req.user._id, campaignId, approvedDigest, now, {approveUnverifiedContacts:req.body.approveUnverifiedContacts===true});
+    const campaign = await campaignService.approveCampaign(req.user._id, campaignId, approvedDigest, now, {approveUnverifiedContacts:req.body.approveUnverifiedContacts===true,approvePreviouslyContacted:req.body.approvePreviouslyContacted===true});
 
     res.json({
       success: true,
