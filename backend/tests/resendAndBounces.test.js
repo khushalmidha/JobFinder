@@ -212,6 +212,8 @@ test('Resend allowance and bounce scan suppression', async (t) => {
       suppressionReason: 'Confirmed invalid: Address not found (5.1.1 permanent failure)'
     });
 
+    await RecipientSuppression.create({userId:user._id,email:badContact.email,source:'confirmed_invalid_pipeline',reason:'Trusted fixture permanent failure'});
+
     // Create 1 valid contact
     const goodContact = await Contact.create({
       userId: user._id,
