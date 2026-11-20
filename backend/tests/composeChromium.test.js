@@ -344,9 +344,11 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     assert.equal(await advanced.getByLabel('Maximum per day',{exact:true}).inputValue(),'1350');
     await advanced.getByRole('combobox',{name:/Sender account/}).selectOption('smtp-browser-backup');assert.equal(await advanced.getByLabel('Maximum per day',{exact:true}).inputValue(),'900');
     console.log('PASS: exact approved sender list/caps in main composer, sender edits clear approval, and promoting a fallback clamps the advanced campaign budget; real delivery=0');
+    await Contact.create({userId:ownerId,companyId:company._id,company:company.name,email:'dave.hr@alphatech.example',verificationStatus:'unknown'});
+    require('../controllers/contactController').invalidateContactCache(ownerId);
     process.env.CONTACT_ADMISSION_ENABLED='true';
     await page.goto(base+'/');
-    await page.getByLabel('Select carol.hr@alphatech.example',{exact:true}).check();
+    await page.getByLabel('Select dave.hr@alphatech.example',{exact:true}).check();
     await page.getByRole('button',{name:'Send (1)',exact:true}).click();
     await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await modal.waitFor();
     await modal.getByText(/These addresses lack a current trusted mailbox-verification result/).waitFor();

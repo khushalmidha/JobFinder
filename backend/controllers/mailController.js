@@ -42,6 +42,7 @@ exports.previewImmediate = async (req, res) => {
       return res.status(400).json({ error: 'Select at least one contact to preview.' });
     }
 
+    if(req.body.allowPreviouslyContacted!==undefined&&typeof req.body.allowPreviouslyContacted!=='boolean')throw new Error('Choose previously-contacted sending explicitly');
     if(req.body.allowUnverifiedContacts!==undefined&&typeof req.body.allowUnverifiedContacts!=='boolean')throw new Error('Choose whether to include unverified contacts explicitly');
 
     // 2. Resolve template defaults if overrides are not directly provided
@@ -155,6 +156,7 @@ exports.previewImmediate = async (req, res) => {
           ...(senderPolicy||{}),
           ...(req.body.pauseOnDailyLimit===true?{pauseOnDailyLimit:true}:{}),
           ...(req.body.allowUnverifiedContacts===true?{allowUnverifiedContacts:true}:{}),
+          ...(req.body.allowPreviouslyContacted===true?{allowPreviouslyContacted:true}:{}),
           intervalSeconds: effectiveInterval,
           recipients: []
         },
@@ -175,7 +177,7 @@ exports.previewImmediate = async (req, res) => {
       name: name || (immediate ? 'Immediate batch outreach' : 'Scheduled batch outreach'),
       senderId: sender.id,
       immediate, timezone, localDateTime,
-      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds, pauseOnDailyLimit:req.body.pauseOnDailyLimit, allowUnverifiedContacts:req.body.allowUnverifiedContacts,
+      autoSwitchSenders: req.body.autoSwitchSenders, fallbackSenderIds: req.body.fallbackSenderIds, pauseOnDailyLimit:req.body.pauseOnDailyLimit, allowUnverifiedContacts:req.body.allowUnverifiedContacts, allowPreviouslyContacted:req.body.allowPreviouslyContacted,
       dailyLimit,
       intervalSeconds: effectiveInterval,
       recipients
@@ -229,7 +231,7 @@ exports.sendBatch = async (req, res) => {
     }
 
     const now = new Date();
-    const campaign = await campaignService.approveCampaign(req.user._id, campaignId, approvedDigest, now, {approveUnverifiedContacts:req.body.approveUnverifiedContacts===true});
+    const campaign = await campaignService.approveCampaign(req.user._id, campaignId, approvedDigest, now, {approveUnverifiedContacts:req.body.approveUnverifiedContacts===true,approvePreviouslyContacted:req.body.approvePreviouslyContacted===true});
 
     res.json({
       success: true,

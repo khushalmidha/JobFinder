@@ -3,7 +3,7 @@
 function parseDeliveryStatus(raw) {
   if (typeof raw !== 'string' || raw.length > 100000) return [];
   const text = raw.replace(/\r\n[ \t]+/g, ' ');
-  const messageId = text.match(/^Original-Message-ID:\s*(<[^\r\n>]+>)/im)?.[1];
+  const messageId = text.match(/^(?:X-)?Original-Message-ID:\s*(<[^\r\n>]+>)/im)?.[1];
   const results = [];
   for (const block of text.split(/\r?\n\s*\r?\n/)) {
     const recipient = block.match(/^Final-Recipient:\s*rfc822;\s*([^\s<>]+@[^\s<>]+)/im)?.[1];
