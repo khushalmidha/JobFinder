@@ -118,6 +118,7 @@ async function recipientReason(user,contact,row,now=new Date(),dispatchId,eviden
   return duplicateReason(user._id,contact._id,email,dispatchId,row.allowPreviouslyContacted===true,currentCampaignId);
 }
 async function previewCampaign(userId,input,now=new Date(),{excludeCampaignId}={}) {
+  if(input.allowPreviouslyContacted===undefined&&input.allowResend!==undefined)input={...input,allowPreviouslyContacted:input.allowResend};
   const user=await User.findById(userId);if(!user)throw new Error('User not found');
   const sender=resolveSender(user,String(input.senderId||''));
   const timezone=input.timezone||'Asia/Kolkata';
