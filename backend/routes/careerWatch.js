@@ -1,0 +1,41 @@
+const express=require('express'),mongoose=require('mongoose');
+const router=express.Router();router.use(require('../middleware/auth'));
+const Config=require('../models/CareerWatchConfig'),Task=require('../models/CareerWatchTask'),Job=require('../models/CareerWatchJob'),Notification=require('../models/CareerWatchNotification');
+const service=require('../services/careerWatchService');
+const wrap=fn=>async(req,res)=>{try{await fn(req,res);}catch(error){res.status(400).json({error:error.message});}};
+router.get('/status',wrap(async(req,res)=>{
+ const userId=req.user._id;const [config,total,due,running,failed,unmapped,jobs,notifications,unread,next]=await Promise.all([Config.findOne({userId}).lean(),Task.countDocuments({userId}),Task.countDocuments({userId,nextScanAt:{$lte:new Date()},portalStatus:{$ne:'needs_portal_mapping'}}),Task.countDocuments({userId,state:'running'}),Task.countDocuments({userId,state:'failed'}),Task.countDocuments({userId,portalStatus:'needs_portal_mapping'}),Job.countDocuments({userId}),Notification.countDocuments({userId}),Notification.countDocuments({userId,readAt:{$exists:false}}),Task.findOne({userId,portalStatus:{$ne:'needs_portal_mapping'}}).sort({nextScanAt:1}).select('nextScanAt').lean()]);
+ res.json({config:config||{enabled:false,indiaFocus:true,intervalHours:5,discoverContacts:true,dailyRequestLimit:20000},workerEnabled:process.env.CAREER_WATCH_ENABLED==='true',professionalDiscoveryEnabled:process.env.PROFESSIONAL_DISCOVERY_BACKGROUND_ENABLED==='true',stopped:process.env.RESEARCH_STOP==='true',nextScanAt:next?.nextScanAt||null,tasks:{total,due,running,failed,needsPortalMapping:unmapped},counts:{jobs,notifications,unread}});
+}));
+router.put('/config',wrap(async(req,res)=>{
+ if(typeof req.body.enabled!=='boolean')throw Error('Choose enabled true or false');
+ const set={enabled:req.body.enabled,intervalHours:5};
+ if(req.body.indiaFocus!==undefined){if(typeof req.body.indiaFocus!=='boolean')throw Error('Choose India focus true or false');set.indiaFocus=req.body.indiaFocus;}
+ if(req.body.discoverContacts!==undefined){if(typeof req.body.discoverContacts!=='boolean')throw Error('Choose contact discovery explicitly');set.discoverContacts=req.body.discoverContacts;}
+ if(req.body.dailyRequestLimit!==undefined){if(!Number.isInteger(req.body.dailyRequestLimit)||req.body.dailyRequestLimit<0||req.body.dailyRequestLimit>50000)throw Error('Use a free HTTP daily request budget between 0 and 50000');set.dailyRequestLimit=req.body.dailyRequestLimit;}
+ res.json({config:await Config.findOneAndUpdate({userId:req.user._id},{$set:set},{upsert:true,returnDocument:'after',runValidators:true})});
+}));
+router.post('/enqueue',wrap(async(req,res)=>res.json(await service.enqueueWatchCompanies(req.user._id,{companyIds:req.body.companyIds}))));
+router.post('/run',wrap(async(req,res)=>{
+ if(req.body.dryRun!==undefined&&typeof req.body.dryRun!=='boolean')throw Error('dryRun must be boolean');
+ res.json(await service.runCareerWatchOnce({userId:req.user._id,dryRun:req.body.dryRun!==false,maxCompanies:req.body.maxCompanies??1,maxRequests:req.body.maxRequests??12,maxRuntimeSeconds:30}));
+}));
+router.get('/tasks',wrap(async(req,res)=>{
+ const filter={userId:req.user._id};if(req.query.portalStatus==='needs_portal_mapping')filter.portalStatus='needs_portal_mapping';
+ const page=Math.max(1,Math.min(10000,parseInt(req.query.page)||1)),limit=50;
+ const [tasks,total]=await Promise.all([Task.find(filter).sort({regionPriority:-1,company:1}).skip((page-1)*limit).limit(limit).select('company region employerDomain careersUrl portalStatus state nextScanAt lastScannedAt lastError contactLastError').lean(),Task.countDocuments(filter)]);
+ res.json({tasks,total,page,limit});
+}));
+router.get('/jobs',wrap(async(req,res)=>{
+ const userId=req.user._id,filter={userId};const config=await Config.findOne({userId}).lean();if(config?.indiaFocus!==false)filter.locationRegion={$ne:'overseas'};if(req.query.eligibility){if(!['eligible','needs_review','excluded'].includes(req.query.eligibility))throw Error('Unknown eligibility filter');filter.eligibility=req.query.eligibility;}
+ const page=Math.max(1,Math.min(10000,parseInt(req.query.page)||1)),limit=50;
+ const [jobs,total]=await Promise.all([Job.find(filter).sort({locationPriority:-1,firstSeenAt:-1}).skip((page-1)*limit).limit(limit).lean(),Job.countDocuments(filter)]);
+ res.json({jobs:jobs.map(j=>({...j,eligibilityStatus:j.eligibility,reason:j.eligibilityReason,discoveredAt:j.firstSeenAt})),total,page,limit});
+}));
+router.get('/notifications',wrap(async(req,res)=>res.json({notifications:await Notification.find({userId:req.user._id}).sort({createdAt:-1}).limit(100).lean(),unread:await Notification.countDocuments({userId:req.user._id,readAt:{$exists:false}})})));
+router.post('/notifications/:id/read',wrap(async(req,res)=>{
+ if(!mongoose.isValidObjectId(req.params.id))throw Error('Invalid notification ID');
+ const notification=await Notification.findOneAndUpdate({_id:req.params.id,userId:req.user._id},{$set:{readAt:new Date()}},{returnDocument:'after'});
+ if(!notification)return res.status(404).json({error:'Notification not found'});res.json({notification});
+}));
+module.exports=router;

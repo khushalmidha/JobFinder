@@ -1,0 +1,226 @@
+import React, { useCallback, useEffect, useId, useState } from 'react';
+import api from '../services/api';
+
+const panel = 'rounded-xl border border-zinc-800 bg-zinc-950 p-4 md:p-5';
+const button = 'rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:border-yellow-500 disabled:opacity-40';
+const tabs = [ ['jobs', 'Career jobs'], ['notifications', 'Notifications'], ['recruiter', 'Recruiters'], ['hiring_manager', 'Hiring managers'], ['role_inbox', 'Recruiting inboxes'] ];
+const errorText = error => error?.response?.data?.error || error?.message || 'Request failed. Try again.';
+const rowsOf = (data, key) => Array.isArray(data?.[key]) ? data[key] : [];
+const display = value => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+const regionLabel = value => String(value || '').toLowerCase() === 'india' ? 'India' : String(value || '').toLowerCase() === 'overseas' ? 'Overseas' : 'Unconfirmed';
+const companyName = value => display(value) || display(value?.name) || 'Company not recorded';
+function safeUrl(value) {
+  try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : null; } catch { return null; }
+}
+function timestamp(value) {
+  const date = new Date(value);
+  return value && Number.isFinite(+date) ? date.toLocaleString() : 'Not recorded';
+}
+function Link({ url, children }) {
+  const href = safeUrl(url);
+  return href ? <a href={href} target="_blank" rel="noreferrer" className="text-yellow-400 underline break-all">{children}</a> : <span className="text-zinc-500">Source URL unavailable</span>;
+}
+function eligibility(job) {
+  if (job.eligible === true || job.isEligible === true || ['eligible', 'qualified', 'match'].includes(job.eligibilityStatus || job.classification || job.status)) return 'Matches recorded eligibility';
+  return 'Eligibility needs review';
+}
+
+export default function CompanyWatchPanel() {
+  const id = useId();
+  const [tab, setTab] = useState('jobs');
+  const [status, setStatus] = useState(null);
+  const [discoveryStatus, setDiscoveryStatus] = useState(null);
+  const [jobs, setJobs] = useState([]);
+  const [jobPage, setJobPage] = useState(1);
+  const [jobMeta, setJobMeta] = useState({ total: 0, limit: 50 });
+  const [notifications, setNotifications] = useState([]);
+  const [leads, setLeads] = useState([]);
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [leadLoading, setLeadLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [domains, setDomains] = useState('');
+  const [scanReport, setScanReport] = useState(null);
+
+  const refresh = useCallback(async (requestedPage) => {
+    const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : jobPage;
+    setLoading(true);
+    const requests = [ ['status', '/career-watch/status'], ['jobs', `/career-watch/jobs?page=${page}`], ['notifications', '/career-watch/notifications'], ['discovery', '/professional-discovery/status'] ];
+    const results = await Promise.allSettled(requests.map(([, path]) => api.get(path)));
+    const nextErrors = {};
+    results.forEach((result, index) => {
+      const key = requests[index][0];
+      if (result.status === 'rejected') { nextErrors[key] = errorText(result.reason); return; }
+      const data = result.value.data;
+      if (key === 'status') setStatus(data);
+      if (key === 'jobs') { setJobs(rowsOf(data, 'jobs')); setJobMeta({ total: Number.isInteger(data.total) ? data.total : rowsOf(data, 'jobs').length, limit: Number.isInteger(data.limit) && data.limit > 0 ? data.limit : 50 }); }
+      if (key === 'notifications') setNotifications(rowsOf(data, 'notifications'));
+      if (key === 'discovery') setDiscoveryStatus(data);
+    });
+    setErrors(previous => ({ ...previous, status: null, jobs: null, notifications: null, discovery: null, ...nextErrors }));
+    setLoading(false);
+  }, [jobPage]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!['recruiter', 'hiring_manager', 'role_inbox'].includes(tab)) return undefined;
+    let active = true;
+    setLeadLoading(true); setLeads([]);
+    api.get('/professional-discovery/leads', { params: { kind: tab } }).then(({ data }) => {
+      if (active) { setLeads(rowsOf(data, 'leads')); setErrors(previous => ({ ...previous, leads: null })); }
+    }).catch(error => { if (active) setErrors(previous => ({ ...previous, leads: errorText(error) })); }).finally(() => { if (active) setLeadLoading(false); });
+    return () => { active = false; };
+  }, [tab, status?.config?.indiaFocus]);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      api.get('/career-watch/notifications').then(({ data }) => setNotifications(rowsOf(data, 'notifications'))).catch(() => {});
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  async function run(action) {
+    setBusy(true); setMessage('');
+    try { await action(); } catch (error) { setMessage(errorText(error)); } finally { setBusy(false); }
+  }
+  async function toggleMonitoring() {
+    const enabled = !status?.config?.enabled;
+    const { data } = await api.put('/career-watch/config', { enabled });
+    setStatus(previous => ({ ...previous, config: data.config || data }));
+    setMessage(enabled ? 'Five-hour monitoring configuration enabled. Check worker status below for backend availability.' : 'Monitoring disabled. Saved jobs and notifications are preserved.');
+    await refresh();
+  }
+  async function toggleIndiaFocus() {
+    const indiaFocus = status?.config?.indiaFocus === false;
+    const { data } = await api.put('/career-watch/config', { enabled: !!status?.config?.enabled, indiaFocus });
+    setStatus(previous => ({ ...previous, config: data.config || data }));
+    setJobPage(1);
+    setMessage(indiaFocus ? 'India focus enabled. Overseas jobs are excluded; unknown locations stay labelled for review.' : 'India focus disabled. Overseas results are available with their recorded location labels.');
+    await refresh(1);
+  }
+  async function enqueue() {
+    const { data } = await api.post('/career-watch/enqueue', {});
+    setMessage(data.message || `Company queue updated${Number.isInteger(data.enqueued) ? `: ${data.enqueued} companies enqueued` : ''}. Existing records are preserved.`);
+    await refresh();
+  }
+  async function inspectJobs() {
+    const { data } = await api.post('/career-watch/run', { dryRun: true });
+    setScanReport({ type: 'Career scan dry run', result: data });
+    setMessage('Career dry run completed. No application was submitted. Results are shown below.');
+    await refresh();
+  }
+  async function inspectContacts(dryRun = true) {
+    const values = [...new Set(domains.split(/[\s,;]+/).map(value => value.trim().toLowerCase()).filter(Boolean))];
+    if (!values.length || values.some(value => !/^(?!-)[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(value))) throw new Error('Enter company domains such as company.com, separated by commas or new lines.');
+    const { data } = await api.post('/professional-discovery/scan', { domains: values, dryRun, maxRequests: 25 });
+    setScanReport({ type: dryRun ? 'Public contact discovery dry run' : 'Public sourced-lead discovery and save', result: data });
+    setMessage(dryRun ? 'Public discovery dry run completed. No contacts were saved by this action.' : 'Sourced-lead discovery completed. See the actual report for saved and excluded counts. Research leads remain separate from active outreach contacts.');
+    if (!dryRun) {
+      await refresh();
+      if (['recruiter', 'hiring_manager', 'role_inbox'].includes(tab)) { const response = await api.get('/professional-discovery/leads', { params: { kind: tab } }); setLeads(rowsOf(response.data, 'leads')); }
+    }
+  }
+  async function markRead(notification) {
+    await api.post(`/career-watch/notifications/${encodeURIComponent(notification._id)}/read`, {});
+    setNotifications(previous => previous.map(row => row._id === notification._id ? { ...row, readAt: new Date().toISOString(), read: true } : row));
+  }
+  async function download(format) {
+    const { data } = await api.get('/professional-discovery/export', { params: { format, kind: ['recruiter', 'hiring_manager', 'role_inbox'].includes(tab) ? tab : undefined }, responseType: 'blob' });
+    const url = URL.createObjectURL(data);
+    const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = `jobfinder-professional-contacts.${format}`;
+    document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  const unread = notifications.filter(row => !row.readAt && !row.read).length;
+  const config = status?.config;
+  const workerEnabled = status?.workerEnabled ?? status?.schedulerEnabled;
+  return <section aria-labelledby={`${id}-title`} className="space-y-4 text-zinc-100">
+    <header className={panel}>
+      <h2 id={`${id}-title`} className="text-xl font-bold text-yellow-400">Company monitoring & professional contacts</h2>
+      <p className="mt-2 text-sm text-zinc-400">Monitor your supplied company list every five hours for FTE roles requiring less than one year of experience, or explicit six-month internships with FTE conversion. Missing experience or conversion evidence requires review.</p>
+      <p className="mt-2 text-xs text-zinc-500">Company salary evidence remains separate. Finding a job or email does not verify a ₹15 LPA fixed-base offer or prove that a mailbox exists.</p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!config?.enabled} disabled={busy || !status || !!errors.status} onChange={() => run(toggleMonitoring)} /> Enable five-hour company monitoring</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config?.indiaFocus !== false} disabled={busy || loading || !status || !!errors.status} onChange={() => run(toggleIndiaFocus)} /> Focus on India jobs and contacts</label>
+        <button type="button" className={button} disabled={busy || loading} onClick={() => run(enqueue)}>Queue supplied companies</button>
+        <button type="button" className={button} disabled={busy} onClick={() => run(inspectJobs)}>Run career dry scan</button>
+        <button type="button" className={button} disabled={busy || loading} onClick={refresh}>Refresh monitoring</button>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-zinc-400">
+        <span>Schedule: rolling five-hour interval</span>
+        <span>Configuration: {status ? config?.enabled ? 'Enabled' : 'Disabled' : 'Unavailable'}</span>
+        <span>Backend worker: {workerEnabled === true ? 'Enabled' : workerEnabled === false ? 'Disabled' : 'Not reported'}</span>
+        <span>Public contact refresh: {status?.professionalDiscoveryEnabled ? 'Weekly per company, within free HTTP budget' : 'Background worker disabled'}</span>
+        <span>Next scan: {timestamp(status?.nextScanAt || config?.nextScanAt)}</span>
+        <span>Unread notifications: {unread}</span>
+        <span>Company tasks: {status?.tasks?.total ?? 0}</span>
+        <span>Official portal mapping needed: {status?.tasks?.needsPortalMapping ?? 0}</span>
+        <span>Failed scans: {status?.tasks?.failed ?? 0}</span>
+        <span>Daily career HTTP budget: {config?.requestsUsed ?? 0}/{config?.dailyRequestLimit ?? 20000}</span>
+      </div>
+    </header>
+
+    {Object.entries(errors).filter(([key, value]) => value && key !== 'leads').map(([key, value]) => <p key={key} role="alert" className="rounded border border-red-900 p-3 text-sm text-red-300">{key}: {value}. Saved results remain visible.</p>)}
+    {message && <p role="status" className="rounded border border-yellow-800 p-3 text-sm text-yellow-200">{message}</p>}
+    <div role="tablist" aria-label="Company watch sections" className="flex flex-wrap gap-2">
+      {tabs.map(([key, label]) => <button key={key} type="button" role="tab" id={`${id}-${key}`} aria-controls={`${id}-content`} aria-selected={tab === key} onClick={() => setTab(key)} className={`${button} ${tab === key ? 'border-yellow-500 bg-yellow-500/10 text-yellow-300' : ''}`}>{label}{key === 'notifications' && unread ? ` (${unread})` : ''}</button>)}
+    </div>
+
+    <div role="tabpanel" id={`${id}-content`} aria-labelledby={`${id}-${tab}`} className={panel}>
+      {tab === 'jobs' && <>
+        <h3 className="font-semibold">Career portal results</h3>
+        {loading && <p className="mt-3 text-sm text-zinc-400">Loading saved jobs…</p>}
+        {!loading && !jobs.length && !errors.jobs && <p className="mt-3 text-sm text-zinc-400">No saved matching roles yet. Queue companies and enable monitoring. Unsupported or inaccessible portals are not reported as successfully scanned.</p>}
+        <div className="mt-3 space-y-3">{jobs.map((job, index) => <article key={job._id || job.url || index} className="rounded border border-zinc-800 p-3">
+          <h4 className="font-semibold">{display(job.title) || 'Untitled role'}</h4>
+          <p className="mt-1 text-sm text-zinc-400">{companyName(job.company || job.companyName)}{job.location ? ` · ${display(job.location)}` : ''}</p>
+          <p className="mt-2 text-xs text-zinc-400">Location classification: {regionLabel(job.locationRegion)} · Company coverage: {regionLabel(job.companyRegion)}</p>
+          <p className="mt-2 text-xs text-yellow-300">{eligibility(job)}</p>
+          {job.reason && <p className="mt-1 text-xs text-zinc-400">{display(job.reason)}</p>}
+          <p className="mt-2 text-xs text-zinc-500">Observed: {timestamp(job.discoveredAt || job.firstSeenAt || job.createdAt)}</p>
+          <p className="mt-2 text-sm"><Link url={job.url || job.applyUrl}>Official job posting</Link></p>
+        </article>)}</div>
+        {jobMeta.total > jobMeta.limit && <nav aria-label="Career job pagination" className="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" className={button} disabled={busy || loading || jobPage <= 1} onClick={() => setJobPage(page => page - 1)}>Previous job page</button>
+          <span className="text-sm text-zinc-400">Job page {jobPage} of {Math.max(1, Math.ceil(jobMeta.total / jobMeta.limit))} · {jobMeta.total} results</span>
+          <button type="button" className={button} disabled={busy || loading || jobPage >= Math.ceil(jobMeta.total / jobMeta.limit)} onClick={() => setJobPage(page => page + 1)}>Next job page</button>
+        </nav>}
+      </>}
+      {tab === 'notifications' && <>
+        <h3 className="font-semibold">Website notifications</h3>
+        {!notifications.length && !errors.notifications && <p className="mt-3 text-sm text-zinc-400">No notifications yet. New qualifying jobs generate a notification after a successful scan.</p>}
+        <ul className="mt-3 space-y-3">{notifications.map((notification, index) => <li key={notification._id || index} className="flex flex-col gap-3 rounded border border-zinc-800 p-3 sm:flex-row sm:justify-between">
+          <div><p className="font-semibold">{display(notification.title) || display(notification.message) || 'New career result'}</p>{notification.message && notification.title && <p className="mt-1 text-sm text-zinc-400">{display(notification.message)}</p>}<p className="mt-1 text-xs text-zinc-500">{timestamp(notification.createdAt)}</p>{(notification.url || notification.jobUrl) && <p className="mt-2 text-sm"><Link url={notification.url || notification.jobUrl}>View posting</Link></p>}</div>
+          {!notification.readAt && !notification.read && notification._id && <button type="button" className={`${button} self-start shrink-0`} disabled={busy} onClick={() => run(() => markRead(notification))}>Mark notification read</button>}
+        </li>)}</ul>
+      </>}
+      {['recruiter', 'hiring_manager', 'role_inbox'].includes(tab) && <>
+        <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">{tabs.find(([key]) => key === tab)?.[1]}</h3><div className="flex gap-2"><button type="button" className={button} disabled={busy} onClick={() => run(() => download('csv'))}>Export contacts CSV</button><button type="button" className={button} disabled={busy} onClick={() => run(() => download('xlsx'))}>Export contacts XLSX</button></div></div>
+        <p className="mt-2 text-xs text-zinc-400">Professional public sources only. Hiring managers are separated from recruiters. No LinkedIn automation, guessed emails, personal webmail harvesting or automatic sending.</p>
+        {errors.leads && <p role="alert" className="mt-3 text-sm text-red-300">{errors.leads}</p>}
+        {leadLoading && <p className="mt-3 text-sm text-zinc-400">Loading contacts…</p>}
+        {!leadLoading && !leads.length && !errors.leads && <p className="mt-3 text-sm text-zinc-400">No saved contacts in this section yet. A dry scan previews discovery; it does not claim contacts were saved.</p>}
+        {!leadLoading && <div className="mt-3 space-y-3">{leads.map((lead, index) => <article key={lead._id || lead.email || index} className="rounded border border-zinc-800 p-3">
+          <p className="font-semibold">{display(lead.name) || (tab === 'role_inbox' ? 'Published recruiting inbox' : 'Name not published')}</p>
+          <p className="text-sm text-zinc-400">{display(lead.title)}{lead.title ? ' · ' : ''}{companyName(lead.company)}</p>
+          <p className="mt-2 break-all text-sm">{display(lead.email)}</p>
+          <p className="mt-2 text-xs text-amber-300">{display(lead.verificationStatus) || 'Publicly listed; mailbox not independently verified'}</p>
+          <p className="mt-1 text-xs text-zinc-500">Discovered: {timestamp(lead.observedAt || lead.discoveredAt || lead.createdAt)}{lead.confidence !== undefined ? ` · Evidence confidence: ${display(lead.confidence)}` : ''}</p>
+          <p className="mt-2 text-xs"><Link url={lead.sourceUrl || lead.provenance?.[0]?.url}>Professional source</Link></p>
+        </article>)}</div>}
+        {discoveryStatus?.counts && <p className="mt-3 text-xs text-zinc-500">Saved discovery totals: {Object.entries(discoveryStatus.counts).map(([key, value]) => `${key}: ${display(value)}`).join(' · ')}</p>}
+      </>}
+    </div>
+
+    <form className={`${panel} space-y-3`} onSubmit={event => { event.preventDefault(); run(inspectContacts); }}>
+      <h3 className="font-semibold">Free public contact discovery</h3>
+      <label className="block text-sm">Company domains to inspect<textarea aria-label="Company domains to inspect" value={domains} onChange={event => setDomains(event.target.value)} rows={3} placeholder="company.com, another-company.com" className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-sm" /></label>
+      <p className="text-xs text-zinc-400">Maximum 25 page requests for this run. Dry run previews results; the explicit save action stores sourced professional leads separately from active mailing contacts. Paid enrichment and automatic sending are not enabled by either action.</p>
+      <div className="flex flex-wrap gap-2"><button type="submit" className={button} disabled={busy || !domains.trim()}>Run public contact dry scan</button><button type="button" className={button} disabled={busy || !domains.trim()} onClick={() => run(() => inspectContacts(false))}>Discover &amp; save sourced leads</button></div>
+    </form>
+    {scanReport && <details open className={panel}><summary className="cursor-pointer font-semibold">{scanReport.type} — actual report</summary><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-300">{JSON.stringify(scanReport.result, null, 2)}</pre></details>}
+  </section>;
+}

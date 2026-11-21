@@ -1,10 +1,13 @@
-import React from 'react';
+import React, {useEffect,useState} from 'react';
+import api from '../services/api';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { LayoutDashboard, Users, Settings, LogOut, Send, Briefcase } from 'lucide-react';
 
 const Layout = ({ onLogout }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const [unreadJobs,setUnreadJobs]=useState(0);
+  useEffect(()=>{let active=true;const poll=()=>api.get('/career-watch/notifications').then(({data})=>{if(active)setUnreadJobs(data.unread||0);}).catch(()=>{});poll();const timer=setInterval(poll,60000);return()=>{active=false;clearInterval(timer);};},[location.pathname]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -48,7 +51,7 @@ const Layout = ({ onLogout }) => {
                 }`}
               >
                 <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-yellow-400' : 'text-zinc-500'}`} />
-                <span className="hidden md:inline">{item.label}</span>
+                <span className="hidden md:inline">{item.label}</span>{item.path==='/jobs'&&unreadJobs>0&&<span aria-label={`${unreadJobs} unread job notifications`} className="ml-1 rounded bg-yellow-500 px-1 text-xs font-bold text-black">{unreadJobs}</span>}
               </Link>
             );
           })}
