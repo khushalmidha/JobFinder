@@ -1,0 +1,13 @@
+# Recover a zero-eligible outreach preview
+
+The review modal offers **Include unverified evidence & re-preview** when exclusions concern missing mailbox/source evidence or unverified fixed-base company qualification. Clicking it explicitly selects the unverified-contact and salary-evidence choices for this campaign and requests a new preview immediately. It preserves the selected recipients, message, sender/fallback choices, resend choice, scheduled date, time and timezone. These choices do not become silent global defaults.
+
+The button does not approve, queue or send anything. Approval is cleared at the start of every preview; while it loads, the approval checkbox and send button are disabled. The next saved draft has its own digest and requires explicit final review/approval. Failed preview requests can be retried. Confirmed invalid addresses, suppressions, opt-outs, company blocks, duplicate queue entries and unresolved deliveries remain subject to the existing backend exclusions. No mailbox status or salary qualification is promoted by this action.
+
+Current-code correction to the supplied report: resend defaults ON already; the two evidence overrides default OFF. A Hunter paid receipt is not universally required: current production contact-admission gating is OFF, while public/professional source evidence is still required unless explicitly overridden. Missing evidence is not proof of an invalid mailbox. Never promise that all recipients or a fixed percentage will qualify.
+
+Read-only production audit on22November2026 IST:0 queued dispatches and no active scheduled/running/paused/needs-review campaigns at the check. Across all2014 owned contact records (not the old1697 selection), default evidence choices yielded0 eligible; explicit evidence choices plus the existing resend default yielded1606 eligible and408 excluded. Exclusions:348 persistent suppressions,59 company do-not-contact blocks,1 duplicate selection. No database writes, provider calls or outbound sends occurred in that audit. Counts may change before approval.
+
+Date clarity: on22November2026, tomorrow09:00 Asia/Kolkata is23November2026 at03:30UTC. The coming morning on22November is a different date. Actual scheduling requires the user's chosen date and exact campaign approval; no live campaign was scheduled by this fix.
+
+Validation: real Chromium/temporary Mongo regression starts with zero eligible, recovers one unverified recipient with salary override, retains an invalid recipient exclusion, preserves09:00 Asia/Kolkata as03:30UTC and creates no dispatch before final approval. Existing immediate/scheduled sending, sender fallback, mutation rejection and zero outbound-mail assertions also pass. Web build and lint pass (existing unrelated warnings remain).
