@@ -361,6 +361,13 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     await modal.getByRole('link',{name:'Email Checks',exact:true}).waitFor();
     await modal.getByText(/All selected recipients were excluded. Review each reason above/).waitFor();
     assert.equal(await Campaign.countDocuments({userId:ownerId,state:'scheduled'}),2);
+    // Production can have admission off and still exclude missing public source
+    // provenance. Recovery must be available for that reason as well.
+    await modal.getByRole('button',{name:'Back to Edit',exact:true}).click();
+    process.env.CONTACT_ADMISSION_ENABLED='false';
+    await Contact.updateOne({userId:ownerId,email:'dave.hr@alphatech.example'},{$set:{verificationStatus:'publicly_sourced'}});
+    await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await modal.waitFor();
+    await modal.getByText('Missing professional source provenance',{exact:true}).waitFor();
     const excludedDraft=await Campaign.findOne({userId:ownerId,'snapshot.localDateTime':recoveryDay+'T09:00'}).sort({createdAt:-1});
     assert.equal(excludedDraft,null,'Zero-eligible previews do not create a schedulable draft');
     await modal.getByText('Scheduled start (UTC): '+recoveryDay+'T03:30:00.000Z',{exact:true}).waitFor();

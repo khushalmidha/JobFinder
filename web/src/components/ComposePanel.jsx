@@ -224,7 +224,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
   const selectedSmtpAccount = smtpAccounts.find(s => s._id === selectedSmtpId);
   const eligibleRecipients = previewData?.snapshot?.recipients || [];
   const recoverableEvidenceExclusions = previewData?.blocked?.some(row =>
-    /Fresh trusted mailbox verification|Company fixed-base qualification|Individual recruiting contact requires public or provider evidence|Contact requires sourced evidence/.test(row.reason || '')
+    /Fresh trusted mailbox verification|Missing professional source provenance|Company fixed-base qualification|Individual recruiting contact requires public or provider evidence|Contact requires sourced evidence/.test(row.reason || '')
   );
   const pageSize = 5;
   const totalPages = Math.ceil(eligibleRecipients.length / pageSize);
