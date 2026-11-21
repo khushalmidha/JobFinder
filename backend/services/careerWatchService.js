@@ -125,7 +125,8 @@ async function enqueueWatchCompanies(userId,{companyIds}={}){
    if(!importedKeys.has(key))rows.push({company:c.companyName,careersUrl:c.careersUrl,region:c.regionGroup,priority:c.reportedBaseLowLPA?10:0});
   }
  }
- let queued=0,skipped=0,needsPortalMapping=0,identityConflicts=0;const seen=new Set();
+ let queued=0,updated=0,skipped=0,needsPortalMapping=0,identityConflicts=0;const seen=new Set(),writes=[];
+ const existingTasks=new Map((await Task.find({userId}).lean()).map(task=>[task.identityKey,task]));
  for(const source of rows){
   const candidates=byName.get(normalize(source.company))||[];
   const existing=source.identityConflict?null:byId.get(String(source.companyId))||(candidates.length===1?candidates[0]:null);
@@ -137,11 +138,22 @@ async function enqueueWatchCompanies(userId,{companyIds}={}){
   const portalStatus=url?'mapped':'needs_portal_mapping';if(!url){needsPortalMapping++;url='https://unmapped-'+identityKey.slice(0,16)+'.invalid/';}
   const domain=new URL(url).hostname.toLowerCase().replace(/^www\./,'');
   let employerDomain=portalStatus==='mapped'&&!atsHost(domain)?domain:null;
-  if(!employerDomain&&existing?.domain){const root=officialUrl('https://'+existing.domain+'/');if(root&&!atsHost(new URL(root).hostname))employerDomain=new URL(root).hostname.replace(/^www\./,'');}
+  if(existing?.domain){const root=officialUrl('https://'+existing.domain+'/');if(root&&!atsHost(new URL(root).hostname))employerDomain=new URL(root).hostname.replace(/^www\./,'');}
   const priority=existing&&require('./salaryEvidenceService').qualifyCompany(existing).qualificationStatus==='qualified'?100:source.priority;
-  const result=await Task.updateOne({userId,identityKey},{$setOnInsert:{company:source.company,identityKey,domain,employerDomain,careersUrl:url,region:source.region,regionPriority:/^india$/i.test(source.region)?1:0,portalStatus,priority,nextScanAt:new Date(),state:'queued'}},{upsert:true});queued+=result.upsertedCount||0;
+  const metadata={company:source.company,domain,employerDomain,careersUrl:url,region:source.region,regionPriority:/^india$/i.test(source.region)?1:0,portalStatus,priority};
+  const previous=existingTasks.get(identityKey);
+  if(!previous)writes.push({updateOne:{filter:{userId,identityKey},update:{$setOnInsert:{...metadata,userId,identityKey,nextScanAt:new Date(),state:'queued'}},upsert:true}});
+  else if(previous.state!=='running'&&!(previous.portalStatus==='mapped'&&portalStatus==='needs_portal_mapping')){
+   const changes=Object.fromEntries(Object.entries(metadata).filter(([key,value])=>previous[key]!==value));
+   if(Object.keys(changes).length){
+    if(changes.careersUrl)changes.nextScanAt=new Date();
+    const update={$set:changes};if('employerDomain' in changes)update.$unset={lastContactScanAt:1};
+    writes.push({updateOne:{filter:{_id:previous._id,userId,state:{$ne:'running'}},update}});
+   }
+  }
  }
- await Config.updateOne({userId},{$setOnInsert:{enabled:false}},{upsert:true});return {queued,skipped,duplicateSourceRows:skipped,sourceRows:rows.length,needsPortalMapping,identityConflicts};
+ if(writes.length){const result=await Task.bulkWrite(writes,{ordered:false});queued=result.upsertedCount||0;updated=result.modifiedCount||0;}
+ await Config.updateOne({userId},{$setOnInsert:{enabled:false}},{upsert:true});return {queued,updated,skipped,duplicateSourceRows:skipped,sourceRows:rows.length,needsPortalMapping,identityConflicts};
 }
 async function runCareerWatchOnce({userId,dryRun=true,maxCompanies=1,maxRequests=12,maxRuntimeSeconds=30,fetchPage=fetchPublicPage,clock=()=>new Date(),contactDiscover=null}={}){
  if(process.env.RESEARCH_STOP==='true')return {status:'stopped',requestsUsed:0,companies:[]};
