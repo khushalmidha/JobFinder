@@ -120,7 +120,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     }
   };
 
-  const handlePreview = async (smtpIdToUse = null) => {
+  const handlePreview = async (smtpIdToUse = null, evidenceChoices = {}) => {
+    setApprovalChecked(false);
     const effectiveSmtpId = smtpIdToUse !== null ? smtpIdToUse : selectedSmtpId;
 
     // Check if an SMTP connection is selected
@@ -137,7 +138,8 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     if (switchingEnabled && !fallbackIds.length) { setError('Choose at least one additional approved sender for automatic switching.'); return; }
     const payload = { 
       autoSwitchSenders:switchingEnabled, pauseOnDailyLimit:!switchingEnabled, ...(switchingEnabled ? { fallbackSenderIds: fallbackIds } : {}),
-      allowUnverifiedContacts,overrideSalary,allowPreviouslyContacted,
+      allowUnverifiedContacts: evidenceChoices.allowUnverifiedContacts ?? allowUnverifiedContacts,
+      overrideSalary: evidenceChoices.overrideSalary ?? overrideSalary,allowPreviouslyContacted,
       mode: deliveryMode,
       ...(deliveryMode === 'scheduled' ? { localDateTime: `${scheduleDate}T${scheduleTime}`, timezone: scheduleTimezone } : {}),
       contactIds: selectedIds,
@@ -175,8 +177,16 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
     }
   };
 
+  const includeUnverifiedAndRepreview = async () => {
+    setAllowUnverifiedContacts(true);
+    setOverrideSalary(true);
+    // React state updates are asynchronous. Pass these explicit choices into
+    // this request rather than reusing the previous render's false values.
+    await handlePreview(null, { allowUnverifiedContacts: true, overrideSalary: true });
+  };
+
   const handleApproveAndQueue = async () => {
-    if (!previewData || !previewData.campaignId || !previewData.digest || !approvalChecked) {
+    if (loading || !previewData || !previewData.campaignId || !previewData.digest || !approvalChecked) {
       return;
     }
 
@@ -213,6 +223,9 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
 
   const selectedSmtpAccount = smtpAccounts.find(s => s._id === selectedSmtpId);
   const eligibleRecipients = previewData?.snapshot?.recipients || [];
+  const recoverableEvidenceExclusions = previewData?.blocked?.some(row =>
+    /Fresh trusted mailbox verification|Missing professional source provenance|Company fixed-base qualification|Individual recruiting contact requires public or provider evidence|Contact requires sourced evidence/.test(row.reason || '')
+  );
   const pageSize = 5;
   const totalPages = Math.ceil(eligibleRecipients.length / pageSize);
   const currentRecipients = eligibleRecipients.slice(recipientPage * pageSize, (recipientPage + 1) * pageSize);
@@ -684,6 +697,12 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                 </div>
               )}
 
+              {recoverableEvidenceExclusions && <div className="rounded-xl border border-amber-700 p-3 space-y-2 text-sm text-amber-200">
+                <p>Include contacts without mailbox verification and companies without verified salary evidence for this campaign. Invalid, blocked, opted-out and unresolved deliveries remain excluded.</p>
+                <button type="button" disabled={loading || approving} onClick={includeUnverifiedAndRepreview} className="rounded border border-amber-500 px-3 py-2 font-semibold disabled:opacity-40">{loading ? 'Updating preview...' : 'Include unverified evidence & re-preview'}</button>
+                <p className="text-xs">This creates a fresh preview. Nothing is queued until you review and explicitly approve it.</p>
+              </div>}
+
               {/* Complete Eligible Recipient List with Pagination & Inspection */}
               {eligibleRecipients.length > 0 && (
                 <div className="space-y-2">
@@ -780,7 +799,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                 <label className="flex items-start gap-2.5 p-3 rounded-xl border border-yellow-500/30 bg-yellow-500/5 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={approvalChecked}
+                    disabled={loading || approving} checked={approvalChecked}
                     onChange={(e) => setApprovalChecked(e.target.checked)}
                     className="mt-0.5 rounded border-zinc-700 text-yellow-500 focus:ring-yellow-500/20"
                   />
@@ -808,7 +827,7 @@ const ComposePanel = ({ selectedIds, jobLinkOverride, roleOverride, onClose, onS
                 <button
                   type="button"
                   onClick={handleApproveAndQueue}
-                  disabled={!approvalChecked || approving}
+                  disabled={loading || !approvalChecked || approving}
                   className="px-5 py-2.5 bg-yellow-500 hover:bg-yellow-400 text-zinc-950 text-xs font-extrabold rounded-xl flex items-center gap-1.5 transition disabled:opacity-40 cursor-pointer shadow-lg shadow-yellow-500/10"
                 >
                   {approving ? 'Queueing...' : (
