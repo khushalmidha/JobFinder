@@ -33,6 +33,8 @@ app.use('/api/campaigns', require('./routes/campaigns'));
 app.use('/api/company-imports', require('./routes/companyImport'));
 app.use('/api/crm', require('./routes/crm'));
 app.use('/api/contact-intake', require('./routes/contactIntake'));
+app.use('/api/career-watch',require('./routes/careerWatch'));
+app.use('/api/professional-discovery',require('./routes/professionalDiscovery'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
@@ -49,7 +51,8 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/jobfinder
     initJobScheduler();
     require('./services/researchQueueService').initResearchScheduler();
     // Build only additive indexes. The worker stays off unless explicitly enabled.
-    await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime','MailLog','DeliveryLedger','CompanyImportRun','CompanyProspect','PublicRecruitmentLead','EmailVerificationChallenge','EmailVerificationBudget','EmailVerificationReceipt','DeliveryEventReceipt','OutreachReminder','RecipientSuppression','MailboxProof','ContactCandidate'].map(model => require(`./models/${model}`).init()));
+    await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime','MailLog','DeliveryLedger','CompanyImportRun','CompanyProspect','PublicRecruitmentLead','EmailVerificationChallenge','EmailVerificationBudget','EmailVerificationReceipt','DeliveryEventReceipt','OutreachReminder','RecipientSuppression','MailboxProof','ContactCandidate','CareerWatchConfig','CareerWatchTask','CareerWatchJob','CareerWatchNotification','ProfessionalLead'].map(model => require(`./models/${model}`).init()));
+    require('./services/careerWatchService').initCareerWatchScheduler();
     require('./services/campaignWorkerService').initCampaignScheduler();
     require('./services/retentionService').initRetentionScheduler();
     require('./services/contactHygieneService').initHygieneScheduler();

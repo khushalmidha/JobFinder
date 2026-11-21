@@ -19,3 +19,18 @@ test('blocks private, link-local and loopback IP ranges',()=>{
     assert.equal(isPublicIP(ip),false,ip);
   assert.equal(isPublicIP('8.8.8.8'),true);
 });
+
+
+test('robots uses matching user-agent groups, longest path, literal query and wildcard end markers',()=>{
+  const {robotsAllows:r}=require('../services/safePublicFetch');
+  const rules='User-agent: OtherBot\nDisallow: /\nUser-agent: *\nDisallow: /private\nDisallow: /jobs/*?secret=1$\nAllow: /private/public';
+  assert.equal(r(rules,'/careers'),true);
+  assert.equal(r(rules,'/private/x'),false);
+  assert.equal(r(rules,'/%70rivate/x'),false);
+  assert.equal(r(rules,'/private/public/1'),true);
+  assert.equal(r(rules,'/jobs/1?secret=1'),false);
+  assert.equal(r(rules,'/jobs/1?secret=1&other=2'),true);
+  assert.equal(r('User-agent: *\nDisallow: /\nUser-agent: JobFinderResearch\nAllow: /careers','/careers'),true);
+  assert.equal(r('User-agent: *\nDisallow: /jobs\nAllow: /jobs','/jobs'),true);
+  assert.equal(r('Disallow: /','/careers'),false);
+});

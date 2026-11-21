@@ -1,0 +1,102 @@
+[
+  {
+    "company": "Rippling",
+    "domain": "rippling.com",
+    "careersUrl": "https://rippling.com/careers"
+  },
+  {
+    "company": "Rubrik",
+    "domain": "rubrik.com",
+    "careersUrl": "https://rubrik.com/company/careers"
+  },
+  {
+    "company": "Databricks",
+    "domain": "databricks.com",
+    "careersUrl": "https://databricks.com/company/careers"
+  },
+  {
+    "company": "Stripe",
+    "domain": "stripe.com",
+    "careersUrl": "https://stripe.com/jobs"
+  },
+  {
+    "company": "Atlassian",
+    "domain": "atlassian.com",
+    "careersUrl": "https://atlassian.com/company/careers"
+  },
+  {
+    "company": "Google",
+    "domain": "careers.google.com",
+    "careersUrl": "https://careers.google.com"
+  },
+  {
+    "company": "Uber",
+    "domain": "uber.com",
+    "careersUrl": "https://uber.com/careers"
+  },
+  {
+    "company": "Amazon",
+    "domain": "amazon.jobs",
+    "careersUrl": "https://amazon.jobs"
+  },
+  {
+    "company": "Meta",
+    "domain": "metacareers.com",
+    "careersUrl": "https://metacareers.com"
+  },
+  {
+    "company": "Tower Research Capital",
+    "domain": "tower-research.com",
+    "careersUrl": "https://tower-research.com/open-positions"
+  },
+  {
+    "company": "Microsoft",
+    "domain": "careers.microsoft.com",
+    "careersUrl": "https://careers.microsoft.com"
+  },
+  {
+    "company": "Apple",
+    "domain": "jobs.apple.com",
+    "careersUrl": "https://jobs.apple.com"
+  },
+  {
+    "company": "CRED",
+    "domain": "careers.cred.club",
+    "careersUrl": "https://careers.cred.club/"
+  },
+  {
+    "company": "Dream11",
+    "domain": "dreamsports.group",
+    "careersUrl": "https://dreamsports.group/careers"
+  },
+  {
+    "company": "Flipkart",
+    "domain": "flipkartcareers.com",
+    "careersUrl": "https://flipkartcareers.com"
+  },
+  {
+    "company": "Sprinklr",
+    "domain": "sprinklr.com",
+    "careersUrl": "https://sprinklr.com/careers"
+  },
+  {
+    "company": "Goldman Sachs",
+    "domain": "goldmansachs.com",
+    "careersUrl": "https://goldmansachs.com/careers"
+  },
+  {
+    "company": "Meesho",
+    "domain": "meesho.io",
+    "careersUrl": "https://meesho.io/jobs"
+  },
+  {
+    "company": "PhonePe",
+    "domain": "phonepe.com",
+    "careersUrl": "https://phonepe.com/careers"
+  },
+  {
+    "company": "Salesforce",
+    "domain": "salesforce.com",
+    "careersUrl": "https://salesforce.com/company/careers/"
+  }
+]

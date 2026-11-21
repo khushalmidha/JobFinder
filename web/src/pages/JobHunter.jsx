@@ -1,3 +1,4 @@
+import CompanyWatchPanel from '../components/CompanyWatchPanel';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
@@ -304,6 +305,7 @@ const JobHunter = () => {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6 font-sans">
+      <CompanyWatchPanel />
       {/* Top Banner / Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-6">
         <div>
