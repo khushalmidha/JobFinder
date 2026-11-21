@@ -141,3 +141,14 @@ test('India focus prioritizes Indian company scans and alerts only for evidenced
  const bad=await request('/config','PUT',{enabled:true,indiaFocus:'false'});assert.equal(bad.status,400);
  const good=await request('/config','PUT',{enabled:true,indiaFocus:false});assert.equal(good.status,200);assert.equal((await request('/jobs')).data.total,3);
 });
+
+
+test('careers subdomains use known employer root domains and idempotent refresh repairs metadata without resetting progress',async()=>{
+ const company=await Company.create({name:'Root Employer',domain:'employer.example',careersUrl:'https://careers.employer.example/jobs',isIndia:true});
+ const first=await service.enqueueWatchCompanies(owner,{companyIds:[company._id]});assert.equal(first.queued,1);
+ let task=await Task.findOne({userId:owner});assert.equal(task.domain,'careers.employer.example');assert.equal(task.employerDomain,'employer.example');
+ await Task.updateOne({_id:task._id},{$set:{state:'complete',employerDomain:'careers.employer.example',lastContactScanAt:new Date(),nextScanAt:new Date('2032-01-01T00:00:00Z')}});
+ const second=await service.enqueueWatchCompanies(owner,{companyIds:[company._id]});assert.equal(second.queued,0);assert.equal(second.updated,1);
+ task=await Task.findById(task._id);assert.equal(task.employerDomain,'employer.example');assert.equal(task.lastContactScanAt,undefined);assert.equal(task.state,'complete');assert.equal(task.nextScanAt.toISOString(),'2032-01-01T00:00:00.000Z');
+ const third=await service.enqueueWatchCompanies(owner,{companyIds:[company._id]});assert.equal(third.queued,0);assert.equal(third.updated,0);
+});
