@@ -126,7 +126,7 @@ function currentValue(el) {
     if (explicit) return explicit;
     const displayed = text(el);
     // Recognize only clear empty prompts. Other rendered content is preserved.
-    return /^(select|choose)( an?| your)?( option| country| state)?[.\s…]*$/i.test(displayed) ? '' : displayed;
+    return /^(select|choose)( an?| your)?( option| country| state)?[.\sâ€¦]*$/i.test(displayed) ? '' : displayed;
   }
   return el.value || '';
 }
@@ -163,7 +163,7 @@ export class FormFillSession {
     if (this.state === 'FILL') throw new Error('Fill already running.');
     this.stopped = false; this.state = 'SCAN';
     this.rows = collectFields(this.root).map((element, index) => {
-      const context = { ...extractQuestionContext(element), scope: element.ownerDocument.location?.hostname || '' };
+      const context = { ...extractQuestionContext(element), scope: element.ownerDocument.location ? element.ownerDocument.location.origin + element.ownerDocument.location.pathname : '' };
       const decision = classifyQuestion(context, profile);
       const before = currentValue(element);
       return { id: index, element, context, before, decision,
@@ -199,7 +199,7 @@ export class FormFillSession {
         if (row.action !== 'fill') continue;
         const el = row.element;
         try {
-          if (!el.isConnected || !rendered(el) || JSON.stringify({ ...extractQuestionContext(el), scope: el.ownerDocument.location?.hostname || '' }) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
+          if (!el.isConnected || !rendered(el) || JSON.stringify({ ...extractQuestionContext(el), scope: el.ownerDocument.location ? el.ownerDocument.location.origin + el.ownerDocument.location.pathname : '' }) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
           if (currentValue(el) !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
           const { value } = row.decision;
           const type = row.context.inputType;

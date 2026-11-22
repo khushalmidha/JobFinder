@@ -34,7 +34,7 @@ class SmartApplyEngine {
           const element = handle.asElement(); if (!element) continue;
           const metadata = await element.evaluate((el, profile) => {
             const { extractQuestionContext, classifyQuestion } = window.__jfSmartApply;
-            const context = { ...extractQuestionContext(el), scope: location.hostname };
+            const context = { ...extractQuestionContext(el), scope: location.origin + location.pathname };
             const before = window.__jfSmartApply.currentValue(el);
             return { context, decision: classifyQuestion(context, profile), before, tag: el.tagName, type: el.type, role: el.getAttribute('role') || (el.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null) };
           }, this.profile);
@@ -73,7 +73,7 @@ class SmartApplyEngine {
       if (row.action !== 'fill') continue;
       try {
         if (!permitted(frame.url(), this.allowedHosts) || this.page.url() !== this.report.url) throw Error('Page changed; preview again.');
-        const context = await element.evaluate(el => ({ ...window.__jfSmartApply.extractQuestionContext(el), scope: location.hostname }));
+        const context = await element.evaluate(el => ({ ...window.__jfSmartApply.extractQuestionContext(el), scope: location.origin + location.pathname }));
         if (JSON.stringify(context) !== JSON.stringify(row.context)) throw Error('Question or options changed; preview again.');
         const before = await element.evaluate(el => window.__jfSmartApply.currentValue(el));
         if (before !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
