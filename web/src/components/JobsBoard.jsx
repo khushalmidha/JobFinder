@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import api from '../services/api';
+import SavedJobPostings from './SavedJobPostings';
 
 const panel = 'rounded-xl border border-zinc-800 bg-zinc-950 p-4 md:p-5';
 const button = 'rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:border-yellow-500 disabled:opacity-40';
@@ -156,6 +157,7 @@ export default function JobsBoard() {
           <button type="button" className={button} disabled={busy || loading || jobPage >= Math.ceil(jobMeta.total / jobMeta.limit)} onClick={() => setJobPage(page => page + 1)}>Next job page</button>
         </nav>}
       </>}
+      {tab === 'jobs' && <SavedJobPostings />}
       {tab === 'notifications' && <>
         <h3 className="font-semibold">Website notifications</h3>
         {!notifications.length && !errors.notifications && <p className="mt-3 text-sm text-zinc-400">No notifications yet. New qualifying jobs generate a notification after a successful scan.</p>}
