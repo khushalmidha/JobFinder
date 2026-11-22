@@ -22,7 +22,7 @@ export function extractQuestionContext(element) {
   const legend = element.closest('fieldset')?.querySelector('legend');
   const group = element.closest('[role="radiogroup"], [role="group"]');
   const groupLabel = group?.getAttribute('aria-label') || (group?.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => text(get(id))).join(' ');
-  const labelText = refs('aria-labelledby') || element.getAttribute('aria-label') ||
+  let labelText = refs('aria-labelledby') || element.getAttribute('aria-label') ||
     [...(element.labels || [])].map(text).join(' ') || text(element.closest('label')) ||
     text(container?.querySelector('[role="heading"], .M7eMe, label')) || text(legend) || groupLabel || '';
   const descriptionText = refs('aria-describedby') || text(container?.querySelector('.zHQkBf, [data-automation-id="helpText"]'));
@@ -32,11 +32,34 @@ export function extractQuestionContext(element) {
   if (element.tagName === 'SELECT') inputType = 'select';
   if (['combobox', 'listbox', 'radio', 'radiogroup', 'checkbox'].includes(role)) inputType = role;
   const fallback = ['name', 'id', 'placeholder', 'autocomplete', 'data-automation-id'].map(a => element.getAttribute(a) || '').join(' ');
-  const options = element.tagName === 'SELECT' ? [...element.options].map(text) :
-    [...(group || element).querySelectorAll('[role="option"], [role="radio"]')].map(text);
+  if (inputType === 'radio') labelText = text(legend) || groupLabel || refs('aria-labelledby') || '';
+  const popupId = element.getAttribute('aria-controls') || element.getAttribute('aria-owns');
+  const popup = popupId && !popupId.includes(' ') ? get(popupId) : null;
+  const options = element.tagName === 'SELECT' ? [...element.options].map(option => option.label) : inputType === 'radio' ? radioGroup(element).map(r => r.getAttribute('aria-label') || [...(r.labels || [])].map(text).join(' ') || r.value) :
+    [...(popup || group || element).querySelectorAll('[role="option"], [role="radio"]')].map(text);
   return { labelText: labelText || fallback.trim(), descriptionText, inputType, options,
     combined: norm(`${labelText} ${descriptionText} ${text(legend)} ${groupLabel} ${fallback}`),
     isRequired: element.required || element.getAttribute('aria-required') === 'true' || labelText.includes('*') };
+}
+export function applicationScope(doc) {
+  const urls = []; let win = doc.defaultView;
+  while (win) {
+    try { urls.push({ url: win.location.href, embedding: win === win.parent ? null : answerIdentity(win.frameElement) }); if (win === win.parent) break; win = win.parent; }
+    catch { return ''; }
+  }
+  return JSON.stringify(urls);
+}
+export function answerIdentity(element) {
+  const path = [];
+  for (let node = element; node?.nodeType === 1; node = node.parentElement || node.getRootNode()?.host) {
+    path.push([node.tagName, node.id || '', node.getAttribute('name') || '', node.parentElement ? [...node.parentElement.children].indexOf(node) : 0,
+      node.tagName === 'FIELDSET' ? text(node.querySelector('legend')) : '']);
+  }
+  const context = extractQuestionContext(element);
+  return { path, question: context.labelText, description: context.descriptionText };
+}
+export function answerScope(element) {
+  return JSON.stringify({ documents: JSON.parse(applicationScope(element.ownerDocument) || '[]'), field: answerIdentity(element) });
 }
 
 export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
@@ -96,7 +119,7 @@ function rendered(el) {
 function radioGroup(el) {
   return !el.name ? [el] : [...(el.form || el.getRootNode()).querySelectorAll('input[type="radio"]')].filter(r=>r.name===el.name && r.form===el.form);
 }
-export function collectFields(root, visited = new Set()) {
+export function collectFields(root, visited = new Set(), { frames = true } = {}) {
   if (visited.has(root)) return [];
   visited.add(root);
   const fields = [...root.querySelectorAll(selector)].filter(el => {
@@ -109,9 +132,9 @@ export function collectFields(root, visited = new Set()) {
       !el.parentElement?.closest('[role="combobox"], [role="listbox"]');
   });
   for (const el of root.querySelectorAll('*')) {
-    if (el.shadowRoot) fields.push(...collectFields(el.shadowRoot, visited));
-    if (el.tagName === 'IFRAME' && rendered(el)) {
-      try { if (el.contentDocument) fields.push(...collectFields(el.contentDocument, visited)); } catch { /* Cross-origin needs manual help. */ }
+    if (el.shadowRoot) fields.push(...collectFields(el.shadowRoot, visited, { frames }));
+    if (frames && el.tagName === 'IFRAME' && rendered(el)) {
+      try { if (el.contentDocument) fields.push(...collectFields(el.contentDocument, visited, { frames })); } catch { /* Cross-origin needs manual help. */ }
     }
   }
   return fields;
@@ -138,12 +161,15 @@ function setValue(el, value) {
   el.dispatchEvent(new win.Event('change', { bubbles: true, composed: true }));
 }
 function safeClick(el) {
-  if (el.tagName === 'A' || el.type === 'submit' || el.type === 'image' || (el.tagName === 'BUTTON' && el.getAttribute('type') !== 'button'))
+  if (el.closest('a, [formaction], button:not([type="button"]), input[type="submit"], input[type="image"]'))
     throw new Error('Control can submit or navigate; use it manually.');
   el.click();
 }
 const exactOption = (items, value) => {
-  const matches = [...items].filter(el => !el.disabled && (norm(text(el)) === norm(value) || norm([...(el.labels || [])].map(text).join(' '))===norm(value) || norm(el.getAttribute('aria-label')) === norm(value) || norm(el.getAttribute('data-value') || el.value) === norm(value)));
+  const matches = [...items].filter(el => {
+    const label = el.tagName === 'OPTION' ? el.label : el.getAttribute('aria-label') || [...(el.labels || [])].map(text).join(' ') || text(el);
+    return !el.disabled && norm(label || el.getAttribute('data-value') || el.value) === norm(value);
+  });
   if (matches.length !== 1) throw new Error('No unique exact option; choose manually.');
   return matches[0];
 };
@@ -163,7 +189,7 @@ export class FormFillSession {
     if (this.state === 'FILL') throw new Error('Fill already running.');
     this.stopped = false; this.state = 'SCAN';
     this.rows = collectFields(this.root).map((element, index) => {
-      const context = { ...extractQuestionContext(element), scope: element.ownerDocument.location ? element.ownerDocument.location.origin + element.ownerDocument.location.pathname : '' };
+      const context = { ...extractQuestionContext(element), scope: answerScope(element) };
       const decision = classifyQuestion(context, profile);
       const before = currentValue(element);
       return { id: index, element, context, before, decision,
@@ -199,7 +225,7 @@ export class FormFillSession {
         if (row.action !== 'fill') continue;
         const el = row.element;
         try {
-          if (!el.isConnected || !rendered(el) || JSON.stringify({ ...extractQuestionContext(el), scope: el.ownerDocument.location ? el.ownerDocument.location.origin + el.ownerDocument.location.pathname : '' }) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
+          if (!el.isConnected || !rendered(el) || JSON.stringify({ ...extractQuestionContext(el), scope: answerScope(el) }) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
           if (currentValue(el) !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
           const { value } = row.decision;
           const type = row.context.inputType;
@@ -209,7 +235,9 @@ export class FormFillSession {
             const option=exactOption(radioGroup(el),value);safeClick(option);
             if(!option.checked)throw new Error('Radio selection was not retained.');
           } else if (type === 'select') {
-            setValue(el, exactOption(el.options, value).value);
+            const choice = exactOption(el.options, value);
+            if ([...el.options].filter(option => option.value === choice.value).length !== 1) throw new Error('Duplicate option values require manual selection.');
+            setValue(el, choice.value);
           } else if (type === 'radiogroup') {
             const option = exactOption(el.querySelectorAll('[role="radio"]'), value);
             safeClick(option);
@@ -224,7 +252,7 @@ export class FormFillSession {
             safeClick(option);
             await new Promise(resolve => setTimeout(resolve, 40));
             if (norm(currentValue(el)) !== norm(value) && norm(text(el)) !== norm(value)) throw new Error('Dropdown value was not retained.');
-          } else if (['text', 'email', 'tel', 'url', 'number', 'search'].includes(type)) {
+          } else if (['text', 'email', 'tel', 'url', 'number', 'search', 'textarea'].includes(type)) {
             setValue(el, value);
           } else throw new Error('Unsupported control; complete manually.');
           if (!el.isConnected) throw new Error('Field rerendered; preview the updated step.');

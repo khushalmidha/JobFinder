@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { normalizeProfile, rememberAnswer } from '../utils/candidateProfile.js';
+import { formDraftPayload } from '../utils/formDraftPayload.js';
 
 const exampleProfile = { fullName: '', firstName: '', lastName: '', email: '', phoneRaw: '', college: '', degree: '', major: '', cgpa: '', graduationYear: '', location: { city: '', state: '', country: '' }, links: { github: '', linkedin: '', portfolio: '' }, provenance: {}, supportingEvidence: [], companyFacts: [] };
 
@@ -13,6 +14,11 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   const [company, setCompany] = useState('');
   const [role, setRole] = useState('');
   const [answerDraft, setAnswerDraft] = useState(null);
+  const [factSelections, setFactSelections] = useState([]);
+  const [companyFactSelection, setCompanyFactSelection] = useState('');
+  let evidence = [];
+  let companyFacts = [];
+  try { const profile = normalizeProfile(JSON.parse(profileText)); evidence = profile.supportingEvidence.filter(fact => typeof fact.text === 'string' && fact.text.length <= 500 && fact.source); companyFacts = (profile.companyFacts || []).filter(fact => typeof fact.text === 'string' && fact.text.length <= 500 && /^https?:\/\//.test(fact.source)); } catch { /* JSON editor may be incomplete. */ }
   useEffect(() => {
     chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed']).then(data => {
       if (data.candidateProfile) setProfileText(JSON.stringify(data.candidateProfile, null, 2));
@@ -54,6 +60,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id || !/^https?:/.test(tab.url || '')) throw new Error('Open an online application form first.');
+      if (/(^|\.)linkedin\.com$/i.test(new URL(tab.url).hostname)) throw new Error('LinkedIn is manual only.');
       const response = await chrome.tabs.sendMessage(tab.id, { action }, { frameId: 0 });
       if (!response?.success) throw new Error(response?.error || 'Reload this page after updating the extension.');
       setReport(response);
@@ -65,9 +72,11 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     try {
       const saved = await chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed']);
       if (!saved.candidateProfileReviewed) throw new Error('Save a reviewed profile with supportingEvidence first.');
+      const approvedFacts = evidence.filter(fact => factSelections.includes(JSON.stringify([fact.text, fact.source])));
+      if (!approvedFacts.length || approvedFacts.length > 5) throw new Error('Select 1–5 reviewed resume facts for this question.');
       const response = await fetch(`${backendUrl}/api/mail/generate-form-answers`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ question, company, role, resumeDetails: { ...saved.candidateProfile, confirmed: true } })
+        body: JSON.stringify(formDraftPayload({ question, company, role, supportingEvidence: approvedFacts, companyFacts: companyFacts.filter(fact => companyFactSelection === JSON.stringify([fact.text, fact.source])) }))
       });
       const data = await response.json(); if (!response.ok) throw new Error(data.error);
       setAnswerDraft(data);
@@ -99,6 +108,9 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     </div>}
     <details><summary>Draft a written answer</summary>
       <p>Add supportingEvidence entries (text and resume source) to your reviewed profile. Company reasons also need companyFacts entries with a public source URL.</p>
+      <p>Select up to five facts to send to your configured JobFinder backend. Contact details and saved answers are excluded.</p>
+      {evidence.map((fact, index) => { const key = JSON.stringify([fact.text, fact.source]); return <label key={index} className="block"><input type="checkbox" checked={factSelections.includes(key)} onChange={event => setFactSelections(current => event.target.checked ? [...current, key] : current.filter(value => value !== key))} /> {fact.text}</label>; })}
+      <label>Optional cited company fact<select aria-label="Company fact to share" value={companyFactSelection} onChange={event => setCompanyFactSelection(event.target.value)}><option value="">None</option>{companyFacts.map((fact, index) => <option key={index} value={JSON.stringify([fact.text, fact.source])}>{fact.text}</option>)}</select></label>
       <input aria-label="Target company" className="w-full p-2 bg-zinc-900" placeholder="Target company" value={company} onChange={e => setCompany(e.target.value)} />
       <input aria-label="Target role" className="w-full p-2 bg-zinc-900" placeholder="Target role" value={role} onChange={e => setRole(e.target.value)} />
       <select aria-label="Detected written question" className="w-full p-2 bg-zinc-900" value={question} onChange={e => setQuestion(e.target.value)}><option value="">Choose a detected question</option>{report?.fields?.filter(f => f.decision.type === 'WRITTEN_ANSWER').map(f => <option key={f.id} value={f.context.labelText}>{f.context.labelText}</option>)}</select>
