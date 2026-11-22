@@ -37,7 +37,10 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
     report.emailsFound+=count;
     report.companies.push({domain,requestsUsed:result.requestsUsed||0,emailsFound:count,status:'complete',limitedByRobots:result.limitedByRobots===true,reason:result.reason||null});
   }
-  if(!dryRun&&saveToContacts&&report.leads.length)report.sheet=await require('./professionalSheetService').importLeads({userId,leadIds:await Lead.find({userId,email:{$in:report.leads.map(l=>l.email)}}).distinct('_id')});
+  if(!dryRun&&saveToContacts&&report.leads.length){
+    const ids=await Lead.find({userId,email:{$in:report.leads.map(l=>l.email)}}).distinct('_id');report.sheet={added:0,duplicates:0,excluded:0,staged:0,mailboxesVerified:0,providerCreditsUsed:0};
+    for(let start=0;start<ids.length;start+=100){const part=await require('./professionalSheetService').importLeads({userId,leadIds:ids.slice(start,start+100)});for(const key of ['added','duplicates','excluded','staged'])report.sheet[key]+=part[key];}
+  }
   return report;
 }
 module.exports={runDiscovery};
