@@ -3,12 +3,14 @@ import api from '../services/api';
 import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp, Download, Play, Pause, RefreshCw, Trash2, Sparkles, CheckCircle2, ShieldCheck, XCircle, AlertTriangle, RotateCcw, ArrowRightLeft, X, FileText, Copy } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
 import ExcelJS from 'exceljs';
+import ContactResearchBar from '../components/ContactResearchBar';
 
 const Dashboard = () => {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [kindFilter,setKindFilter]=useState('');
   const [daysFilter, setDaysFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showCompose, setShowCompose] = useState(false);
@@ -419,7 +421,7 @@ const Dashboard = () => {
       else if (ctcFilter === 'above_50') matchCtc = lpa >= 50;
     }
     
-    return matchSearch && matchStatus && matchDays && matchCtc;
+    return matchSearch && matchStatus && matchDays && matchCtc && (!kindFilter||(c.contactKind||'unknown')===kindFilter);
   });
 
   const capitalizeCompany = (name) => {
@@ -777,6 +779,7 @@ const Dashboard = () => {
         </div>
       </div>
 
+      <ContactResearchBar onImported={fetchContacts} />
       {/* SMTP Auth Error (535) Banner */}
       {queueStatus.pauseReason === 'SMTP_AUTH_ERROR' && (
         <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-red-500/20 via-orange-500/15 to-amber-500/15 border border-red-500/50 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl backdrop-blur-md animate-in fade-in duration-300">
@@ -1032,6 +1035,7 @@ const Dashboard = () => {
             />
           </div>
 
+          <select aria-label="Contact type" value={kindFilter} onChange={event=>{setKindFilter(event.target.value);setSelectedIds(new Set());}} className="rounded border border-zinc-700 bg-zinc-800 p-2 text-sm"><option value="">All contact types</option><option value="recruiter">HR / Recruiters</option><option value="hiring_manager">Managers</option><option value="engineer">SDE / Engineers</option><option value="role_inbox">Recruiting inboxes</option><option value="unknown">Unclassified</option></select>
           <div className="relative w-36 sm:w-40 shrink-0">
             <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
             <select
@@ -1290,7 +1294,7 @@ const Dashboard = () => {
                             className="rounded border-zinc-700 bg-zinc-800 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-zinc-900"
                           />
                         </td>
-                        <td className="p-3 text-zinc-300 font-medium w-1/4">{contact.hrName || 'HR Team'}</td>
+                        <td className="p-3 text-zinc-300 font-medium w-1/4"><span>{contact.hrName || 'Professional contact'}</span>{contact.inferenceFlag && <span className="ml-2 text-xs text-amber-300">Guessed · mailbox unverified</span>}{!contact.inferenceFlag&&contact.verificationStatus==='publicly_sourced'&&<span className="ml-2 text-xs text-zinc-500">{contact.deliverabilityStatus==='unverified'?'Public source · mailbox unverified':'Public source'}</span>}{contact.contactKind&&contact.contactKind!=='unknown'&&<span className="ml-2 text-xs text-zinc-500">{contact.contactKind}</span>}{contact.source==='career_crawler'&&contact.contactKind!=='unknown'&&contact.role&&<span className="block text-xs text-zinc-500">{contact.role}</span>}</td>
                         <td className="p-3 text-zinc-400 w-1/4">{contact.email}</td>
                         <td className="p-3 w-1/4">
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -1480,7 +1484,10 @@ const Dashboard = () => {
                       {companyContacts.map(contact => (
                         <tr key={contact._id} className="hover:bg-zinc-800/30 transition">
                           <td className="py-3 px-4 text-zinc-300 font-medium">
-                            {contact.hrName || 'Talent Acquisition'}
+                            {contact.hrName || 'Professional contact'}
+                              {contact.inferenceFlag && <span className="ml-2 text-xs text-amber-300">Guessed · mailbox unverified</span>}
+                              {!contact.inferenceFlag && contact.verificationStatus==='publicly_sourced' && <span className="ml-2 text-xs text-zinc-500">{contact.deliverabilityStatus==='unverified'?'Public source · mailbox unverified':'Public source'}</span>}
+                              {contact.contactKind && contact.contactKind!=='unknown' && <span className="ml-2 text-xs text-zinc-500">{contact.contactKind}</span>}
                           </td>
                           <td className="py-3 px-4 font-mono text-xs text-red-400 font-bold">
                             {contact.email}

@@ -5,6 +5,7 @@ const contactSchema = new mongoose.Schema({
   company: { type: String, required: true },
   companyOriginalName: String,
   hrName: { type: String, default: '' },
+  contactKind:{type:String,enum:['recruiter','hiring_manager','engineer','role_inbox','unknown'],default:'unknown'},
   email: { type: String, required: true },
   package: { type: String, default: '' },
   role: { type: String, default: '' },

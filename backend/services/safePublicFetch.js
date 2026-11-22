@@ -11,7 +11,7 @@ function isPublicIP(ip) {
   // IPv6 destinations are conservatively unsupported, including mapped IPv4.
   return false;
 }
-async function fetchPublicPage(url, { timeout = 5000, maxBytes = 400000 } = {}) {
+async function fetchPublicPage(url, { timeout = 5000, maxBytes = 400000, accept = 'text/html,text/plain' } = {}) {
   const started = Date.now();
   const target = new URL(url);
   if (target.protocol !== 'https:' || target.username || target.password || (target.port && target.port !== '443')) throw new Error('Only public HTTPS pages supported');
@@ -24,7 +24,7 @@ async function fetchPublicPage(url, { timeout = 5000, maxBytes = 400000 } = {}) 
   const address = records[0].address;
   return new Promise((resolve, reject) => {
     const request = https.get(target, { agent: false,
-      headers: { 'User-Agent': 'JobFinderResearch/1.0', Accept: 'text/html,text/plain' },
+      headers: { 'User-Agent': 'JobFinderResearch/1.0', Accept: accept },
       lookup: (_host, options, callback) => callback(null, options?.all ? [{ address, family: 4 }] : address, options?.all ? undefined : 4)
     }, response => {
       let bytes = 0; const chunks = [];

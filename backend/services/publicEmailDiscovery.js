@@ -3,7 +3,7 @@ const { fetchPublicPage, robotsAllows, isPublicIP: publicAddress } = require('./
 const emailRe = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const ignored = /^(no-?reply|donotreply|postmaster|abuse|security|privacy|support|unsubscribe|billing|info)@/i;
 const hiring = /(^|[._-])(recruit(?:ing|ment|er)?|talent|careers?|jobs?|hiring|campus|staffing|hr)([._-]|$)/i;
-const maxBytes = 400000;
+const maxBytes = 1500000; // Bounded modern company pages often exceed 400KB.
 function normalizeDomain(domain) {
   const text = String(domain || '').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0].split(':')[0];
   return /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(text) && !text.endsWith('.local') ? text : null;
@@ -44,10 +44,10 @@ function extractProfessionalEmails(html,url,domain){
       const email=value.toLowerCase(),host=email.split('@')[1];
       if(!host||personalDomains.has(host)||!(host===domain||host.endsWith('.'+domain))||ignored.test(email)||hiring.test(email.split('@')[0]))continue;
       const index=text.toLowerCase().indexOf(email);const nearby=index>=0?text.slice(Math.max(0,index-160),index+email.length+100):text.length<=250?text:'';
-      const title=nearby.match(/\b(?:technical recruiter|university recruiter|campus recruiter|talent acquisition(?: specialist| partner| manager)?|recruiting manager|recruiter|hiring manager|engineering manager.{0,35}hiring)\b/i)?.[0];
+      const title=nearby.match(/\b(?:technical recruiter|university recruiter|campus recruiter|talent acquisition(?: specialist| partner| manager)?|recruiting manager|recruiter|hiring manager|engineering manager.{0,35}hiring|software engineer|software developer|sde|backend engineer|frontend engineer)\b/i)?.[0];
       if(!title)continue;
-      const name=nearby.match(/\b([A-Z][a-z]+(?: [A-Z][a-z]+){1,3})\s*(?:[,|—-]\s*)?(?:Technical Recruiter|University Recruiter|Campus Recruiter|Talent Acquisition|Recruiting Manager|Hiring Manager)\b/)?.[1]||'';
-      found.set(email,{email,sourceUrl:url,kind:/hiring manager|engineering manager/i.test(title)?'hiring_manager':'recruiter',name,title,confidence:'published_context',score:80,verification:'publicly_listed_not_mailbox_verified'});
+      const name=nearby.match(/\b([A-Z][a-z]+(?: [A-Z][a-z]+){1,3})\s*(?:[,|—-]\s*)?(?:Technical Recruiter|University Recruiter|Campus Recruiter|Talent Acquisition|Recruiting Manager|Hiring Manager|Software Engineer|Software Developer|SDE|Backend Engineer|Frontend Engineer)\b/)?.[1]||'';
+      found.set(email,{email,sourceUrl:url,kind:require('./professionalPatternService').kindForTitle(title)||'recruiter',name,title,confidence:'published_context',score:80,verification:'publicly_listed_not_mailbox_verified'});
     }
   }
   return [...found.values()];
@@ -56,7 +56,7 @@ function linkedPages(html,base,domain,{fallback=false}={}){
   const links=[];
   for(const match of String(html||'').matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
     try{const target=new URL(match[1],base);if(target.protocol!=='https:'||!(target.hostname===domain||target.hostname==='www.'+domain)||target.port||target.username||target.password||target.search)continue;
-      target.hash='';if((fallback?/career|jobs?|contact|vacanc|work.with.us|join.us/i:/career|jobs?|contact|talent|recruit|hiring|vacanc/i).test(target.pathname+' '+match[2]))links.push(target.href);
+      target.hash='';if((fallback?/career|jobs?|contact|vacanc|work.with.us|join.us/i:/career|jobs?|contact|talent|recruit|hiring|vacanc|team|people|about|engineering/i).test(target.pathname+' '+match[2]))links.push(target.href);
     }catch{}
   }
   return [...new Set(links)];
@@ -69,7 +69,7 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
   maxRequests=Math.max(1,Math.min(20,Number(maxRequests)||5));
   const cacheKey=domain+':'+maxRequests,previous=cache.get(cacheKey);
   if(fetchPage===fetchPublicPage&&previous?.expires>Date.now())return {...previous.result,cached:true,requestsUsed:0};
-  let requestsUsed=0;const errors=[],found=new Map(),visited=new Set(),started=Date.now(),permissions=new Map();
+  let requestsUsed=0;const errors=[],found=new Map(),people=new Map(),visited=new Set(),started=Date.now(),permissions=new Map();
   const approvedUrl=value=>{
     const url=new URL(value);
     if(url.protocol!=='https:'||url.username||url.password||(url.port&&url.port!=='443')||![domain,'www.'+domain].includes(url.hostname)||/\/(?:login|signin|auth|captcha)(?:\/|$)/i.test(url.pathname))throw Error('Unsupported redirect destination');
@@ -115,6 +115,7 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
       const finalUrl=new URL(response.url);
       if(response.contentType.includes('text/html')){
         for(const row of extractProfessionalEmails(response.text,response.url,domain))found.set(row.email,row);
+        for(const person of require('./professionalPatternService').extractPeople(response.text,response.url,domain)){people.set(person.name,person);if(person.email)found.set(person.email,{...person,confidence:'published_context',verification:'publicly_listed_not_mailbox_verified'});}
         const links=linkedPages(response.text,response.url,domain,{fallback:limited});
         if(limited){if(visited.size===1&&!linkedFallback&&links.length){queue.push(links[0]);linkedFallback=true;}}
         else queue.push(...links);
@@ -127,7 +128,8 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
     }catch(error){errors.push(error.message);}
     if(fetchPage===fetchPublicPage&&queue.length&&requestsUsed<maxRequests)await new Promise(resolve=>setTimeout(resolve,500));
   }
-  const result={emails:[...found.values()].slice(0,100),requestsUsed,limitedByRobots:limited,pagesVisited:[...visited],reason:errors.length?errors.join('; '):found.size?null:'No published professional recruiting contacts found in checked pages'};
+  const inferred=require('./professionalPatternService').inferCandidates({people:[...people.values()],published:[...found.values()],domain});
+  const result={emails:[...found.values(),...inferred].slice(0,100),requestsUsed,limitedByRobots:limited,pagesVisited:[...visited],reason:errors.length?errors.join('; '):found.size?null:'No published professional recruiting contacts found in checked pages'};
   if(fetchPage===fetchPublicPage){if(cache.size>=500)cache.delete(cache.keys().next().value);cache.set(cacheKey,{expires:Date.now()+86400000,result});}
   return result;
 }

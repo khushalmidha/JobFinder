@@ -229,23 +229,23 @@ async function main() {
     await page.getByRole('heading',{name:'Graviton Research Capital',exact:true}).waitFor();
     console.log('PASS: mixed-case Atlassian company unblock through actual browser and canonical Graviton heading; real mail=0');
     // All extra tools now live inside the five original workspaces. Legacy links redirect safely.
-    assert.deepEqual(await page.locator('nav a').evaluateAll(links=>links.map(a=>a.getAttribute('href'))),['/','/jobs','/import','/logs','/settings']);
-    await page.getByRole('button',{name:'Follow-ups, replies & referrals',exact:true}).click();await page.getByRole('heading',{name:'Outreach CRM',exact:true}).waitFor();
+    assert.deepEqual(await page.locator('nav a').evaluateAll(links=>links.map(a=>a.getAttribute('href'))),['/jobs','/']);
+    await page.getByRole('combobox',{name:'Mail tools',exact:true}).selectOption('crm');await page.getByRole('heading',{name:'Outreach CRM',exact:true}).waitFor();
     assert.equal(new URL(page.url()).pathname,'/');assert.equal(new URL(page.url()).searchParams.get('section'),'crm');
     await page.getByRole('button',{name:'Back to contacts',exact:true}).click();await page.getByRole('heading',{name:'Contacts by Company',exact:true}).waitFor();
-    await page.getByRole('button',{name:'Email verification',exact:true}).click();await page.getByRole('heading',{name:'Email verification queue',exact:true}).waitFor();await page.reload();await page.getByRole('heading',{name:'Email verification queue',exact:true}).waitFor();
+    await page.getByRole('combobox',{name:'Mail tools',exact:true}).selectOption('email-checks');await page.getByRole('heading',{name:'Email verification queue',exact:true}).waitFor();await page.reload();await page.getByRole('heading',{name:'Email verification queue',exact:true}).waitFor();
     await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-    await page.goto(base+'/companies?q=retained');await page.getByRole('heading',{name:'Company research directory',exact:true}).waitFor();assert.equal(new URL(page.url()).pathname,'/jobs');assert.equal(new URL(page.url()).searchParams.get('q'),'retained');
+    await page.goto(base+'/companies?q=retained');await page.getByRole('heading',{name:'Company research directory',exact:true}).waitFor();assert.equal(new URL(page.url()).pathname,'/');assert.equal(new URL(page.url()).searchParams.get('q'),'retained');
     const summaryFailure=route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Synthetic missing source'})});
     await require('../models/CompanyProspect').create({sourceRecordKey:'navigation-retained-prospect',source:'Synthetic navigation fixture',companyName:'Synthetic Preserved Company',regionGroup:'India',raw:{companyName:'Synthetic Preserved Company'},contentHash:'synthetic-fixture-hash',importRunId:new mongoose.Types.ObjectId()});
     await page.route('**/api/company-imports/source-summary',summaryFailure);await page.reload();await page.getByRole('row').filter({hasText:'Synthetic Preserved Company'}).waitFor();await page.getByText('Source summary unavailable; saved research rows are still shown.',{exact:true}).waitFor();
     await page.unroute('**/api/company-imports/source-summary',summaryFailure);await page.reload();await page.getByText(/733 supplied rows: 519 India and 214 overseas/).waitFor();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-    await page.goto(base+'/research');await page.getByRole('heading',{name:'Recruitment research',exact:true}).waitFor();assert.equal(new URL(page.url()).pathname,'/jobs');assert.equal(new URL(page.url()).searchParams.get('section'),'research');
-    await page.goto(base+'/campaigns');await page.getByRole('heading',{name:'Outreach Queue',exact:true}).waitFor();assert.equal(new URL(page.url()).pathname,'/logs');assert.equal(new URL(page.url()).searchParams.get('section'),'campaigns');
-    await page.getByRole('button',{name:'Back to email logs',exact:true}).click();await page.getByRole('heading',{name:'Email Logs & Queue',exact:true}).waitFor();
+    await page.goto(base+'/research');await page.getByRole('heading',{name:'Recruitment research',exact:true}).waitFor();assert.equal(new URL(page.url()).pathname,'/');assert.equal(new URL(page.url()).searchParams.get('section'),'research');
+    await page.goto(base+'/campaigns');await page.getByRole('heading',{name:'Outreach Queue',exact:true}).waitFor();assert.equal(new URL(page.url()).pathname,'/');assert.equal(new URL(page.url()).searchParams.get('section'),'campaigns');
+    await page.getByRole('combobox',{name:'Mail tools',exact:true}).selectOption('queue');await page.getByRole('heading',{name:'Email Logs & Queue',exact:true}).waitFor();
     await page.screenshot({path:path.join(screenshots,'consolidated-navigation-mobile.png'),fullPage:true});
-    assert.equal(simulatedSends,1);console.log('PASS: five sidebar links, integrated CRM/checks/research/companies/campaign controls, legacy redirects/query preservation/reload/mobile, and partial source failure preserves saved company rows; real mail=0');
+    assert.equal(simulatedSends,1);console.log('PASS: two primary pages, utilities behind mail tools, integrated CRM/checks/research/companies/campaign controls, legacy redirects/query preservation/reload/mobile, and partial source failure preserves saved company rows; real mail=0');
 
 
 

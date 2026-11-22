@@ -58,7 +58,7 @@ exports.getContacts = async (req, res) => {
     ];
 
     const contacts = await Contact.find(query)
-      .select('company hrName email package role source linkedinUrl status isShared deliverabilityStatus validationReason replySnippet lastMailedAt repliedAt notes createdAt')
+      .select('company hrName email package role source linkedinUrl status isShared deliverabilityStatus validationReason replySnippet lastMailedAt repliedAt notes createdAt verificationStatus inferenceFlag smtpConnectivity contactKind provenance')
       .sort({ createdAt: -1 })
       .lean();
 

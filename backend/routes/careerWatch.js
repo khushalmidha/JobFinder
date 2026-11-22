@@ -11,6 +11,7 @@ router.put('/config',wrap(async(req,res)=>{
  if(typeof req.body.enabled!=='boolean')throw Error('Choose enabled true or false');
  const set={enabled:req.body.enabled,intervalHours:5};
  if(req.body.indiaFocus!==undefined){if(typeof req.body.indiaFocus!=='boolean')throw Error('Choose India focus true or false');set.indiaFocus=req.body.indiaFocus;}
+ if(req.body.autoImportContacts!==undefined){if(typeof req.body.autoImportContacts!=='boolean')throw Error('Choose auto-import true or false');set.autoImportContacts=req.body.autoImportContacts;}
  if(req.body.discoverContacts!==undefined){if(typeof req.body.discoverContacts!=='boolean')throw Error('Choose contact discovery explicitly');set.discoverContacts=req.body.discoverContacts;}
  if(req.body.dailyRequestLimit!==undefined){if(!Number.isInteger(req.body.dailyRequestLimit)||req.body.dailyRequestLimit<0||req.body.dailyRequestLimit>50000)throw Error('Use a free HTTP daily request budget between 0 and 50000');set.dailyRequestLimit=req.body.dailyRequestLimit;}
  res.json({config:await Config.findOneAndUpdate({userId:req.user._id},{$set:set},{upsert:true,returnDocument:'after',runValidators:true})});
