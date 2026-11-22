@@ -7,7 +7,7 @@ const {chromium}=require('playwright');
 const User=require('../models/User'),Job=require('../models/CareerWatchJob'),Notification=require('../models/CareerWatchNotification'),Lead=require('../models/ProfessionalLead'),Config=require('../models/CareerWatchConfig');
 
 test('Chromium company watch integrates real jobs, owner-scoped notifications and separate recruiter/hiring-manager leads without provider calls', {timeout:90000}, async()=>{
-  let mongo,server,browser;let externalRequests=0;
+  let mongo,server,browser,actualImport;let externalRequests=0;
   const originalRequest=https.request,originalFetch=global.fetch;
   try{
     process.env.JWT_SECRET='company-watch-browser-synthetic';
@@ -33,6 +33,9 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     await Lead.create({...leadBase,name:'Recruiting Team',title:'Recruiting inbox',email:'careers@employer.example',kind:'role_inbox'});
     await Lead.create({...leadBase,userId:other._id,name:'Private Other Recruiter',email:'private@employer.example',kind:'recruiter'});
 
+    await Lead.create({...leadBase,name:'Dev Shah',title:'Software Engineer',email:'dev.shah@employer.example',kind:'engineer',inferenceFlag:true,verificationStatus:'inferred_unverified',pattern:'first_dot_last',patternEvidence:[{email:'jane.doe@employer.example',url:'https://employer.example/team'},{email:'arjun.patel@employer.example',url:'https://employer.example/team'}]});
+    const sheet=require('../services/professionalSheetService');actualImport=sheet.importLeads;
+    sheet.importLeads=args=>actualImport({...args,domainCheck:async()=>({status:'mx_found',hosts:['mx.employer.example']}),probe:async()=>({status:'unreachable',mailboxVerified:false}),reserve:async()=>{}});
     // Prevent accidental HTTP provider calls in this otherwise real API/Mongo test.
     https.request=(...args)=>{externalRequests++;throw new Error('Unexpected external HTTPS request in company-watch browser test');};
     global.fetch=(url,...args)=>{
@@ -42,6 +45,7 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     };
     const app=express();app.use(express.json());
     app.use('/api/auth',require('../routes/auth'));
+    app.use('/api/contacts',require('../routes/contact'));app.use('/api/mail',require('../routes/mail'));
     app.use('/api/jobs',require('../routes/job'));
     app.use('/api/recruiters',require('../routes/recruiter'));
     app.use('/api/career-watch',require('../routes/careerWatch'));
@@ -56,8 +60,8 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
       externalRequests++;return route.abort();
     });
     await context.addInitScript(token=>localStorage.setItem('token',token),jwt.sign({_id:String(owner._id)},process.env.JWT_SECRET));
-    const page=await context.newPage();await page.goto(base+'/jobs');
-    const panel=page.locator('section').filter({has:page.getByRole('heading',{name:'Company monitoring & professional contacts',exact:true})}).first();
+    const page=await context.newPage();page.setDefaultTimeout(15000);page.on('pageerror',error=>console.log('WATCH UI ERROR:',error.message));page.on('response',response=>{if(response.url().includes('/professional-discovery/import'))console.log('SHEET IMPORT HTTP:',response.status());});await page.goto(base+'/jobs');
+    const panel=page.locator('section').filter({has:page.getByRole('heading',{name:'Job postings',exact:true})}).first();
     await panel.getByText('Software Engineer - New Graduate',{exact:true}).waitFor();
     await panel.getByText('Matches recorded eligibility',{exact:true}).first().waitFor();
     await panel.getByText('Software Engineer - Experience Unspecified',{exact:true}).waitFor();
@@ -65,7 +69,8 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     assert.equal(await panel.getByText('Private other-owner job',{exact:true}).count(),0);
     assert.equal(await panel.locator('article').filter({has:page.getByText('Software Engineer - New Graduate',{exact:true})}).getByRole('link',{name:'Official job posting',exact:true}).getAttribute('href'),job.url);
 
-    const indiaFocus=panel.getByLabel('Focus on India jobs and contacts',{exact:true});
+    await panel.getByText('Monitoring settings',{exact:true}).click();
+    const indiaFocus=panel.getByLabel('Focus on India jobs',{exact:true});
     assert.equal(await indiaFocus.isChecked(),true);
     assert.equal(await panel.getByText('Overseas engineering opening',{exact:true}).count(),0);
     await panel.getByRole('button',{name:'Next job page',exact:true}).click();
@@ -99,24 +104,24 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     await panel.getByText('Unread notifications: 0',{exact:true}).waitFor();
     assert.ok((await Notification.findById(notification._id)).readAt);
 
-    await panel.getByRole('tab',{name:'Recruiters',exact:true}).click();
-    await panel.getByText('Riya Recruiter',{exact:true}).waitFor();
-    await panel.getByText('publicly_listed_not_mailbox_verified',{exact:true}).waitFor();
-    assert.equal(await panel.getByText('Arjun Engineering Manager',{exact:true}).count(),0);
-    assert.equal(await panel.getByText('Private Other Recruiter',{exact:true}).count(),0);
-    assert.equal(await panel.getByRole('link',{name:'Professional source',exact:true}).getAttribute('href'),'https://employer.example/careers');
-    await panel.getByRole('tab',{name:'Hiring managers',exact:true}).click();
-    await panel.getByText('Arjun Engineering Manager',{exact:true}).waitFor();
-    assert.equal(await panel.getByText('Riya Recruiter',{exact:true}).count(),0);
-    await panel.getByRole('tab',{name:'Recruiting inboxes',exact:true}).click();
-    await panel.getByText('careers@employer.example',{exact:true}).waitFor();
-    assert.equal(await panel.getByText('Arjun Engineering Manager',{exact:true}).count(),0);
+    assert.equal(await panel.getByRole('tab',{name:'Recruiters',exact:true}).count(),0);
+    assert.deepEqual(await page.locator('nav a').evaluateAll(links=>links.map(a=>a.textContent.trim().replace(/\d+$/,''))),['Jobs','Mails']);
+    await page.getByRole('link',{name:'Mails',exact:true}).click();
+    await page.getByText('Find HR, recruiters, managers & SDE contacts',{exact:true}).click();
+    await page.getByRole('button',{name:'Add saved research contacts',exact:true}).click();
+    await page.getByText(/Added 4; existing 0; excluded 0; awaiting checks 0/).waitFor();
+    await page.getByLabel('Contact type',{exact:true}).selectOption('engineer');
+    await page.getByRole('row').filter({hasText:'dev.shah@employer.example'}).waitFor();
+    await page.getByText('Guessed · mailbox unverified',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('row').filter({hasText:'riya@employer.example'}).count(),0);
+    assert.equal(await require('../models/Contact').countDocuments({userId:other._id}),0);
+    for(const contact of await require('../models/Contact').find())assert.equal(contact.deliverabilityStatus,'unverified');
     assert.equal(externalRequests,0);
-    assert.equal(await require('../models/Contact').countDocuments(),0);
+    assert.equal(await require('../models/Contact').countDocuments(),4);
     assert.equal(await require('../models/MailLog').countDocuments(),0);
     assert.equal(await require('../models/ResearchUsage').countDocuments(),0);
   }finally{
-    https.request=originalRequest;global.fetch=originalFetch;
+    https.request=originalRequest;global.fetch=originalFetch;if(actualImport)require('../services/professionalSheetService').importLeads=actualImport;
     if(browser)await browser.close();if(server)await new Promise(resolve=>server.close(resolve));
     await mongoose.disconnect();if(mongo)await mongo.stop();
   }

@@ -1,7 +1,7 @@
-import React, {useEffect,useState} from 'react';
+import React, {Suspense,useEffect,useState} from 'react';
 import api from '../services/api';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, Settings, LogOut, Send, Briefcase } from 'lucide-react';
+import { Mail, Settings, LogOut, Send, Briefcase } from 'lucide-react';
 
 const Layout = ({ onLogout }) => {
   const location = useLocation();
@@ -16,11 +16,8 @@ const Layout = ({ onLogout }) => {
   };
 
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/jobs', label: 'Job Hunter & HR Sheet', icon: Briefcase },
-    { path: '/import', label: 'Import Contacts', icon: Users },
-    { path: '/logs', label: 'Queue & Logs', icon: Send },
-    { path: '/settings', label: 'Settings', icon: Settings },
+    { path: '/jobs', label: 'Jobs', icon: Briefcase },
+    { path: '/', label: 'Mails', icon: Mail },
   ];
 
   return (
@@ -58,6 +55,7 @@ const Layout = ({ onLogout }) => {
         </nav>
 
         <div className="p-1 md:p-4 border-t border-zinc-800">
+          <Link to="/settings" aria-label="Settings" title="Settings" className="flex items-center gap-3 rounded-lg px-3 py-3 hover:bg-zinc-800"><Settings className="h-5 w-5" /><span className="hidden md:inline">Settings</span></Link>
           <button 
             onClick={handleLogout}
             aria-label="Logout"
@@ -71,7 +69,7 @@ const Layout = ({ onLogout }) => {
 
       {/* Main Content */}
       <div className="flex-1 min-w-0 overflow-auto bg-zinc-950">
-        <Outlet />
+        <Suspense fallback={<p role="status" className="p-8 text-zinc-400">Loading page...</p>}><Outlet /></Suspense>
       </div>
     </div>
   );

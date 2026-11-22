@@ -5,7 +5,7 @@ const Suppression = require('../models/RecipientSuppression');
 const { syntaxDisposition, resolveAuditDomain } = require('./smtpConnectivityService');
 const normalize = value => String(value || '').trim().toLowerCase();
 const enabled = () => process.env.CONTACT_ADMISSION_ENABLED === 'true';
-const fields = ['company','companyOriginalName','hrName','email','role','package','linkedinUrl','source','companyId','provenance','inferenceFlag'];
+const fields = ['contactKind','company','companyOriginalName','hrName','email','role','package','linkedinUrl','source','companyId','provenance','inferenceFlag'];
 function cleanPayload(input) {
   const out = {};
   for (const key of fields) if (input[key] !== undefined) out[key] = input[key];
