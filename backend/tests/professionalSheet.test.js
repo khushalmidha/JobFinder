@@ -2,17 +2,18 @@ const {test,before,beforeEach,after}=require('node:test'),assert=require('node:a
 const {MongoMemoryServer}=require('mongodb-memory-server');
 const User=require('../models/User'),Lead=require('../models/ProfessionalLead'),Contact=require('../models/Contact'),Suppression=require('../models/RecipientSuppression'),Proof=require('../models/MailboxProof'),Candidate=require('../models/ContactCandidate');
 const {importLeads}=require('../services/professionalSheetService'),{inferCandidates,extractPeople}=require('../services/professionalPatternService');
-let mongo,owner,other;const models=[User,Lead,Contact,Suppression,Proof,Candidate];
+let mongo,owner,other;const Company=require('../models/Company');const models=[User,Lead,Contact,Suppression,Proof,Candidate,Company];
 before(async()=>{mongo=await MongoMemoryServer.create();await mongoose.connect(mongo.getUri());await Promise.all(models.map(m=>m.init()));});
 after(async()=>{await mongoose.disconnect();await mongo.stop();});
 beforeEach(async()=>{process.env.CONTACT_ADMISSION_ENABLED='false';await Promise.all(models.map(m=>m.deleteMany({})));owner=await User.create({name:'Owner',email:'owner@example.org',passwordHash:'fake'});other=await User.create({name:'Other',email:'other@example.org',passwordHash:'fake'});});
 const lead=(extra={})=>({userId:owner._id,company:'Employer',domain:'employer.example',email:'careers@employer.example',kind:'role_inbox',title:'Recruiting inbox',sourceUrl:'https://employer.example/careers',observedAt:new Date(),...extra});
 const deps={domainCheck:async()=>({status:'mx_found',hosts:['mx.employer.example']}),probe:async()=>({status:'smtp_reachable',mailboxVerified:false}),reserve:async(_id,args)=>{assert.equal(args.credits,0);}};
 test('direct main-sheet import is idempotent, owner-scoped and SMTP connectivity never becomes mailbox verification',async()=>{
+ const company=await Company.create({name:'Employer',domain:'employer.example'});
  const rows=await Lead.create([lead(),lead({email:'jane@employer.example',name:'Jane Doe',title:'Software Engineer',kind:'engineer'})]);let probes=0;
  const options={userId:owner._id,leadIds:rows.map(r=>r._id),...deps,probe:async()=>{probes++;return {status:'smtp_reachable',mailboxVerified:false};}};
  const result=await importLeads(options);assert.equal(result.added,2);assert.equal(probes,1);assert.equal(result.mailboxesVerified,0);
- for(const c of await Contact.find()){assert.equal(c.deliverabilityStatus,'unverified');assert.equal(c.smtpConnectivity.mailboxVerified,false);assert.equal(c.verificationStatus,'publicly_sourced');}
+ for(const c of await Contact.find()){assert.equal(c.deliverabilityStatus,'unverified');assert.equal(c.smtpConnectivity.mailboxVerified,false);assert.equal(c.verificationStatus,'publicly_sourced');assert.equal(String(c.companyId),String(company._id));}
  assert.equal((await Contact.findOne({email:'jane@employer.example'})).contactKind,'engineer');assert.equal((await importLeads(options)).duplicates,2);assert.equal(await Contact.countDocuments(),2);
  const foreign=await importLeads({...options,userId:other._id});assert.equal(foreign.added,0);assert.equal(foreign.excluded,2);assert.equal(foreign.results.length,0);
 });
