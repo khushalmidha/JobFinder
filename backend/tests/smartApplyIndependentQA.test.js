@@ -590,6 +590,14 @@ test('2.2: Wrapping select labels exclude options and preserve exact approved an
   });
   const recalled = recallAnswer(storedBank, context.labelText, 'select', context.options, 'dummy_scope');
   assert.equal(recalled?.answer, 'Authorized to work');
+  const win = document.defaultView; let constructions = 0;
+  win.customElements.define('qa-label-detail', class extends win.HTMLElement { constructor() { super(); constructions++; } });
+  const extra = document.createElement('qa-label-detail'); extra.textContent = ' (per country)';
+  document.querySelector('label').prepend(extra); constructions = 0;
+  const before = document.body.innerHTML;
+  assert.equal(extractQuestionContext(select).labelText, '(per country)Work authorization status');
+  assert.equal(constructions, 0, 'Reading labels must not clone/run custom elements');
+  assert.equal(document.body.innerHTML, before, 'Reading labels must not mutate the page');
 });
 
 test('2.3: Field-specific Workday prompts are empty and selected values stay preserved', async () => {

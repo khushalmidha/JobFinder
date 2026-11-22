@@ -7,9 +7,17 @@ const text = el => el?.textContent?.replace(/\s+/g, ' ').trim() || '';
 // Labels often wrap controls. Their options/answers are not part of the question.
 function questionText(element) {
   if (!element) return '';
-  const copy = element.cloneNode(true);
-  copy.querySelectorAll('input, select, textarea, button, [role="combobox"], [role="listbox"], [role="option"], [aria-hidden="true"]').forEach(control => control.remove());
-  return text(copy);
+  // Walk the original tree read-only: cloning can run custom-element constructors.
+  const filter = element.ownerDocument.defaultView.NodeFilter;
+  const walker = element.ownerDocument.createTreeWalker(element, filter.SHOW_ELEMENT | filter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node.nodeType === 1) return node.matches('input, select, textarea, button, [role="combobox"], [role="listbox"], [role="option"], [aria-hidden="true"]') ? filter.FILTER_REJECT : filter.FILTER_SKIP;
+      return filter.FILTER_ACCEPT;
+    }
+  });
+  const parts = []; let node;
+  while ((node = walker.nextNode())) parts.push(node.nodeValue);
+  return parts.join('').replace(/\s+/g, ' ').trim();
 }
 const review = (type, reason) => ({ type, verified: false, requiresManualReview: true, confidence: 0, reason });
 
