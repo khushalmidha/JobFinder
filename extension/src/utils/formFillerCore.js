@@ -1,3 +1,4 @@
+import { normalizeProfile, recallAnswer } from './candidateProfile.js';
 // Imported by both the packaged content script and DOM tests. No private defaults.
 export const CANDIDATE_PROFILE = Object.freeze({});
 export const FORM_STATES = Object.freeze(['IDLE', 'SCAN', 'PLAN', 'FILL', 'VERIFY', 'NEEDS_REVIEW', 'STOPPED']);
@@ -31,23 +32,33 @@ export function extractQuestionContext(element) {
   if (element.tagName === 'SELECT') inputType = 'select';
   if (['combobox', 'listbox', 'radio', 'radiogroup', 'checkbox'].includes(role)) inputType = role;
   const fallback = ['name', 'id', 'placeholder', 'autocomplete', 'data-automation-id'].map(a => element.getAttribute(a) || '').join(' ');
-  return { labelText: labelText || fallback.trim(), descriptionText, inputType,
+  const options = element.tagName === 'SELECT' ? [...element.options].map(text) :
+    [...(group || element).querySelectorAll('[role="option"], [role="radio"]')].map(text);
+  return { labelText: labelText || fallback.trim(), descriptionText, inputType, options,
     combined: norm(`${labelText} ${descriptionText} ${text(legend)} ${groupLabel} ${fallback}`),
     isRequired: element.required || element.getAttribute('aria-required') === 'true' || labelText.includes('*') };
 }
 
 export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
+  profile = normalizeProfile(profile);
   const q = context.combined || '';
   // Safety/ambiguity precedes personal-data matching.
   if (/terms|privacy|agree|consent|declar|certif|attest|signature|sign here|background check|acknowledge/i.test(q))
     return review('LEGAL_CONSENT_OR_TERMS', 'Requires explicit applicant action.');
+  if (/captcha|verification code|\botp\b|password|security code/i.test(q)) return review('VERIFICATION', 'Complete verification manually.');
+  const remembered = recallAnswer(profile.answers_bank, context.labelText || q, context.inputType, context.options || [], context.scope || '');
+  // Sensitive/application-specific answers must be explicitly scoped to this form.
+  if (remembered && (context.scope || !/salary|ctc|compensation|notice|availab|relocat|sponsor|visa|authoriz|citizen|nationality/i.test(q)))
+    return { type: 'REMEMBERED_ANSWER', value: remembered.answer, verified: true, confidence: null, source: `answer_bank:${remembered.provenance}` };
+  if (/gender|disabil|veteran|ethnic|race\b/i.test(q) && norm(profile.preferences?.eeo_default) === 'prefer not to say' && context.options?.some(option => norm(option) === 'prefer not to say'))
+    return { type: 'EEO_PREFERENCE', value: context.options.find(option => norm(option) === 'prefer not to say'), verified: true, source: 'applicant_profile_eeo_preference', confidence: null };
   if (/salary|\bctc\b|compensation|remuneration|expected pay|notice|availab|start date|relocat|sponsor|visa|authoriz|eligible to work|gender|pronoun|disabil|veteran|ethnic|race\b|citizen|nationality|passport|aadhaar|pan number|date of birth|\bdob\b/i.test(q))
     return review('SENSITIVE_OR_APPLICATION_SPECIFIC', 'Confirm this answer for this application.');
-  if (/captcha|verification code|\botp\b|password|security code/i.test(q)) return review('VERIFICATION', 'Complete verification manually.');
   if (context.inputType === 'file') return review('MANUAL_UPLOAD', 'Select the real resume PDF manually.');
   if (/why|describe|explain|challenge|tell us|about yourself|summary|motivation/i.test(q) || context.inputType === 'textarea')
     return review('WRITTEN_ANSWER', 'Draft and review using selected resume facts and the actual question.');
   if (/company name|employer|emergency contact|next of kin|recruiter|reference|referee|manager|parent|guardian|spouse/i.test(q)) return review('OTHER_PERSON_OR_EMPLOYER', 'Not an applicant profile field.');
+  if (/10th|tenth|12th|twelfth|high school|secondary|country code|dial.*code/i.test(q)) return review('EDUCATION_OR_PHONE_DETAIL', 'This specific fact requires an explicit answer.');
   const mappings = [
     [/first.?name|given.?name|fname/i, 'FIRST_NAME', profile.firstName],
     [/last.?name|family.?name|surname|lname/i, 'LAST_NAME', profile.lastName],
@@ -136,6 +147,15 @@ const exactOption = (items, value) => {
   if (matches.length !== 1) throw new Error('No unique exact option; choose manually.');
   return matches[0];
 };
+async function waitForPopup(el, popupId, stopped) {
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline && !stopped()) {
+    const popup = el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId);
+    if (popup && rendered(popup) && popup.querySelector('[role="option"]')) return popup;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error('Dropdown options unavailable; complete manually.');
+}
 
 export class FormFillSession {
   constructor(root) { this.root = root; this.state = 'IDLE'; this.rows = []; this.stopped = false; }
@@ -143,7 +163,7 @@ export class FormFillSession {
     if (this.state === 'FILL') throw new Error('Fill already running.');
     this.stopped = false; this.state = 'SCAN';
     this.rows = collectFields(this.root).map((element, index) => {
-      const context = extractQuestionContext(element);
+      const context = { ...extractQuestionContext(element), scope: element.ownerDocument.location?.hostname || '' };
       const decision = classifyQuestion(context, profile);
       const before = currentValue(element);
       return { id: index, element, context, before, decision,
@@ -179,7 +199,7 @@ export class FormFillSession {
         if (row.action !== 'fill') continue;
         const el = row.element;
         try {
-          if (!el.isConnected || !rendered(el) || JSON.stringify(extractQuestionContext(el)) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
+          if (!el.isConnected || !rendered(el) || JSON.stringify({ ...extractQuestionContext(el), scope: el.ownerDocument.location?.hostname || '' }) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
           if (currentValue(el) !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
           const { value } = row.decision;
           const type = row.context.inputType;
@@ -198,10 +218,8 @@ export class FormFillSession {
             const popupId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
             if (!popupId || popupId.includes(' ')) throw new Error('Dropdown has no unique associated popup.');
             safeClick(el);
-            await new Promise(resolve => setTimeout(resolve, 40));
+            const popup = await waitForPopup(el, popupId, () => this.stopped);
             if (this.stopped) break;
-            const popup = el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId);
-            if (!popup) throw new Error('Dropdown popup unavailable.');
             const option = exactOption(popup.querySelectorAll('[role="option"]'), value);
             safeClick(option);
             await new Promise(resolve => setTimeout(resolve, 40));
