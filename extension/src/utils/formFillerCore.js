@@ -4,6 +4,13 @@ export const CANDIDATE_PROFILE = Object.freeze({});
 export const FORM_STATES = Object.freeze(['IDLE', 'SCAN', 'PLAN', 'FILL', 'VERIFY', 'NEEDS_REVIEW', 'STOPPED']);
 const norm = value => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 const text = el => el?.textContent?.replace(/\s+/g, ' ').trim() || '';
+// Labels often wrap controls. Their options/answers are not part of the question.
+function questionText(element) {
+  if (!element) return '';
+  const copy = element.cloneNode(true);
+  copy.querySelectorAll('input, select, textarea, button, [role="combobox"], [role="listbox"], [role="option"], [aria-hidden="true"]').forEach(control => control.remove());
+  return text(copy);
+}
 const review = (type, reason) => ({ type, verified: false, requiresManualReview: true, confidence: 0, reason });
 
 export function isFinalSubmitButton(label, automationId = '', buttonType = '') {
@@ -17,14 +24,14 @@ export function extractQuestionContext(element) {
   const root = element.getRootNode();
   const doc = element.ownerDocument;
   const get = id => root.getElementById?.(id) || doc.getElementById(id);
-  const refs = attr => (element.getAttribute(attr) || '').split(/\s+/).filter(Boolean).map(id => text(get(id))).join(' ');
+  const refs = attr => (element.getAttribute(attr) || '').split(/\s+/).filter(Boolean).map(id => questionText(get(id))).join(' ');
   const container = element.closest('[role="listitem"], .Qr7Oae, [data-automation-id^="formField"], .field, .form-group');
   const legend = element.closest('fieldset')?.querySelector('legend');
   const group = element.closest('[role="radiogroup"], [role="group"]');
-  const groupLabel = group?.getAttribute('aria-label') || (group?.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => text(get(id))).join(' ');
+  const groupLabel = group?.getAttribute('aria-label') || (group?.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => questionText(get(id))).join(' ');
   let labelText = refs('aria-labelledby') || element.getAttribute('aria-label') ||
-    [...(element.labels || [])].map(text).join(' ') || text(element.closest('label')) ||
-    text(container?.querySelector('[role="heading"], .M7eMe, label')) || text(legend) || groupLabel || '';
+    [...(element.labels || [])].map(questionText).join(' ') || questionText(element.closest('label')) ||
+    questionText(container?.querySelector('[role="heading"], .M7eMe, label')) || questionText(legend) || groupLabel || '';
   const descriptionText = refs('aria-describedby') || text(container?.querySelector('.zHQkBf, [data-automation-id="helpText"]'));
   let inputType = norm(element.getAttribute('type') || 'text');
   const role = element.getAttribute('role') || (element.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
@@ -32,7 +39,7 @@ export function extractQuestionContext(element) {
   if (element.tagName === 'SELECT') inputType = 'select';
   if (['combobox', 'listbox', 'radio', 'radiogroup', 'checkbox'].includes(role)) inputType = role;
   const fallback = ['name', 'id', 'placeholder', 'autocomplete', 'data-automation-id'].map(a => element.getAttribute(a) || '').join(' ');
-  if (inputType === 'radio') labelText = text(legend) || groupLabel || refs('aria-labelledby') || '';
+  if (inputType === 'radio') labelText = questionText(legend) || groupLabel || refs('aria-labelledby') || '';
   const popupId = element.getAttribute('aria-controls') || element.getAttribute('aria-owns');
   const popup = popupId && !popupId.includes(' ') ? get(popupId) : null;
   const options = element.tagName === 'SELECT' ? [...element.options].map(option => option.label) : inputType === 'radio' ? radioGroup(element).map(r => r.getAttribute('aria-label') || [...(r.labels || [])].map(text).join(' ') || r.value) :
@@ -139,6 +146,19 @@ export function collectFields(root, visited = new Set(), { frames = true } = {})
   }
   return fields;
 }
+function emptyDropdownPrompt(el, displayed) {
+  const value = norm(displayed).replace(/[.\s\u2026]+$/g, '');
+  const popupId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+  const popup = popupId && !popupId.includes(' ') ? el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId) : null;
+  // An actual enabled choice wins over wording that resembles a prompt.
+  if (popup && [...popup.querySelectorAll('[role="option"], option')].some(option => !option.disabled && option.getAttribute('aria-disabled') !== 'true' && norm(option.getAttribute('aria-label') || option.label || text(option)) === norm(displayed))) return false;
+  const placeholder = el.getAttribute('data-placeholder') || el.getAttribute('placeholder');
+  if (placeholder && norm(placeholder) === norm(displayed)) return true;
+  const label = norm(extractQuestionContext(el).labelText).replace(/[.*:\s]+$/g, '');
+  const nouns = ['option', 'country', 'state', ...(label ? [label] : [])];
+  const endings = ['', 'one', 'a value', ...nouns.flatMap(noun => [noun, `a ${noun}`, `an ${noun}`, `your ${noun}`])];
+  return ['select', 'choose', 'please select', 'please choose'].some(prefix => endings.some(ending => value === `${prefix}${ending ? ' ' + ending : ''}`));
+}
 function currentValue(el) {
   const role = el.getAttribute('role') || (el.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
   if(el.type==='radio')return radioGroup(el).some(r=>r.checked)?'selected':'';
@@ -148,8 +168,8 @@ function currentValue(el) {
     const explicit = el.getAttribute('aria-valuetext') || el.value || el.getAttribute('data-value');
     if (explicit) return explicit;
     const displayed = text(el);
-    // Recognize only clear empty prompts. Other rendered content is preserved.
-    return /^(select|choose)( an?| your)?( option| country| state)?[.\sâ€¦]*$/i.test(displayed) ? '' : displayed;
+    // Match a known prompt or this field's label, never arbitrary Select-prefixed text.
+    return emptyDropdownPrompt(el, displayed) ? '' : displayed;
   }
   return el.value || '';
 }

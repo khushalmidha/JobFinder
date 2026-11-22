@@ -60,6 +60,25 @@ async function main() {
     assert.equal(await fixture.evaluate(()=>window.blocked),2);assert.equal(submissions,0);assert.equal(fixture.url(),base+'/fixture');
     await fixture.screenshot({path:path.join(screenshots,'form-browser-smoke.png'),fullPage:true});
     console.log('PASS: packaged MV3 preview/fill, prefilled preservation, sensitive fields, main-world submit/requestSubmit guards; submissions=0');
+    // Exercise actual built React import/review controls, not just normalization helpers.
+    await popup.getByText('Edit candidate profile', { exact:true }).click();
+    const canonical={identity:{name:'Reviewed Synthetic Applicant',email:'reviewed@example.org',phone:'+919000000001'},education:[{institute:'Synthetic University',degree:'B.Tech',branch:'Computer Science',cgpa:8.8,end:'2027-07'}],preferences:{work_authorization:'TODO'}};
+    await popup.getByLabel('Import resume profile JSON').setInputFiles({name:'synthetic-profile.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(canonical))});
+    await popup.getByText('Imported locally. Review the facts and save before filling.',{exact:true}).waitFor();
+    assert.equal((await popup.evaluate(()=>chrome.storage.local.get('candidateProfileReviewed'))).candidateProfileReviewed,false);
+    await popup.getByRole('button',{name:'Save reviewed profile',exact:true}).click();
+    await popup.getByText('Confirm the profile facts before saving.',{exact:true}).waitFor();
+    await popup.getByLabel('I reviewed these facts against my selected resume.').check();
+    await popup.getByRole('button',{name:'Save reviewed profile',exact:true}).click();
+    await popup.getByText('Profile saved locally. Preview the current step.',{exact:true}).waitFor();
+    const reviewed=await popup.evaluate(()=>chrome.storage.local.get(['candidateProfile','candidateProfileReviewed','candidateProfileVersion']));
+    assert.equal(reviewed.candidateProfile.firstName,'Reviewed');assert.equal(reviewed.candidateProfile.preferences.work_authorization,null);assert.equal(reviewed.candidateProfileReviewed,true);
+    await popup.evaluate(async({base})=>{const [tab]=await chrome.tabs.query({url:base+'/fixture'});await chrome.tabs.sendMessage(tab.id,{action:'JF_PREVIEW'},{frameId:0});},{base});
+    await popup.getByLabel('Candidate profile JSON').fill(JSON.stringify({...canonical,identity:{...canonical.identity,name:'Edited Synthetic Applicant'}},null,2));
+    assert.equal((await popup.evaluate(()=>chrome.storage.local.get('candidateProfileReviewed'))).candidateProfileReviewed,false);
+    const changed=await popup.evaluate(async({base})=>{const [tab]=await chrome.tabs.query({url:base+'/fixture'});return chrome.tabs.sendMessage(tab.id,{action:'JF_FILL'},{frameId:0});},{base});
+    assert.equal(changed.success,false);assert.match(changed.error,/Profile changed/);assert.equal(submissions,0);
+    console.log('PASS: actual MV3 JSON file import, mandatory fact review, canonical save and edit invalidation; submissions=0');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);
     page.on('pageerror',error=>console.error('Browser page error:',error.message));
     page.on('response',response=>{if(response.url().includes('/api/') && response.status()>=400)console.error('API failed:',response.status(),response.url());});
