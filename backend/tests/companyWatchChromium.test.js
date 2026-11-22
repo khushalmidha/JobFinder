@@ -18,6 +18,7 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     const models=[User,Job,Notification,Lead,Config,require('../models/CareerWatchTask'),require('../models/RecipientSuppression'),require('../models/Contact'),require('../models/MailLog'),require('../models/ResearchUsage')];
     await Promise.all(models.map(model=>model.init()));
     const owner=await User.create({name:'Watch Browser Owner',email:'watch-browser@example.org',passwordHash:'synthetic-only'});
+    await require('../models/JobOpening').create({title:'Saved Software Opening',company:'Saved Employer',url:'https://saved.example/jobs/1',location:'India'});
     const other=await User.create({name:'Other Owner',email:'other-watch@example.org',passwordHash:'synthetic-only'});
     const job=await Job.create({userId:owner._id,title:'Software Engineer - New Graduate',company:'Synthetic Employer',domain:'employer.example',url:'https://employer.example/jobs/graduate',location:'India',locationRegion:'India',locationPriority:2,companyRegion:'India',eligibility:'eligible',eligibilityReason:'Explicit FTE and less than one year experience',track:'fte',sourceType:'official_jsonld',salaryStatus:'unverified'});
     await Job.create({userId:owner._id,title:'Software Engineer - Experience Unspecified',company:'Synthetic Employer',domain:'employer.example',url:'https://employer.example/jobs/unknown',location:'India',locationRegion:'India',locationPriority:2,companyRegion:'India',eligibility:'needs_review',eligibilityReason:'Experience requirement not published',sourceType:'official_jsonld'});
@@ -106,6 +107,9 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
 
     assert.equal(await panel.getByRole('tab',{name:'Recruiters',exact:true}).count(),0);
     assert.deepEqual(await page.locator('nav a').evaluateAll(links=>links.map(a=>a.textContent.trim().replace(/\d+$/,''))),['Jobs','Mails']);
+    await panel.getByRole('tab',{name:'Career jobs',exact:true}).click();await panel.getByText('Previously collected job postings',{exact:true}).click();
+    await panel.getByText('Saved Software Opening',{exact:true}).waitFor();
+    assert.equal(await panel.getByRole('link',{name:'Open saved official posting',exact:true}).getAttribute('href'),'https://saved.example/jobs/1');
     await page.getByRole('link',{name:'Mails',exact:true}).click();
     await page.getByText('Find HR, recruiters, managers & SDE contacts',{exact:true}).click();
     await page.getByRole('button',{name:'Add saved research contacts',exact:true}).click();
