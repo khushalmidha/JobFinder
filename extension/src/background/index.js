@@ -52,7 +52,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function handleGenerateAnswer(request) {
-  const { token, backendUrl = 'https://jobfinder-backend.onrender.com' } = await chrome.storage.local.get(['token', 'backendUrl']);
+  const { token, backendUrl = 'https://jobfinder.3.90.33.57.sslip.io' } = await chrome.storage.local.get(['token', 'backendUrl']);
   if (!token) {
     return { success: false, error: 'Not logged in' };
   }

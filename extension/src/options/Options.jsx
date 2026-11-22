@@ -7,7 +7,7 @@ const Options = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginStatus, setLoginStatus] = useState('');
-  const [backendUrl, setBackendUrl] = useState('https://jobfinder-backend.onrender.com'); // default to production URL
+  const [backendUrl, setBackendUrl] = useState('https://jobfinder.3.90.33.57.sslip.io'); // default to production URL
 
   useEffect(() => {
     chrome.storage.local.get(['token', 'backendUrl'], (result) => {

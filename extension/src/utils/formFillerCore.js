@@ -27,7 +27,7 @@ export function extractQuestionContext(element) {
     text(container?.querySelector('[role="heading"], .M7eMe, label')) || text(legend) || groupLabel || '';
   const descriptionText = refs('aria-describedby') || text(container?.querySelector('.zHQkBf, [data-automation-id="helpText"]'));
   let inputType = norm(element.getAttribute('type') || 'text');
-  const role = element.getAttribute('role');
+  const role = element.getAttribute('role') || (element.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
   if (element.tagName === 'TEXTAREA') inputType = 'textarea';
   if (element.tagName === 'SELECT') inputType = 'select';
   if (['combobox', 'listbox', 'radio', 'radiogroup', 'checkbox'].includes(role)) inputType = role;
@@ -85,7 +85,7 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   return review(context.isRequired ? 'UNKNOWN_REQUIRED' : 'UNMATCHED_OPTIONAL', 'No supported profile evidence for this question.');
 }
 
-const selector = 'input, textarea, select, [role="combobox"], [role="listbox"], [role="radiogroup"], [role="checkbox"]';
+const selector = 'input, textarea, select, [role="combobox"], [aria-haspopup="listbox"], [role="listbox"], [role="radiogroup"], [role="checkbox"]';
 function rendered(el) {
   for (let node=el;node?.nodeType===1;node=node.parentElement || node.getRootNode()?.host) {
     const style=node.ownerDocument.defaultView.getComputedStyle(node);
@@ -101,7 +101,7 @@ export function collectFields(root, visited = new Set()) {
   visited.add(root);
   const fields = [...root.querySelectorAll(selector)].filter(el => {
     const type = norm(el.getAttribute('type'));
-    const dropdown = ['combobox', 'listbox'].includes(el.getAttribute('role'));
+    const dropdown = ['combobox', 'listbox'].includes(el.getAttribute('role')) || el.getAttribute('aria-haspopup') === 'listbox';
     return (!['hidden', 'submit', 'button', 'reset', 'image'].includes(type) || dropdown) && !el.disabled && !el.readOnly && rendered(el) &&
       !(el.type==='radio' && radioGroup(el)[0]!==el) &&
       !el.closest('[hidden], [aria-hidden="true"], [data-jobfinder-ui]') &&
@@ -117,7 +117,7 @@ export function collectFields(root, visited = new Set()) {
   return fields;
 }
 function currentValue(el) {
-  const role = el.getAttribute('role');
+  const role = el.getAttribute('role') || (el.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
   if(el.type==='radio')return radioGroup(el).some(r=>r.checked)?'selected':'';
   if (role === 'radiogroup') return el.querySelector('[aria-checked="true"]')?.getAttribute('data-value') || text(el.querySelector('[aria-checked="true"]'));
   if (['checkbox', 'radio'].includes(el.type) || role === 'checkbox') return (el.checked || el.getAttribute('aria-checked') === 'true') ? 'checked' : '';

@@ -7,7 +7,7 @@ import { AutoApplyPanel } from './components/AutoApplyPanel';
 const Popup = () => {
   const [activeTab, setActiveTab] = useState('auto-apply');
   const [token, setToken] = useState('');
-  const [backendUrl, setBackendUrl] = useState('https://jobfinder-backend.onrender.com');
+  const [backendUrl, setBackendUrl] = useState('https://jobfinder.3.90.33.57.sslip.io');
 
   // ColdMail outreach states
   const [rawText, setRawText] = useState('');

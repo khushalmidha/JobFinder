@@ -82,3 +82,13 @@ test('Chromium guard blocks input-driven native submit; kill switch and stale la
     await page.locator('#first').fill('');await engine.preview();await page.locator('#first').evaluate(el=>el.setAttribute('aria-label','Emergency contact email'));const stale=await engine.fill();assert.equal(stale.fields[0].outcome,'needs_review');assert.equal(await page.locator('#first').inputValue(),'');
   }finally{await browser?.close();await new Promise(resolve=>server?server.close(resolve):resolve());fs.rmSync(dir,{recursive:true,force:true});}
 });
+test('Chromium handles Workday-style aria-haspopup buttons and preserves rendered selections',async()=>{
+  let server,browser;
+  try{
+    const html='<button type="button" aria-label="Country" aria-haspopup="listbox" aria-controls="countries" id="country">Select</button><button type="button" aria-label="Country" aria-haspopup="listbox" aria-controls="saved" id="saved-country">USA</button><script>document.querySelector("#country").onclick=()=>setTimeout(()=>{const list=document.createElement("div");list.id="countries";list.innerHTML="<div role=option>India</div>";list.firstChild.onclick=()=>{document.querySelector("#country").textContent="India";list.remove()};document.body.append(list)},80)</script>';
+    server=http.createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end(html)});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    browser=await chromium.launch();const page=await browser.newPage();await page.goto(`http://127.0.0.1:${server.address().port}`);
+    const engine=new SmartApplyEngine(page,{profile,allowedHosts:['127.0.0.1']});const preview=await engine.preview();assert.equal(preview.fields[1].action,'preserve');
+    const report=await engine.fill();assert.equal(report.fields[0].outcome,'verified');assert.equal(await page.locator('#country').innerText(),'India');assert.equal(await page.locator('#saved-country').innerText(),'USA');
+  }finally{await browser?.close();await new Promise(resolve=>server?server.close(resolve):resolve());}
+});

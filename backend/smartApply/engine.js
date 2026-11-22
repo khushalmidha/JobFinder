@@ -8,7 +8,7 @@ const source = ['candidateProfile.js', 'formFillerCore.js'].map(file => fs.readF
 const browserSource = `(()=>{const api=(()=>{${source.slice(0, source.indexOf('// Imported by both'))}return {normalizeProfile,recallAnswer};})();
 const {normalizeProfile,recallAnswer}=api;
 ${source.slice(source.indexOf('// Imported by both'))}
-window.__jfSmartApply={collectFields,extractQuestionContext,classifyQuestion};})();`;
+window.__jfSmartApply={collectFields,extractQuestionContext,classifyQuestion,currentValue};})();`;
 const equal = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
 function permitted(url, allowedHosts) {
   try { const u = new URL(url); return ['http:', 'https:'].includes(u.protocol) && !/(^|\.)linkedin\.com$/i.test(u.hostname) && allowedHosts.includes(u.hostname); } catch { return false; }
@@ -35,8 +35,8 @@ class SmartApplyEngine {
           const metadata = await element.evaluate((el, profile) => {
             const { extractQuestionContext, classifyQuestion } = window.__jfSmartApply;
             const context = { ...extractQuestionContext(el), scope: location.hostname };
-            const before = el.type === 'radio' ? ([...(el.form || el.getRootNode()).querySelectorAll('input[type="radio"]')].some(r => r.name === el.name && r.form === el.form && r.checked) ? 'selected' : '') : el.type === 'checkbox' ? el.checked : el.value || el.getAttribute('aria-valuetext') || el.getAttribute('data-value') || '';
-            return { context, decision: classifyQuestion(context, profile), before, tag: el.tagName, type: el.type, role: el.getAttribute('role') };
+            const before = window.__jfSmartApply.currentValue(el);
+            return { context, decision: classifyQuestion(context, profile), before, tag: el.tagName, type: el.type, role: el.getAttribute('role') || (el.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null) };
           }, this.profile);
           const action = metadata.before ? 'preserve' : metadata.decision.requiresManualReview ? 'needs_review' : 'fill';
           const row = { ...metadata, action, outcome: null }; this.report.fields.push(row); this.fields.push({ element, frame, row });
@@ -75,7 +75,7 @@ class SmartApplyEngine {
         if (!permitted(frame.url(), this.allowedHosts) || this.page.url() !== this.report.url) throw Error('Page changed; preview again.');
         const context = await element.evaluate(el => ({ ...window.__jfSmartApply.extractQuestionContext(el), scope: location.hostname }));
         if (JSON.stringify(context) !== JSON.stringify(row.context)) throw Error('Question or options changed; preview again.');
-        const before = await element.evaluate(el => el.type === 'radio' ? ([...(el.form || el.getRootNode()).querySelectorAll('input[type="radio"]')].some(r => r.name === el.name && r.form === el.form && r.checked) ? 'selected' : '') : el.value || el.getAttribute('aria-valuetext') || el.getAttribute('data-value') || '');
+        const before = await element.evaluate(el => window.__jfSmartApply.currentValue(el));
         if (before !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
         const value = row.decision.value;
         if (row.type === 'checkbox' || row.role === 'checkbox' || row.type === 'file') throw Error('Upload/consent requires manual review.');
