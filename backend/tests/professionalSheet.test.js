@@ -54,3 +54,9 @@ test('corporate repository contacts exclude personal emails, bots and stale auth
  const found=parseCorporateAuthors([row('Riya Shah','riya.shah@juspay.in'),row('Personal User','person@gmail.com'),row('Release Bot','release@juspay.in'),row('Old Author','old@juspay.in',new Date(+now-100*86400000))],source,now);
  assert.equal(found.length,1);assert.equal(found[0].kind,'engineer');assert.match(found[0].title,/employment unverified/);assert.equal(found[0].inferenceFlag,false);assert.equal(sourceFor('madeup-employer.example'),null);
 });
+
+
+test('a company block arriving during SMTP checks prevents main-sheet insertion',async()=>{
+ const row=await Lead.create(lead());const result=await importLeads({userId:owner._id,leadIds:[row._id],...deps,probe:async()=>{await User.updateOne({_id:owner._id},{$set:{blockedCompanies:['Employer']}});return {status:'smtp_reachable',mailboxVerified:false};}});
+ assert.equal(result.added,0);assert.equal(result.excluded,1);assert.equal(await Contact.countDocuments(),0);
+});

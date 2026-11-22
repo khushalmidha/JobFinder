@@ -26,7 +26,8 @@ async function importLeads({userId,leadIds,domainCheck=smtp.resolveAuditDomain,p
   const connectivity={checkedAt:new Date(),domainStatus:checked.domain.status,smtpStatus:checked.smtp.status,smtpHost:checked.domain.hosts?.[0],mailboxVerified:false};
   if(!['mx_found','implicit_mx'].includes(checked.domain.status)){await require('./contactAdmissionService').stage(userId,{company:lead.company,email},'domain_inconclusive','DNS/mail route inconclusive; not invalid',checked.domain.status);report.staged++;return;}
   // Recheck permanent blocks after the network wait. Never revive an address.
-  if(await Suppression.exists({userId,email}))return reject('Recipient blocked during checks');
+  const [lateSuppression,lateProof,lateOwner]=await Promise.all([Suppression.exists({userId,email}),require('./contactAdmissionService').latestProof(userId,email),require('../models/User').findById(userId).select('blockedCompanies').lean()]);
+  if(lateSuppression||lateProof?.outcome==='invalid'||(lateOwner?.blockedCompanies||[]).some(company=>key(company)===key(lead.company)))return reject('Recipient or company blocked during checks');
   if(existing.length){
    const target=existing[0];const set={smtpConnectivity:connectivity};if(!target.contactKind||target.contactKind==='unknown')set.contactKind=lead.kind;
    await Contact.updateOne({_id:target._id,userId,suppressedAt:{$eq:null},optOutAt:{$eq:null},deliverabilityStatus:{$ne:'invalid'},verificationStatus:{$ne:'invalid'},status:{$nin:['bounced','removed','replied','reply_received','positive_response','negative_response']}},{$set:set});await Lead.updateOne({_id:lead._id,userId},{$set:{importedToContactAt:new Date()}});report.duplicates++;return;
