@@ -170,10 +170,11 @@ export default function JobsBoard() {
           <p className="mt-2 text-xs text-yellow-300">{eligibility(job)}</p>
           <dl className="mt-2 grid gap-x-4 text-xs text-zinc-400 sm:grid-cols-2">
             {Object.entries(jobFilters).filter(([key]) => key !== 'locationRegion').map(([key,[label,options]]) => <div key={key}><dt className="inline">{label} </dt><dd className="inline">{options[job[key]] || 'Unknown'}</dd></div>)}
-            <div><dt className="inline">Compensation </dt><dd className="inline">{job.salaryEvidence ? <Link url={job.salaryEvidence.sourceUrl}>{job.salaryEvidence.currency} {job.salaryEvidence.amount ?? [job.salaryEvidence.min,job.salaryEvidence.max].join('–')} / {job.salaryEvidence.period} posted base</Link> : 'Unknown'}</dd></div>
+            <div><dt className="inline">Compensation </dt><dd className="inline">{job.salaryEvidence ? <Link url={job.salaryEvidence.sourceUrl}>{job.salaryEvidence.currency} {job.salaryEvidence.amount ?? [job.salaryEvidence.min,job.salaryEvidence.max].join('–')} / {job.salaryEvidence.period} {job.salaryEvidence.kind === 'posted_salary_range' ? 'posted salary range' : 'posted base'}</Link> : 'Unknown'}</dd></div>
           </dl>
           {Object.entries(job.evidence || {}).map(([key, value]) => <p key={key} className="mt-1 break-words text-xs text-zinc-400">{key} · {value}</p>)}
           {job.reason && <p className="mt-1 text-xs text-zinc-400">{display(job.reason)}</p>}
+          {job.validThrough && <p className="mt-2 text-xs text-zinc-400">{job.postingStatus === 'expired' ? 'Published deadline passed' : 'Published application deadline'} · {timestamp(job.validThrough)}</p>}
           <p className="mt-2 text-xs text-zinc-500">Observed: {timestamp(job.discoveredAt || job.firstSeenAt || job.createdAt)}</p>
           <p className="mt-2 text-sm"><Link url={job.applyUrl || job.url}>Open application</Link>{job.url && job.applyUrl && job.url !== job.applyUrl && <> · <Link url={job.url}>Posting evidence</Link></>}</p>
           {job.company && <RouterLink to="/" state={{ employer:job.company, jobUrl:safeUrl(job.applyUrl || job.url), role:job.title }} className="mt-2 inline-block text-sm text-yellow-400 underline">Find contacts for this job</RouterLink>}

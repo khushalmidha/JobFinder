@@ -50,21 +50,65 @@ function atsEndpoint(url){
  if(u.hostname==='jobs.ashbyhq.com')return {type:'ashby',url:'https://api.ashbyhq.com/posting-api/job-board/'+token};
  return null;
 }
+function requisitionFromUrl(value) {
+ const publicAddress = publicUrl(value);
+ if (!publicAddress) return null;
+ const url = new URL(publicAddress);
+ const host = url.hostname;
+ const greenhouse = ['boards.greenhouse.io', 'job-boards.greenhouse.io'].includes(host);
+ const lever = ['jobs.lever.co','jobs.eu.lever.co'].includes(host);
+ const match = greenhouse ? url.pathname.match(/^\/([a-z0-9_-]+)\/jobs\/(\d+)\/?$/i)
+   : lever ? url.pathname.match(/^\/([a-z0-9_-]+)\/([a-f0-9-]{36})(?:\/apply)?\/?$/i) : null;
+ if (!match) return null;
+ return { key: [greenhouse ? 'greenhouse' : host, match[1].toLowerCase(), match[2].toLowerCase()].join(':'), id: match[2] };
+}
+async function saveCareerJob(userId, values, now) {
+ const { url } = values;
+ const requisition = requisitionFromUrl(url);
+ let filter = {userId,url};
+ if (requisition) {
+  const existing = await Job.findOne({userId,requisitionKey:requisition.key}).select('_id').lean();
+  // Adopt an older URL-only row if the stable identity can be recovered from its URL.
+  const legacy = existing ? [] : await Job.find({
+   userId, requisitionKey:{$exists:false}, url:{$regex:'/'+requisition.id+'(?:/|[?#]|$)',$options:'i'}
+  }).sort({firstSeenAt:1,_id:1}).select('url').lean();
+  const match = existing || legacy.find(row=>requisitionFromUrl(row.url)?.key===requisition.key);
+  filter = match ? {userId,_id:match._id} : {userId,requisitionKey:requisition.key};
+  values.requisitionKey = requisition.key;
+ }
+ if (requisition && filter._id && await Job.exists({userId,url,_id:{$ne:filter._id}})) {
+  values.applyUrl ||= url;
+  delete values.url;
+ }
+ const update = {$set:values,$setOnInsert:{firstSeenAt:now}};
+ try {
+  return await Job.findOneAndUpdate(filter,update,{upsert:!filter._id,returnDocument:'after'});
+ } catch(error) {
+  if (!requisition || error.code!==11000) throw error;
+  const winner = await Job.findOneAndUpdate({userId,requisitionKey:requisition.key},update,{returnDocument:'after'});
+  if (!winner) throw error;
+  return winner;
+ }
+}
+function postingExpiry(value) {
+ const isoDate = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? new Date(value) : null;
+ return Number.isFinite(isoDate?.getTime()) ? isoDate : undefined;
+}
 function parseJobs(response,url,type){
  const out=[];
  if(type){let data;try{data=JSON.parse(response.text);}catch{return out;}
   for(const row of (Array.isArray(data)?data:data.jobs||[])){
    const jobUrl=publicUrl(row.absolute_url||row.hostedUrl||row.jobUrl||row.url,url);if(!jobUrl)continue;
-   out.push({url:jobUrl,title:clean(row.title||row.text),description:clean(row.content||row.descriptionPlain||row.descriptionHtml||row.description||'')+' '+clean(row.employmentType||row.categories?.commitment||'').replaceAll('_',' '),location:clean(row.location?.name||row.categories?.location||row.location||''),sourceType:type,applyUrl:publicUrl(row.applyUrl||jobUrl,url),employmentType:row.employmentType||row.categories?.commitment});
+   out.push({url:jobUrl,title:clean(row.title||row.text),description:clean(row.content||row.descriptionPlain||row.descriptionHtml||row.description||'')+' '+clean(row.employmentType||row.categories?.commitment||'').replaceAll('_',' '),location:clean(row.location?.name||row.categories?.location||row.location||''),sourceType:type,applyUrl:publicUrl(row.applyUrl||jobUrl,url),employmentType:row.employmentType||row.categories?.commitment,leverRange:type==='lever'?row.salaryRange:undefined});
   }
  }else{
   const walk=value=>{if(Array.isArray(value)){value.forEach(walk);return;}if(!value||typeof value!=='object')return;
-   if([].concat(value['@type']||[]).includes('JobPosting')){const jobUrl=publicUrl(value.url||value['@id']||url,url);if(jobUrl)out.push({url:jobUrl,title:clean(value.title),description:clean(value.description)+' '+clean(value.employmentType).replaceAll('_',' '),location:clean(jobLocation(value.jobLocation)||value.jobLocationType||''),sourceType:'official_jsonld',employmentType:[].concat(value.employmentType||[]).join(' '),baseSalary:value.baseSalary});}
+   if([].concat(value['@type']||[]).includes('JobPosting')){const jobUrl=publicUrl(value.url||value['@id']||url,url);if(jobUrl)out.push({url:jobUrl,title:clean(value.title),description:clean(value.description)+' '+clean(value.employmentType).replaceAll('_',' '),location:clean(jobLocation(value.jobLocation)||value.jobLocationType||''),sourceType:'official_jsonld',employmentType:[].concat(value.employmentType||[]).join(' '),baseSalary:value.baseSalary,validThrough:postingExpiry(value.validThrough)});}
    if(value['@graph'])walk(value['@graph']);
   };
   for(const match of String(response.text).matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi))try{walk(JSON.parse(match[1]));}catch{}
  }
- return out.map(({baseSalary,...job})=>({...job,...postingEvidence({...job,baseSalary})}));
+ return out.map(({baseSalary,leverRange,...job})=>({...job,...postingEvidence({...job,baseSalary,leverRange})}));
 }
 async function collectCompanyJobs(task,{fetchPage=fetchPublicPage,maxRequests=12,maxRuntimeSeconds=30,shouldStop=()=>process.env.RESEARCH_STOP==='true',delayMs=fetchPage===fetchPublicPage?250:0}={}){
  const start=Date.now(),robots=new Map(),seen=new Set(),jobs=new Map(),errors=[];let requestsUsed=0;
@@ -93,7 +137,7 @@ async function collectCompanyJobs(task,{fetchPage=fetchPublicPage,maxRequests=12
    const response=await get(item.url,{api:!!item.type});
    if([301,302,303,307,308].includes(response.status)){const next=publicUrl(response.location,item.url);const host=next?new URL(next).hostname:'';if(next&&(item.redirects||0)<2&&(host.replace(/^www\./,'')===root.replace(/^www\./,'')||atsEndpoint(next))){queue.unshift({url:next,redirects:(item.redirects||0)+1});}else errors.push('Unsupported redirect target');continue;}
    if(response.status!==200){errors.push('HTTP '+response.status+' at '+item.url);continue;}
-   for(const job of parseJobs(response,item.url,item.type))jobs.set(job.url,{...job,...classifyRole(job.title,job.description)});
+   for(const job of parseJobs(response,item.url,item.type))jobs.set(requisitionFromUrl(job.url)?.key || job.url,{...job,...classifyRole(job.title,job.description)});
    if(item.type)continue;
    for(const link of links(response.text,item.url)){
     const endpoint=atsEndpoint(link);if(endpoint){queue.push(endpoint);continue;}
@@ -201,8 +245,8 @@ async function runCareerWatchOnce({userId,dryRun=true,maxCompanies=1,maxRequests
    const renewal=await Task.updateOne(owned(),{$set:{leaseUntil:new Date(+clock()+120000)}});
    if(!renewal.matchedCount){result.status='lease_lost';break;}
    const region=locationRegion(row.location),locationPriority=region==='India'?2:region==='unknown'?1:0;
-   const updated=await Job.findOneAndUpdate({userId,url:row.url},{$set:{...row,description:row.description.slice(0,20000),company:task.company,domain:task.domain,companyRegion:task.region,locationRegion:region,locationPriority,lastSeenAt:new Date(),salaryStatus:'unverified'},$setOnInsert:{firstSeenAt:new Date()}},{upsert:true,returnDocument:'after'});
-   if(row.eligibility==='eligible'&&(config.indiaFocus===false||region==='India')){
+   const updated=await saveCareerJob(userId,{...row,description:row.description.slice(0,20000),company:task.company,domain:task.domain,companyRegion:task.region,locationRegion:region,locationPriority,lastSeenAt:clock(),salaryStatus:'unverified'},clock());
+   if(updated && (!updated.validThrough || updated.validThrough > clock()) && row.eligibility==='eligible'&&(config.indiaFocus===false||region==='India')){
     const note=await Notification.updateOne({userId,jobId:updated._id},{$setOnInsert:{title:row.title,company:task.company,url:row.url}},{upsert:true});result.newJobs+=note.upsertedCount||0;
    }
   }

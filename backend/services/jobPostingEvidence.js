@@ -1,4 +1,4 @@
-function postingEvidence({ title = '', description = '', location = '', employmentType, baseSalary, url }) {
+function postingEvidence({ title = '', description = '', location = '', employmentType, baseSalary, leverRange, url }) {
   const evidence = {};
   const explicitType = String(employmentType || '').replaceAll('_', ' ').toLowerCase();
   const type = /intern/i.test(title + ' ' + explicitType) ? 'internship'
@@ -26,13 +26,16 @@ function postingEvidence({ title = '', description = '', location = '', employme
   }
   const duration = description.match(/\b(?:6|six)[ -]+months?\b/i);
   if (duration) evidence.duration = duration[0];
-  const compensation = baseSalary?.value;
+  const compensation = baseSalary?.value || (leverRange && {
+    unitText:leverRange.interval,minValue:leverRange.min,maxValue:leverRange.max
+  });
+  const currency = baseSalary?.currency || leverRange?.currency;
   const amount = compensation?.value;
   const min = compensation?.minValue;
   const max = compensation?.maxValue;
-  const salaryEvidence = /^[A-Z]{3}$/.test(baseSalary?.currency || '') && typeof compensation?.unitText === 'string' &&
-    (Number.isFinite(amount) || (Number.isFinite(min) && Number.isFinite(max) && min <= max))
-    ? { currency: baseSalary.currency, period: compensation.unitText, amount, min, max, kind: 'posted_base_salary', sourceUrl: url }
+  const salaryEvidence = /^[A-Z]{3}$/.test(currency || '') && typeof compensation?.unitText === 'string' && compensation.unitText.trim() &&
+    ((Number.isFinite(amount) && amount >= 0) || (Number.isFinite(min) && Number.isFinite(max) && min >= 0 && min <= max))
+    ? { currency, period: compensation.unitText, amount, min, max, kind: baseSalary?.value ? 'posted_base_salary' : 'posted_salary_range', sourceUrl: url }
     : null;
   const roleFamily = /quant|trading developer/i.test(title) ? 'quant'
     : /machine learning|applied scientist|\b(?:ai|ml)\b|data scientist/i.test(title) ? 'ai_ml'

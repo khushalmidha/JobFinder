@@ -152,3 +152,48 @@ test('careers subdomains use known employer root domains and idempotent refresh 
  task=await Task.findById(task._id);assert.equal(task.employerDomain,'employer.example');assert.equal(task.lastContactScanAt,undefined);assert.equal(task.state,'complete');assert.equal(task.nextScanAt.toISOString(),'2032-01-01T00:00:00.000Z');
  const third=await service.enqueueWatchCompanies(owner,{companyIds:[company._id]});assert.equal(third.queued,0);assert.equal(third.updated,0);
 });
+
+test('Greenhouse URL changes adopt the legacy row and retain its history across scans',async()=>{
+ const task=await seed();
+ await Task.updateOne({_id:task._id},{$set:{careersUrl:'https://boards.greenhouse.io/fixture'}});
+ const old=await Job.create({userId:owner,url:'https://boards.greenhouse.io/fixture/jobs/42',firstSeenAt:new Date('2020-01-01')});
+ await Notification.create({userId:owner,jobId:old._id,title:'Earlier notification'});
+ let url='https://job-boards.greenhouse.io/fixture/jobs/42?source=career';
+ const fetchPage=async address=>({status:200,text:address.endsWith('/robots.txt')?'User-agent: *\nAllow: /':address.includes('/v1/boards/')?
+   JSON.stringify({jobs:[{title:'Software Engineer',content:'0-1 years experience',absolute_url:url,location:{name:'India'}}]}):''});
+ for (const suffix of ['','&updated=1']) {
+  url+=suffix;
+  await Task.updateOne({_id:task._id},{$set:{nextScanAt:new Date(0)}});
+  await service.runCareerWatchOnce({userId:owner,dryRun:false,fetchPage});
+  const row=await Job.findById(old._id);
+  assert.equal(row.url,url);
+  assert.equal(row.requisitionKey,'greenhouse:fixture:42');
+  assert.equal(row.firstSeenAt.toISOString(),'2020-01-01T00:00:00.000Z');
+ }
+ assert.equal(await Job.countDocuments(),1);
+ assert.equal(await Notification.countDocuments(),1);
+});
+test('explicit source deadline can expire and reopen without changing job identity',async()=>{
+ const task=await seed();
+ let validThrough='2000-01-01T00:00:00Z';
+ const fetchPage=async url=>({status:200,text:url.endsWith('/robots.txt')?'User-agent: *\nAllow: /':
+  '<script type="application/ld+json">'+JSON.stringify({'@type':'JobPosting',title:'Backend Engineer',description:'New graduate role',
+    url:'https://fixture.example/jobs/deadline',jobLocation:'India',validThrough})+'</script>'});
+ await service.runCareerWatchOnce({userId:owner,dryRun:false,fetchPage});
+ const first=(await request('/jobs')).data.jobs[0];
+ assert.equal(first.postingStatus,'expired');
+ assert.equal(await Notification.countDocuments(),0);
+ validThrough='2099-01-01T00:00:00Z';
+ await Task.updateOne({_id:task._id},{$set:{nextScanAt:new Date(0)}});
+ await service.runCareerWatchOnce({userId:owner,dryRun:false,fetchPage});
+ const reopened=(await request('/jobs')).data.jobs[0];
+ assert.equal(reopened._id,first._id);
+ assert.equal(reopened.postingStatus,'published_deadline_active');
+ assert.equal(await Notification.countDocuments(),1);
+});
+
+test('Lever structured pay remains a sourced range and preserves currency and period',()=>{
+ const url='https://jobs.eu.lever.co/fixture/12345678-1234-1234-1234-123456789abc';
+ const [job]=service.parseJobs({text:JSON.stringify([{hostedUrl:url,text:'Software Engineer',salaryRange:{currency:'EUR',interval:'per year',min:60000,max:70000}}])},url,'lever');
+ assert.deepEqual(job.salaryEvidence,{currency:'EUR',period:'per year',amount:undefined,min:60000,max:70000,kind:'posted_salary_range',sourceUrl:url});
+});

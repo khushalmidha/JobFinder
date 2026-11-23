@@ -39,7 +39,7 @@ router.get('/jobs',wrap(async(req,res)=>{
  }
  const page=Math.max(1,Math.min(10000,parseInt(req.query.page)||1)),limit=50;
  const [jobs,total]=await Promise.all([Job.find(filter).sort({locationPriority:-1,firstSeenAt:-1}).skip((page-1)*limit).limit(limit).lean(),Job.countDocuments(filter)]);
- res.json({jobs:jobs.map(j=>({...j,eligibilityStatus:j.eligibility,reason:j.eligibilityReason,discoveredAt:j.firstSeenAt})),total,page,limit});
+ res.json({jobs:jobs.map(j=>({...j,eligibilityStatus:j.eligibility,reason:j.eligibilityReason,discoveredAt:j.firstSeenAt,postingStatus:j.validThrough ? (j.validThrough <= new Date() ? 'expired' : 'published_deadline_active') : 'last_observed'})),total,page,limit});
 }));
 router.get('/notifications',wrap(async(req,res)=>res.json({notifications:await Notification.find({userId:req.user._id}).sort({createdAt:-1}).limit(100).lean(),unread:await Notification.countDocuments({userId:req.user._id,readAt:{$exists:false}})})));
 router.post('/notifications/:id/read',wrap(async(req,res)=>{
