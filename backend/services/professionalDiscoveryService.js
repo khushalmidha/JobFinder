@@ -1,7 +1,7 @@
 const mongoose=require('mongoose');
 const Lead=require('../models/ProfessionalLead'),Suppression=require('../models/RecipientSuppression'),Contact=require('../models/Contact'),Company=require('../models/Company');
 const {fetchCompanyEmails,normalizeDomain,allowedDiscoveryDomain}=require('./publicEmailDiscovery');
-const {reserveResearch,policyFor}=require('./researchBudgetService');
+const {reserveResearch,policyFor,releaseUnusedRequests}=require('./researchBudgetService');
 async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyContext=null,saveToContacts=false,allowPublicUnverified=false,discover=fetchCompanyEmails,reserve=reserveResearch}={}){
   if(!mongoose.isValidObjectId(userId))throw Error('Owned discovery login required');
   if(!Array.isArray(domains)||!domains.length||domains.length>100||domains.some(d=>typeof d!=='string'||!allowedDiscoveryDomain(normalizeDomain(d))))throw Error('Provide 1 to 100 employer domains');
@@ -9,7 +9,8 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
   const owner=await require('../models/User').findById(userId).select('blockedCompanies').lean();if(!owner)throw Error('Discovery owner not found');
   const companyKey=require('./companyIdentityService').companyKey,blockedCompanies=new Set((owner.blockedCompanies||[]).map(companyKey));
   const selected=[...new Set(domains.map(normalizeDomain))];
-  const policy=await reserve(userId,{requests:maxRequests,credits:0});
+  const reservedAt=new Date();
+  const policy=await reserve(userId,{requests:maxRequests,credits:0,now:reservedAt});
   const companies=await Company.find({domain:{$in:selected}}).select('domain name regionGroups').lean();const names=new Map(companies.map(c=>[c.domain,c.name]));const regions=new Map(companies.map(c=>[c.domain,c.regionGroups?.includes('India')?'India':c.regionGroups?.includes('Overseas')?'Overseas':'Unknown']));
   const report={dryRun,providerCreditsUsed:0,requestsUsed:0,emailsFound:0,newLeads:0,existingLeads:0,suppressed:0,sourceTypes:{official_public_page:0,official_corporate_repository:0,pattern_inference:0},companies:[],leads:[],peopleFound:0};
   for(let index=0;index<selected.length;index++){
@@ -33,7 +34,7 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
     }
     for(const row of result.emails||[]){
       if (allowPublicUnverified) {
-        if (row.inferenceFlag === true || /fraud|scam|recruitment.?agency|accessibility/i.test(row.sourceUrl || '')) continue;
+        if (/fraud|scam|recruitment.?agency|accessibility/i.test(row.sourceUrl || '')) continue;
         if ((!row.kind || row.kind === 'role_inbox') &&
           !/^(?:careers?|jobs?|recruit(?:ing|ment)?|talent|hiring|hr|campus)(?:[._-](?:india|in|careers?|jobs?))?@/i.test(row.email || '')) continue;
       }
@@ -57,9 +58,25 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
     report.emailsFound+=count;
     report.companies.push({domain,requestsUsed:result.requestsUsed||0,emailsFound:count,status:result.pagesRead===0 && !count ? 'source_unavailable' : 'complete',limitedByRobots:result.limitedByRobots===true,reason:result.reason||null});
   }
+  if(reserve===reserveResearch)await releaseUnusedRequests(userId,maxRequests,report.requestsUsed,reservedAt);
   if(!dryRun&&saveToContacts&&report.leads.length){
-    const ids=await Lead.find({userId,email:{$in:report.leads.map(l=>l.email)}}).distinct('_id');report.sheet={added:0,duplicates:0,excluded:0,staged:0,mailboxesVerified:0,providerCreditsUsed:0};
-    for(let start=0;start<ids.length;start+=100){const part=await require('./professionalSheetService').importLeads({userId,leadIds:ids.slice(start,start+100),allowPublicUnverified});for(const key of ['added','duplicates','excluded','staged'])report.sheet[key]+=part[key];}
+    const eligible=report.leads.filter(row=>!row.inferenceFlag);
+    const ids=[];
+    const limits = {hiring_manager:10,engineer:3};
+    const counts = new Map();
+    for (const row of eligible) {
+      if (allowPublicUnverified && limits[row.kind] && !await Contact.exists({userId,email:row.email})) {
+        const key = companyKey(row.company)+':'+row.kind;
+        if (!counts.has(key)) counts.set(key,await Contact.countDocuments({
+          userId,company:require('./companyIdentityService').canonicalCompany(row.company),contactKind:row.kind
+        }));
+        if (counts.get(key)>=limits[row.kind]) continue;
+        counts.set(key,counts.get(key)+1);
+      }
+      ids.push(row.email);
+    }
+    const leadIds=await Lead.find({userId,email:{$in:ids},inferenceFlag:{$ne:true}}).distinct('_id');report.sheet={added:0,duplicates:0,excluded:0,staged:0,mailboxesVerified:0,providerCreditsUsed:0};
+    for(let start=0;start<leadIds.length;start+=100){const part=await require('./professionalSheetService').importLeads({userId,leadIds:leadIds.slice(start,start+100),allowPublicUnverified});for(const key of ['added','duplicates','excluded','staged'])report.sheet[key]+=part[key];}
   }
   return report;
 }

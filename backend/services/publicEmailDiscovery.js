@@ -59,7 +59,8 @@ function linkedPages(html,base,domain,{fallback=false}={}){
       target.hash='';if((fallback?/career|jobs?|contact|vacanc|work.with.us|join.us/i:/career|jobs?|contact|talent|recruit|hiring|vacanc|team|people|about|engineering/i).test(target.pathname+' '+match[2]))links.push(target.href);
     }catch{}
   }
-  return [...new Set(links)];
+  const priority=value=>/career|jobs?|vacanc/i.test(new URL(value).pathname)?0:/recruit|talent|hiring|team/i.test(new URL(value).pathname)?1:2;
+  return [...new Set(links)].sort((a,b)=>priority(a)-priority(b));
 }
 const cache=new Map();
 async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage,maxRequests=5,maxRuntimeSeconds=30,shouldStop=()=>process.env.RESEARCH_STOP==='true'}={}){

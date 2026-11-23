@@ -58,7 +58,7 @@ exports.getContacts = async (req, res) => {
     ];
 
     const contacts = await Contact.find(query)
-      .select('company hrName email package role source linkedinUrl status isShared deliverabilityStatus validationReason replySnippet lastMailedAt repliedAt notes createdAt verificationStatus inferenceFlag smtpConnectivity contactKind provenance suppressedAt optOutAt')
+      .select('company hrName email package role source linkedinUrl status isShared deliverabilityStatus validationReason replySnippet lastMailedAt repliedAt notes createdAt verificationStatus inferenceFlag smtpConnectivity contactKind provenance suppressedAt optOutAt ownerVerifiedAt')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -76,6 +76,7 @@ exports.getContacts = async (req, res) => {
       const email=String(contact.email||'').trim().toLowerCase(),proof=proofByEmail.get(email);
       contact.emailBlocked=blocked.has(email);
       contact.emailBlockSource=blocked.get(email)||null;
+      if (proof?.outcome==='invalid' && proof.expiresAt>new Date()) contact.emailBlocked=true;
       contact.mailboxVerified=proof?.outcome==='valid' && proof.expiresAt>new Date();
     }
     if (isUnfiltered) {
@@ -262,7 +263,7 @@ exports.updateContact = async (req, res) => {
   try {
     const allowed = ['company', 'hrName', 'email', 'package', 'role', 'linkedinUrl', 'notes'];
     const updates = Object.fromEntries(allowed.filter(k => k in req.body).map(k => [k, req.body[k]]));
-    if ('email' in updates || 'company' in updates) Object.assign(updates, { provenance: [], verificationStatus: 'unknown', companyId: null, deliverabilityStatus: 'unverified' });
+    if ('email' in updates || 'company' in updates) Object.assign(updates, { provenance: [], ownerVerifiedAt:null, verificationStatus: 'unknown', companyId: null, deliverabilityStatus: 'unverified' });
     const contact = await Contact.findOneAndUpdate(
       { _id: req.params.id, userId: req.user._id },
       { $set: updates },

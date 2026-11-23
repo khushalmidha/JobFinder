@@ -20,7 +20,7 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     const owner=await User.create({name:'Watch Browser Owner',email:'watch-browser@example.org',passwordHash:'synthetic-only'});
     await require('../models/JobOpening').create({title:'Saved Software Opening',company:'Saved Employer',url:'https://saved.example/jobs/1',location:'India'});
     const other=await User.create({name:'Other Owner',email:'other-watch@example.org',passwordHash:'synthetic-only'});
-    const job=await Job.create({userId:owner._id,title:'Software Engineer - New Graduate',company:'Synthetic Employer',domain:'employer.example',url:'https://employer.example/jobs/graduate',location:'India',locationRegion:'India',locationPriority:2,companyRegion:'India',eligibility:'eligible',eligibilityReason:'Explicit FTE and less than one year experience',track:'fte',sourceType:'official_jsonld',salaryStatus:'unverified'});
+    const job=await Job.create({userId:owner._id,title:'Software Engineer - New Graduate',company:'Synthetic Employer',domain:'employer.example',url:'https://employer.example/jobs/graduate',location:'India',locationRegion:'India',locationPriority:2,companyRegion:'India',eligibility:'eligible',eligibilityReason:'Explicit FTE and less than one year experience',track:'fte',sourceType:'official_jsonld',salaryStatus:'unverified',profileMatch:true,evidence:{graduation:'2027 batch'}});
     await Job.create({userId:owner._id,title:'Software Engineer - Experience Unspecified',company:'Synthetic Employer',domain:'employer.example',url:'https://employer.example/jobs/unknown',location:'India',locationRegion:'India',locationPriority:2,companyRegion:'India',eligibility:'needs_review',eligibilityReason:'Experience requirement not published',sourceType:'official_jsonld'});
     await Job.insertMany(Array.from({length:49},(_,i)=>({userId:owner._id,title:`Older India opening ${i}`,company:'Synthetic Employer',domain:'employer.example',url:`https://employer.example/jobs/older-${i}`,location:'India',locationRegion:'India',locationPriority:2,companyRegion:'India',eligibility:'eligible',firstSeenAt:new Date('2020-01-01')})));
     await Job.create({userId:owner._id,title:'Location evidence pending',company:'Synthetic Employer',url:'https://employer.example/jobs/location-pending',locationRegion:'unknown',locationPriority:1,companyRegion:'unknown',eligibility:'needs_review',firstSeenAt:new Date('2020-01-01')});
@@ -62,42 +62,30 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     });
     await context.addInitScript(token=>localStorage.setItem('token',token),jwt.sign({_id:String(owner._id)},process.env.JWT_SECRET));
     const page=await context.newPage();page.setDefaultTimeout(15000);page.on('pageerror',error=>console.log('WATCH UI ERROR:',error.message));page.on('response',response=>{if(response.url().includes('/professional-discovery/import'))console.log('SHEET IMPORT HTTP:',response.status());});await page.goto(base+'/jobs');
-    const panel=page.locator('section').filter({has:page.getByRole('heading',{name:'Job postings',exact:true})}).first();
+    await page.getByRole('heading',{name:'Jobs for your 2027 batch'}).waitFor();
+    const panel=page.getByRole('tabpanel');
     await panel.getByText('Software Engineer - New Graduate',{exact:true}).waitFor();
-    await panel.getByText('Matches recorded eligibility',{exact:true}).first().waitFor();
-    await panel.getByText('Software Engineer - Experience Unspecified',{exact:true}).waitFor();
-    await panel.getByText('Eligibility needs review',{exact:true}).waitFor();
+    assert.equal(await panel.getByText('Software Engineer - Experience Unspecified',{exact:true}).count(),0);
     assert.equal(await panel.getByText('Private other-owner job',{exact:true}).count(),0);
-    assert.equal(await panel.locator('article').filter({has:page.getByText('Software Engineer - New Graduate',{exact:true})}).getByRole('link',{name:'Open application',exact:true}).getAttribute('href'),job.url);
-
-    await panel.getByText('Monitoring settings',{exact:true}).click();
     assert.equal(await panel.getByText('Overseas engineering opening',{exact:true}).count(),0);
-    await panel.getByRole('button',{name:'Next job page',exact:true}).click();
-    await panel.getByText(/Job page 2 of 2/).waitFor();
-    await panel.getByText('Older India opening',{exact:false}).first().waitFor();
-    assert.equal(await panel.getByText('Location evidence pending',{exact:true}).count(),0);
-    assert.equal(await panel.getByText('Overseas engineering opening',{exact:true}).count(),0);
+    assert.equal(await panel.getByRole('link',{name:'Open application',exact:true}).getAttribute('href'),job.url);
 
-    const monitoring=panel.getByLabel('Enable five-hour company monitoring',{exact:true});
-    assert.equal(await monitoring.isChecked(),false);await monitoring.click();
-    await panel.getByText('Configuration: Enabled',{exact:true}).waitFor();
-    assert.equal((await Config.findOne({userId:owner._id})).enabled,true);
-    await panel.getByText('Backend worker: Disabled',{exact:true}).waitFor();
-    await monitoring.click();await panel.getByText('Configuration: Disabled',{exact:true}).waitFor();
-    assert.equal((await Config.findOne({userId:owner._id})).intervalHours,5);
-
-    await panel.getByRole('tab',{name:/Notifications/}).click();
+    await page.getByRole('tab',{name:/Notifications/}).click();
     await panel.getByText('New graduate engineering opening',{exact:true}).waitFor();
     assert.equal(await panel.getByText('Private other-owner notification',{exact:true}).count(),0);
     await panel.getByRole('button',{name:'Mark notification read',exact:true}).click();
-    await panel.getByText('Unread notifications: 0',{exact:true}).waitFor();
+    await panel.getByRole('button',{name:'Mark notification read',exact:true}).waitFor({state:'detached'});
     assert.ok((await Notification.findById(notification._id)).readAt);
 
-    assert.equal(await panel.getByRole('tab',{name:'Recruiters',exact:true}).count(),0);
-    assert.deepEqual(await page.locator('nav a').evaluateAll(links=>links.map(a=>a.textContent.trim().replace(/\d+$/,''))),['Jobs','Mails']);
-    await panel.getByRole('tab',{name:'Career jobs',exact:true}).click();await panel.getByText('Previously collected job postings',{exact:true}).click();
-    await panel.getByText('Saved Software Opening',{exact:true}).waitFor();
-    assert.equal(await panel.getByRole('link',{name:'Open saved official posting',exact:true}).getAttribute('href'),'https://saved.example/jobs/1');
+    await page.getByRole('tab',{name:'Matches',exact:true}).click();
+    await panel.getByRole('button',{name:'Mark applied',exact:true}).click();
+    await panel.getByText(/No open roles with explicit 2027 eligibility/).waitFor();
+    await page.getByRole('tab',{name:'Applied',exact:true}).click();
+    await panel.getByText('Software Engineer - New Graduate',{exact:true}).waitFor();
+    assert.ok((await Job.findById(job._id)).appliedAt);
+    await panel.getByRole('button',{name:'Undo applied',exact:true}).click();
+    await panel.getByText('Jobs you mark as applied appear here.',{exact:true}).waitFor();
+    assert.equal((await Job.findById(job._id)).appliedAt,undefined);
     await page.getByRole('link',{name:'Mails',exact:true}).click();
     await page.getByRole('button',{name:/^Unverified/}).waitFor();
     await page.getByLabel('Contact type',{exact:true}).selectOption('engineer');
@@ -107,8 +95,7 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     for (const width of [390, 1280]) {
       await page.setViewportSize({width,height:820});
       await page.getByRole('link',{name:'Jobs',exact:true}).click();
-      await page.getByLabel('July 2027 graduation').waitFor();
-      assert.ok(await page.getByLabel('Sponsorship').isVisible());
+      await page.getByLabel('Employment type').waitFor();
       await page.getByRole('link',{name:'Mails',exact:true}).click();
       await page.getByRole('button',{name:/^Unverified/}).waitFor();
       assert.ok(await page.getByRole('link',{name:'Mails',exact:true}).isVisible());

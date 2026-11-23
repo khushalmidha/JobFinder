@@ -7,7 +7,7 @@ const Layout = ({ onLogout }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [unreadJobs,setUnreadJobs]=useState(0);
-  useEffect(()=>{let active=true;const poll=()=>api.get('/career-watch/notifications').then(({data})=>{if(active)setUnreadJobs(data.unread||0);}).catch(()=>{});poll();const timer=setInterval(poll,60000);return()=>{active=false;clearInterval(timer);};},[location.pathname]);
+  useEffect(()=>{let active=true;const poll=()=>api.get('/career-watch/notifications?view=matching').then(({data})=>{if(active)setUnreadJobs(data.unread||0);}).catch(()=>{});poll();const timer=setInterval(poll,60000);return()=>{active=false;clearInterval(timer);};},[location.pathname]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');

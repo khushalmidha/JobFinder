@@ -1,189 +1,126 @@
-import React, { useCallback, useEffect, useId, useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
-import SavedJobPostings from './SavedJobPostings';
 
-const panel = 'rounded-xl border border-zinc-800 bg-zinc-950 p-4 md:p-5';
-const button = 'rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:border-yellow-500 disabled:opacity-40';
-const tabs = [ ['jobs', 'Career jobs'], ['notifications', 'Notifications'] ];
-const jobFilters = {
-  roleFamily: ['Role', { software:'Software', ai_ml:'Applied AI / ML', quant:'Quant', product:'Product' }],
-  graduationFit: ['July 2027 graduation', { fits:'Fits stated batch', outside:'Outside stated batch' }],
-  employmentType: ['Employment type', { internship:'Internship', full_time:'Full-time', other:'Other' }],
-  remoteEligibility: ['Remote eligibility', { india:'Remote from India' }],
-  sponsorship: ['Sponsorship', { explicit:'Explicit', case_by_case:'Case by case', unavailable:'Unavailable' }],
-};
-const errorText = error => error?.response?.data?.error || error?.message || 'Request failed. Try again.';
-const rowsOf = (data, key) => Array.isArray(data?.[key]) ? data[key] : [];
-const display = value => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-const companyName = value => display(value) || display(value?.name) || 'Company not recorded';
-function safeUrl(value) {
-  try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : null; } catch { return null; }
-}
-function timestamp(value) {
-  const date = new Date(value);
-  return value && Number.isFinite(+date) ? date.toLocaleString() : 'Not recorded';
-}
-function Link({ url, children }) {
-  const href = safeUrl(url);
-  return href ? <a href={href} target="_blank" rel="noreferrer" className="text-yellow-400 underline break-all">{children}</a> : <span className="text-zinc-500">Source URL unavailable</span>;
-}
-function eligibility(job) {
-  if (job.eligibility === 'excluded') return 'Outside current preferences';
-  if (job.eligible === true || job.isEligible === true || ['eligible', 'qualified', 'match'].includes(job.eligibilityStatus || job.classification || job.status)) return 'Matches recorded eligibility';
-  return 'Eligibility needs review';
+const control = 'rounded-lg border border-zinc-700 px-3 py-2 text-sm hover:border-yellow-400 disabled:opacity-50';
+const tabs = { matching: 'Matches', applied: 'Applied', notifications: 'Notifications' };
+const roleLabels = { software:'Software engineering', ai_ml:'AI / ML', quant:'Quant development' };
+const date = value => value ? new Date(value).toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'numeric'}) : '';
+function officialUrl(value) {
+  try { const url = new URL(value); return url.protocol === 'https:' ? url.href : null; }
+  catch { return null; }
 }
 
 export default function JobsBoard() {
-  const id = useId();
-  const [tab, setTab] = useState('jobs');
-  const [status, setStatus] = useState(null);
-  const [jobs, setJobs] = useState([]);
-  const [filters, setFilters] = useState({});
-  const [jobPage, setJobPage] = useState(1);
-  const [jobMeta, setJobMeta] = useState({ total: 0, limit: 50 });
-  const [notifications, setNotifications] = useState([]);
-  const [errors, setErrors] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const [scanReport, setScanReport] = useState(null);
-
-  const refresh = useCallback(async (requestedPage) => {
-    const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : jobPage;
+  const [tab, setTab] = useState('matching');
+  const [type,setType] = useState('');
+  const [page,setPage] = useState(1);
+  const [data,setData] = useState({jobs:[],total:0,limit:50});
+  const [notices,setNotices] = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [busy,setBusy] = useState(false);
+  const [error,setError] = useState('');
+  const [change,setChange] = useState(0);
+  useEffect(()=>{
+    let live=true;
+    const refresh = async () => {
+      try {
+        const {data:result}=await api.get('/career-watch/jobs',{params:{view:tab==='applied'?'applied':'matching',page,...(tab==='matching'&&type?{employmentType:type}:{})}});
+        if(live){setData(result);setError('');}
+      } catch (err) { if(live)setError(err.response?.data?.error || 'Could not load jobs.'); }
+      finally { if(live)setLoading(false); }
+    };
     setLoading(true);
-    const query = new URLSearchParams({ ...filters, page });
-    const requests = [ ['status', '/career-watch/status'], ['jobs', `/career-watch/jobs?${query}`], ['notifications', '/career-watch/notifications'] ];
-    const results = await Promise.allSettled(requests.map(([, path]) => api.get(path)));
-    const nextErrors = {};
-    results.forEach((result, index) => {
-      const key = requests[index][0];
-      if (result.status === 'rejected') { nextErrors[key] = errorText(result.reason); return; }
-      const data = result.value.data;
-      if (key === 'status') setStatus(data);
-      if (key === 'jobs') { setJobs(rowsOf(data, 'jobs')); setJobMeta({ total: Number.isInteger(data.total) ? data.total : rowsOf(data, 'jobs').length, limit: Number.isInteger(data.limit) && data.limit > 0 ? data.limit : 50 }); }
-      if (key === 'notifications') setNotifications(rowsOf(data, 'notifications'));
-
-    });
-    setErrors(previous => ({ ...previous, status: null, jobs: null, notifications: null, discovery: null, ...nextErrors }));
-    setLoading(false);
-  }, [filters, jobPage]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      api.get('/career-watch/notifications').then(({ data }) => setNotifications(rowsOf(data, 'notifications'))).catch(() => {});
-    }, 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  async function run(action) {
-    setBusy(true); setMessage('');
-    try { await action(); } catch (error) { setMessage(errorText(error)); } finally { setBusy(false); }
+    setData({jobs:[],total:0,limit:50});
+    refresh();
+    const timer=setInterval(()=>{if(!document.hidden)refresh();},60000);
+    return()=>{live=false;clearInterval(timer);};
+  },[tab,type,page,change]);
+  useEffect(()=>{
+    let live=true;
+    const refresh=()=>api.get('/career-watch/notifications?view=matching').then(({data:result})=>{
+      if(live)setNotices(result.notifications||[]);
+    }).catch(()=>{});
+    refresh();
+    const timer=setInterval(()=>{if(!document.hidden)refresh();},60000);
+    return()=>{live=false;clearInterval(timer);};
+  },[change]);
+  async function classifyApplication(job,applied) {
+    setBusy(true);setError('');
+    try {
+      await api.put('/career-watch/jobs/'+job._id+'/applied',{applied});
+      setPage(1);setChange(value=>value+1);
+    } catch (err) { setError(err.response?.data?.error || 'Could not update application status.'); }
+    finally { setBusy(false); }
   }
-  async function toggleMonitoring() {
-    const enabled = !status?.config?.enabled;
-    const { data } = await api.put('/career-watch/config', { enabled });
-    setStatus(previous => ({ ...previous, config: data.config || data }));
-    setMessage(enabled ? 'Five-hour monitoring configuration enabled. Check worker status below for backend availability.' : 'Monitoring disabled. Saved jobs and notifications are preserved.');
-    await refresh();
+  async function markRead(notice) {
+    try {
+      await api.post('/career-watch/notifications/'+notice._id+'/read',{});
+      setNotices(previous=>previous.map(row=>row._id===notice._id?{...row,readAt:new Date()}:row));
+    } catch { setError('Could not mark notification read.'); }
   }
-  async function enqueue() {
-    const { data } = await api.post('/career-watch/enqueue', {});
-    setMessage(data.message || `Company queue updated${Number.isInteger(data.enqueued) ? `: ${data.enqueued} companies enqueued` : ''}. Existing records are preserved.`);
-    await refresh();
-  }
-  async function inspectJobs() {
-    const { data } = await api.post('/career-watch/run', { dryRun: true });
-    setScanReport({ type: 'Career scan dry run', result: data });
-    setMessage('Career dry run completed. No application was submitted. Results are shown below.');
-    await refresh();
-  }
-  async function markRead(notification) {
-    await api.post(`/career-watch/notifications/${encodeURIComponent(notification._id)}/read`, {});
-    setNotifications(previous => previous.map(row => row._id === notification._id ? { ...row, readAt: new Date().toISOString(), read: true } : row));
-  }
-  const unread = notifications.filter(row => !row.readAt && !row.read).length;
-  const config = status?.config;
-  const workerEnabled = status?.workerEnabled ?? status?.schedulerEnabled;
-  return <section aria-labelledby={`${id}-title`} className="space-y-4 text-zinc-100">
-    <header className={panel}>
-      <h2 id={`${id}-title`} className="text-xl font-bold text-yellow-400">Job postings</h2>
-      <p className="mt-1 text-sm text-zinc-400">India and roles explicitly open to remote applicants in India.</p>
-      <details className="mt-4"><summary className="cursor-pointer text-sm text-zinc-400">Monitoring settings</summary><div className="mt-4 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!config?.enabled} disabled={busy || !status || !!errors.status} onChange={() => run(toggleMonitoring)} /> Enable five-hour company monitoring</label>
-        <button type="button" className={button} disabled={busy || loading} onClick={() => run(enqueue)}>Queue supplied companies</button>
-        <button type="button" className={button} disabled={busy} onClick={() => run(inspectJobs)}>Run career dry scan</button>
-        <button type="button" className={button} disabled={busy || loading} onClick={refresh}>Refresh monitoring</button>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-zinc-400">
-        <span>Schedule: rolling five-hour interval</span>
-        <span>Configuration: {status ? config?.enabled ? 'Enabled' : 'Disabled' : 'Unavailable'}</span>
-        <span>Backend worker: {workerEnabled === true ? 'Enabled' : workerEnabled === false ? 'Disabled' : 'Not reported'}</span>
-        <span>Next scan: {timestamp(status?.nextScanAt || config?.nextScanAt)}</span>
-        <span>Unread notifications: {unread}</span>
-        <span>Company tasks: {status?.tasks?.total ?? 0}</span>
-        <span>Official portal mapping needed: {status?.tasks?.needsPortalMapping ?? 0}</span>
-        <span>Failed scans: {status?.tasks?.failed ?? 0}</span>
-        <span>Daily career HTTP budget: {config?.requestsUsed ?? 0}/{config?.dailyRequestLimit ?? 20000}</span>
-      </div>
-      </details>
+  const unread=notices.filter(row=>!row.readAt).length;
+  const pages=Math.max(1,Math.ceil(data.total/data.limit));
+  return <section aria-labelledby="job-board-title" className="space-y-5 text-zinc-100">
+    <header className="border-b border-zinc-800 pb-5">
+      <h1 id="job-board-title" className="text-3xl font-semibold tracking-tight sm:text-4xl">Jobs for your 2027 batch</h1>
+      <p className="mt-2 text-sm text-zinc-400">India · Entry-level software and AI roles · Six-month internships</p>
     </header>
-
-    {Object.entries(errors).filter(([key, value]) => value && key !== 'leads').map(([key, value]) => <p key={key} role="alert" className="rounded border border-red-900 p-3 text-sm text-red-300">{key}: {value}. Saved results remain visible.</p>)}
-    {message && <p role="status" className="rounded border border-yellow-800 p-3 text-sm text-yellow-200">{message}</p>}
-    <div role="tablist" aria-label="Company watch sections" className="flex flex-wrap gap-2">
-      {tabs.map(([key, label]) => <button key={key} type="button" role="tab" id={`${id}-${key}`} aria-controls={`${id}-content`} aria-selected={tab === key} onClick={() => setTab(key)} className={`${button} ${tab === key ? 'border-yellow-500 bg-yellow-500/10 text-yellow-300' : ''}`}>{label}{key === 'notifications' && unread ? ` (${unread})` : ''}</button>)}
+    <div role="tablist" aria-label="Job sections" className="flex flex-wrap gap-2">
+      {Object.entries(tabs).map(([key,label])=><button key={key} type="button" role="tab" id={'job-tab-'+key}
+        aria-controls="job-view" aria-selected={tab===key} onClick={()=>{setTab(key);setPage(1);}}
+        className={control+' '+(tab===key?'border-yellow-500 bg-yellow-500/10 text-yellow-300':'')}>
+        {label}{key==='notifications'&&unread>0?' ('+unread+')':''}
+      </button>)}
     </div>
-
-    <div role="tabpanel" id={`${id}-content`} aria-labelledby={`${id}-${tab}`} className={panel}>
-      {tab === 'jobs' && <>
-        <h3 className="font-semibold">Career portal results</h3>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {Object.entries(jobFilters).map(([key, [label, options]]) => <label key={key} className="grid gap-1 text-sm">
-            {label}<select className="min-w-0 rounded border border-zinc-700 bg-zinc-900 p-2" value={filters[key] || ''} onChange={event => {
-              const next = { ...filters };
-              if (event.target.value) next[key] = event.target.value; else delete next[key];
-              setFilters(next); setJobPage(1);
-            }}><option value="">Any</option>{Object.entries(options).map(([value, title]) => <option key={value} value={value}>{title}</option>)}<option value="unknown">Unknown</option></select>
-          </label>)}
-        </div>
-        {loading && <p className="mt-3 text-sm text-zinc-400">Loading saved jobs…</p>}
-        {!loading && !jobs.length && !errors.jobs && <p className="mt-3 text-sm text-zinc-400">No active India jobs match these filters.</p>}
-        <div className="mt-3 space-y-3">{jobs.map((job, index) => <article key={job._id || job.url || index} className="break-words rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-          <h4 className="font-semibold">{display(job.title) || 'Untitled role'}</h4>
-          <p className="mt-1 text-sm text-zinc-400">{companyName(job.company || job.companyName)}{job.location ? ` · ${display(job.location)}` : ''}</p>
-          <p className="mt-2 text-xs text-yellow-300">{eligibility(job)}</p>
-          <dl className="mt-2 grid gap-x-4 text-xs text-zinc-400 sm:grid-cols-2">
-            {Object.entries(jobFilters).map(([key,[label,options]]) => <div key={key}><dt className="inline text-zinc-500">{label} · </dt><dd className="inline">{options[job[key]] || 'Unknown'}</dd></div>)}
-            <div><dt className="inline">Compensation </dt><dd className="inline">{job.salaryEvidence ? <Link url={job.salaryEvidence.sourceUrl}>{job.salaryEvidence.currency} {job.salaryEvidence.amount ?? [job.salaryEvidence.min,job.salaryEvidence.max].join('–')} / {job.salaryEvidence.period} {job.salaryEvidence.kind === 'posted_salary_range' ? 'posted salary range' : 'posted base'}</Link> : 'Unknown'}</dd></div>
-          </dl>
-          {Object.entries(job.evidence || {}).map(([key, value]) => <p key={key} className="mt-1 break-words text-xs text-zinc-400">{key} · {value}</p>)}
-          {job.reason && <p className="mt-1 text-xs text-zinc-400">{display(job.reason)}</p>}
-          {job.validThrough && <p className="mt-2 text-xs text-zinc-400">{job.postingStatus === 'expired' ? 'Published deadline passed' : 'Published application deadline'} · {timestamp(job.validThrough)}</p>}
-          <p className="mt-2 text-xs text-zinc-500">Observed: {timestamp(job.discoveredAt || job.firstSeenAt || job.createdAt)}</p>
-          <p className="mt-2 text-sm"><Link url={job.applyUrl || job.url}>Open application</Link>{job.url && job.applyUrl && job.url !== job.applyUrl && <> · <Link url={job.url}>Posting evidence</Link></>}</p>
-          {job.company && <RouterLink to="/" state={{ employer:job.company, jobUrl:safeUrl(job.applyUrl || job.url), role:job.title }} className="mt-2 inline-block text-sm text-yellow-400 underline">Find contacts for this job</RouterLink>}
-        </article>)}</div>
-        {jobMeta.total > jobMeta.limit && <nav aria-label="Career job pagination" className="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" className={button} disabled={busy || loading || jobPage <= 1} onClick={() => setJobPage(page => page - 1)}>Previous job page</button>
-          <span className="text-sm text-zinc-400">Job page {jobPage} of {Math.max(1, Math.ceil(jobMeta.total / jobMeta.limit))} · {jobMeta.total} results</span>
-          <button type="button" className={button} disabled={busy || loading || jobPage >= Math.ceil(jobMeta.total / jobMeta.limit)} onClick={() => setJobPage(page => page + 1)}>Next job page</button>
+    {error&&<p role="alert" className="rounded-lg border border-red-800 p-3 text-sm text-red-300">{error}</p>}
+    <section id="job-view" role="tabpanel" aria-labelledby={'job-tab-'+tab} className="space-y-3">
+      {tab==='notifications' ? <>
+        {!notices.length&&<p className="rounded-xl border border-zinc-800 p-5 text-sm text-zinc-400">No new matching jobs yet.</p>}
+        {notices.map(notice=><article key={notice._id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 p-4">
+          <div><h2 className="font-medium">{notice.title}</h2><p className="text-sm text-zinc-400">{notice.company} · {date(notice.createdAt)}</p></div>
+          <div className="flex flex-wrap gap-2">{officialUrl(notice.url)&&<a className={control} href={officialUrl(notice.url)} target="_blank" rel="noreferrer">View posting</a>}{!notice.readAt&&<button className={control} onClick={()=>markRead(notice)}>Mark notification read</button>}</div>
+        </article>)}
+      </> : <>
+        {tab==='matching'&&<label className="flex flex-wrap items-center gap-3 text-sm text-zinc-400">Employment type
+          <select className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-100" value={type} onChange={event=>{setType(event.target.value);setPage(1);}}>
+            <option value="">All</option><option value="full_time">Full-time</option><option value="internship">Internship</option>
+          </select>
+        </label>}
+        {loading&&<p role="status" className="p-4 text-sm text-zinc-400">Loading jobs…</p>}
+        {!loading&&!data.jobs.length&&!error&&<p className="rounded-xl border border-zinc-800 p-5 text-sm text-zinc-400">
+          {tab==='applied'?'Jobs you mark as applied appear here.':'No open roles with explicit 2027 eligibility match yet. New matches appear after a scan.'}
+        </p>}
+        {data.jobs.map(job=>{
+          const href=officialUrl(job.applyUrl||job.url);
+          const evidence=job.salaryEvidence;
+          return <article key={job._id} className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="break-words text-lg font-semibold">{job.title}</h2>
+                <p className="mt-1 text-sm text-zinc-400">{[job.company,job.location||'Remote from India',roleLabels[job.roleFamily]].filter(Boolean).join(' · ')}</p>
+              </div>
+              <span className="rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">{job.appliedAt?'Applied '+date(job.appliedAt):'2027 eligible'}</span>
+            </div>
+            <div className="mt-3 space-y-1 text-sm text-zinc-400">
+              {job.evidence?.graduation&&<p>Employer evidence <span className="text-zinc-200">{job.evidence.graduation}</span></p>}
+              {job.employmentType==='internship'&&<p>Six-month internship</p>}
+              {job.validThrough&&<p>Application deadline {date(job.validThrough)}</p>}
+              {evidence&&officialUrl(evidence.sourceUrl)&&<p><a className="underline" href={officialUrl(evidence.sourceUrl)} target="_blank" rel="noreferrer">{evidence.currency} {evidence.amount??[evidence.min,evidence.max].join('–')} / {evidence.period} · Posted pay</a></p>}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {href&&<a className="rounded-lg bg-yellow-400 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-yellow-300" href={href} target="_blank" rel="noreferrer">Open application</a>}
+              <button type="button" className={control} disabled={busy} onClick={()=>classifyApplication(job,!job.appliedAt)}>{job.appliedAt?'Undo applied':'Mark applied'}</button>
+              {job.company&&<Link className={control} to="/" state={{employer:job.company,jobUrl:href,role:job.title}}>Company contacts</Link>}
+            </div>
+          </article>;
+        })}
+        {pages>1&&<nav aria-label="Job pagination" className="flex flex-wrap items-center gap-2">
+          <button className={control} disabled={loading||page===1} onClick={()=>setPage(value=>value-1)}>Previous</button>
+          <span className="text-sm text-zinc-400">{page} / {pages}</span>
+          <button className={control} disabled={loading||page===pages} onClick={()=>setPage(value=>value+1)}>Next</button>
         </nav>}
       </>}
-      {tab === 'jobs' && <SavedJobPostings />}
-      {tab === 'notifications' && <>
-        <h3 className="font-semibold">Website notifications</h3>
-        {!notifications.length && !errors.notifications && <p className="mt-3 text-sm text-zinc-400">No notifications yet. New qualifying jobs generate a notification after a successful scan.</p>}
-        <ul className="mt-3 space-y-3">{notifications.map((notification, index) => <li key={notification._id || index} className="flex flex-col gap-3 rounded border border-zinc-800 p-3 sm:flex-row sm:justify-between">
-          <div><p className="font-semibold">{display(notification.title) || display(notification.message) || 'New career result'}</p>{notification.message && notification.title && <p className="mt-1 text-sm text-zinc-400">{display(notification.message)}</p>}<p className="mt-1 text-xs text-zinc-500">{timestamp(notification.createdAt)}</p>{(notification.url || notification.jobUrl) && <p className="mt-2 text-sm"><Link url={notification.url || notification.jobUrl}>View posting</Link></p>}</div>
-          {!notification.readAt && !notification.read && notification._id && <button type="button" className={`${button} self-start shrink-0`} disabled={busy} onClick={() => run(() => markRead(notification))}>Mark notification read</button>}
-        </li>)}</ul>
-      </>}
-
-    </div>
-
-    {scanReport && <details open className={panel}><summary className="cursor-pointer font-semibold">{scanReport.type} — actual report</summary><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-300">{JSON.stringify(scanReport.result, null, 2)}</pre></details>}
+    </section>
   </section>;
 }

@@ -26,6 +26,7 @@ const contactSchema = new mongoose.Schema({
   companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
   provenance: [{ url: String, provider: String, observedAt: Date }],
   inferenceFlag: { type: Boolean, default: false },
+  ownerVerifiedAt: Date,
   verificationStatus: { type: String, enum: ['unknown', 'domain_mail_capable', 'publicly_sourced', 'vendor_verified', 'inferred_unverified', 'catch_all', 'invalid'], default: 'unknown' },
   vendorStatus: String,
   suppressedAt: Date,

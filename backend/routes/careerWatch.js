@@ -36,6 +36,11 @@ const activeIndiaJobs = now => ({
 });
 router.get('/jobs',wrap(async(req,res)=>{
  const userId=req.user._id,filter={userId,...activeIndiaJobs(new Date())};if(req.query.eligibility){if(!['eligible','needs_review','excluded'].includes(req.query.eligibility))throw Error('Unknown eligibility filter');filter.eligibility=req.query.eligibility;}
+ if(req.query.view==='matching') Object.assign(filter,{profileMatch:true,appliedAt:null});
+ if(req.query.view==='applied'){
+  delete filter.closedAt;delete filter.$and;
+  filter.appliedAt={$type:'date'};
+ }
  const choices={employmentType:['internship','full_time','other'],graduationFit:['fits','outside'],remoteEligibility:['india'],sponsorship:['explicit','case_by_case','unavailable'],roleFamily:['software','ai_ml','quant','product']};
  for(const [field,values] of Object.entries(choices)){
   const value=req.query[field];
@@ -48,11 +53,22 @@ router.get('/jobs',wrap(async(req,res)=>{
  const [jobs,total]=await Promise.all([Job.find(filter).sort({locationPriority:-1,firstSeenAt:-1}).skip((page-1)*limit).limit(limit).lean(),Job.countDocuments(filter)]);
  res.json({jobs:jobs.map(j=>({...j,eligibilityStatus:j.eligibility,reason:j.eligibilityReason,discoveredAt:j.firstSeenAt,postingStatus:j.validThrough ? (j.validThrough <= new Date() ? 'expired' : 'published_deadline_active') : 'last_observed'})),total,page,limit});
 }));
+router.put('/jobs/:id/applied',wrap(async(req,res)=>{
+ if(!mongoose.isValidObjectId(req.params.id)||typeof req.body.applied!=='boolean')throw Error('Valid job and applied state required');
+ const owner={_id:req.params.id,userId:req.user._id};
+ const filter=req.body.applied?{...owner,...activeIndiaJobs(new Date()),profileMatch:true}:owner;
+ const update=req.body.applied?[
+  {$set:{appliedAt:{$ifNull:['$appliedAt','$$NOW']}}}
+ ]:{$unset:{appliedAt:1}};
+ const job=await Job.findOneAndUpdate(filter,update,{returnDocument:'after',updatePipeline:req.body.applied});
+ if(!job)return res.status(404).json({error:'Job unavailable'});
+ res.json({appliedAt:job.appliedAt||null});
+}));
 router.get('/notifications',wrap(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(req.user._id);
  const [result]=await Notification.aggregate([
   {$match:{userId}},
-  {$lookup:{from:Job.collection.name,localField:'jobId',foreignField:'_id',pipeline:[{$match:{userId,...activeIndiaJobs(new Date())}},{$project:{url:1}}],as:'current'}},
+  {$lookup:{from:Job.collection.name,localField:'jobId',foreignField:'_id',pipeline:[{$match:{userId,...activeIndiaJobs(new Date()),...(req.query.view==='matching'?{profileMatch:true,appliedAt:null}:{})}},{$project:{url:1}}],as:'current'}},
   {$unwind:'$current'},
   {$set:{url:'$current.url'}},
   {$unset:'current'},

@@ -35,6 +35,39 @@ const Dashboard = () => {
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [deletingBulk, setDeletingBulk] = useState(false);
   const [blockingEmails, setBlockingEmails] = useState(false);
+  const [patternRows,setPatternRows]=useState([]);
+  const loadPatterns=()=>api.get('/contact-intake/pattern-leads').then(({data})=>setPatternRows(data.rows||[])).catch(()=>{});
+  async function verifyPattern(row) {
+    if(!window.confirm('Allow one Hunter check for this pattern candidate?')) return;
+    setCheckingMailbox(true);
+    try {
+      const {data}=await api.post('/contact-intake/pattern-leads/'+row._id+'/verify',{approved:true});
+      setShareToast('Hunter result: '+(data.providerOutcome||'existing mailbox proof'));
+      await Promise.all([loadPatterns(),fetchContacts(true)]);
+    } catch (failure) {setError(failure.response?.data?.error||'Mailbox verification failed.');}
+    finally {setCheckingMailbox(false);}
+  }
+  const [checkingMailbox,setCheckingMailbox]=useState(false);
+  async function ownerCheck(checked) {
+    if (checked && !window.confirm('Confirm you personally checked the selected addresses. This is separate from mailbox verification.')) return;
+    try {
+      await api.post('/contacts/owner-checked',{ids:[...selectedIds],checked});
+      setSelectedIds(new Set());
+      await fetchContacts(true);
+    } catch (failure) { setError(failure.response?.data?.error || 'Could not save contact checks.'); }
+  }
+  async function verifySelected() {
+    if (selectedIds.size!==1 || !window.confirm('Allow one verification check using your Hunter credit budget?')) return;
+    setCheckingMailbox(true);
+    try {
+      const [id]=selectedIds;
+      const {data}=await api.post('/contact-intake/contact/'+id+'/verify',{approved:true});
+      setShareToast('Hunter result: '+(data.providerOutcome||'existing mailbox proof'));
+      setSelectedIds(new Set());
+      await fetchContacts(true);
+    } catch (failure) { setError(failure.response?.data?.error || 'Mailbox verification failed.'); }
+    finally { setCheckingMailbox(false); }
+  }
   const handleEmailBlocks = async (ids, block = true) => {
     if (!ids.length || blockingEmails) return;
     setBlockingEmails(true); setError('');
@@ -209,6 +242,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchContacts();
+    loadPatterns();
     fetchQueueStatus();
     
     // Fetch settings to get blocked companies and SMTP accounts
@@ -232,7 +266,7 @@ const Dashboard = () => {
       if (typeof document !== 'undefined' && document.hidden) return;
       fetchQueueStatus();
     }, 6000);
-    const refresh = setInterval(() => { if (!document.hidden) fetchContacts(true); }, 60000);
+    const refresh = setInterval(() => { if (!document.hidden) { fetchContacts(true);loadPatterns(); } }, 60000);
     return () => { clearInterval(interval); clearInterval(refresh); };
   }, []);
 
@@ -287,7 +321,7 @@ const Dashboard = () => {
     if (blockedCompanyNames.has((contact.company || '').trim().toLowerCase()) || contact.emailBlocked ||
       contact.suppressedAt || contact.optOutAt || contact.deliverabilityStatus === 'invalid' ||
       contact.verificationStatus === 'invalid' || ['bounced','removed'].includes(contact.status)) return 'blocked';
-    return contact.mailboxVerified ? 'verified' : 'unverified';
+    return contact.mailboxVerified || contact.ownerVerifiedAt ? 'verified' : 'unverified';
   };
   const sectionCounts = { verified:0, unverified:0, blocked:0 };
   for (const contact of contacts) sectionCounts[contactSection(contact)]++;
@@ -779,6 +813,9 @@ const Dashboard = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {activeTab==='unverified'&&<button type="button" onClick={()=>ownerCheck(true)} className="rounded border border-zinc-700 px-3 py-2 text-xs">Mark personally checked</button>}
+            {activeTab==='verified'&&<button type="button" onClick={()=>ownerCheck(false)} className="rounded border border-zinc-700 px-3 py-2 text-xs">Remove personal check</button>}
+            {activeTab==='unverified'&&selectedIds.size===1&&<button type="button" onClick={verifySelected} disabled={checkingMailbox} className="rounded border border-zinc-700 px-3 py-2 text-xs">Verify with Hunter</button>}
             <button onClick={() => handleEmailBlocks(Array.from(selectedIds), activeTab !== 'blocked')} disabled={blockingEmails}
               className="px-3 py-1.5 rounded-lg bg-red-950 text-red-300 border border-red-700 text-xs font-bold disabled:opacity-50">
               {blockingEmails ? 'Updating blocks...' : activeTab === 'blocked' ? `Unblock Selected Emails (${selectedIds.size})` : `Block Selected Emails (${selectedIds.size})`}
@@ -939,7 +976,7 @@ const Dashboard = () => {
                             className="rounded border-zinc-700 bg-zinc-800 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-zinc-900"
                           />
                         </td>
-                        <td className="p-3 text-zinc-300 font-medium w-1/4"><span>{contact.hrName || 'Professional contact'}</span>{contact.inferenceFlag && <span className="ml-2 text-xs text-amber-300">Guessed · mailbox unverified</span>}{!contact.inferenceFlag&&contact.verificationStatus==='publicly_sourced'&&<span className="ml-2 text-xs text-zinc-500">{contact.deliverabilityStatus==='unverified'?'Public source · mailbox unverified':'Public source'}</span>}{contact.contactKind&&contact.contactKind!=='unknown'&&<span className="ml-2 text-xs text-zinc-500">{contact.contactKind}</span>}{contact.source==='career_crawler'&&contact.contactKind!=='unknown'&&contact.role&&<span className="block text-xs text-zinc-500">{contact.role}</span>}</td>
+                        <td className="p-3 text-zinc-300 font-medium w-1/4"><span>{contact.hrName || 'Professional contact'}</span>{contact.mailboxVerified ? <span className="ml-2 text-xs text-emerald-300">Mailbox verified</span> : contact.ownerVerifiedAt ? <span className="ml-2 text-xs text-yellow-300">Personally checked</span> : null}{contact.inferenceFlag && <span className="ml-2 text-xs text-amber-300">Guessed · mailbox unverified</span>}{!contact.inferenceFlag&&contact.verificationStatus==='publicly_sourced'&&<span className="ml-2 text-xs text-zinc-500">{contact.deliverabilityStatus==='unverified'?'Public source · mailbox unverified':'Public source'}</span>}{contact.contactKind&&contact.contactKind!=='unknown'&&<span className="ml-2 text-xs text-zinc-500">{contact.contactKind}</span>}{contact.source==='career_crawler'&&contact.contactKind!=='unknown'&&contact.role&&<span className="block text-xs text-zinc-500">{contact.role}</span>}</td>
                         <td className="p-3 text-zinc-400 w-1/4">{contact.email}</td>
                         <td className="p-3 w-1/4">
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -1030,6 +1067,15 @@ const Dashboard = () => {
       )}
 
       {/* INVALID / UNVERIFIED EMAILS TAB (SEPARATED, NOT DELETED) */}
+      {activeTab==='unverified'&&patternRows.some(row=>!kindFilter||row.kind===kindFilter)&&<details className="my-3 rounded-lg border border-zinc-800 p-3">
+        <summary className="cursor-pointer text-sm">Pattern candidates for verification</summary>
+        {patternRows.filter(row=>(!kindFilter||row.kind===kindFilter)&&(!search||[row.company,row.email,row.name].some(value=>value?.toLowerCase().includes(search.toLowerCase())))).map(row=>
+          <div key={row._id} className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800 pt-2 text-sm">
+            <span className="break-all">{row.name} · {row.company} · {row.email} <span className="text-amber-300">Guess</span></span>
+            <button type="button" disabled={checkingMailbox} onClick={()=>verifyPattern(row)} className="rounded border border-zinc-700 px-3 py-1.5">Verify with Hunter</button>
+          </div>)}
+      </details>}
+
       {showCompose && (
         <ComposePanel 
           selectedIds={composeData.ids} 

@@ -250,3 +250,29 @@ test('background contact discovery runs independently of job portal mapping unde
  await Promise.all([service.scanDueContacts(config,{discover}),service.scanDueContacts(config,{discover})]);
  assert.equal(calls,1);assert.ok((await Task.findById(task._id)).lastContactScanAt);
 });
+
+test('2027 profile selection rejects unknown batches, senior roles and untargeted fields',()=>{
+ const {postingEvidence}=require('../services/jobPostingEvidence');
+ const match = (title,description)=>service.matchesJuly2027Profile({
+  title,description,...postingEvidence({title,description}),...service.classifyRole(title,description)
+ });
+ assert.equal(match('Software Engineer','New graduate hire. 2027 batch eligible.'),true);
+ assert.equal(match('Machine Learning Intern','Six month internship. Class of 2027.'),true);
+ assert.equal(match('Software Engineer','New graduate hire.'),false);
+ assert.equal(match('Senior Software Engineer','Class of 2027. Requires 3+ years.'),false);
+ assert.equal(match('Domain Advisor Expert (AI Expertise)','Fresher. Class of 2027.'),false);
+ assert.equal(match('Software Engineer','New graduate hire. 2027 batch not eligible.'),false);
+ assert.equal(match('Software Engineer','New graduate hire. Graduating by June 2027.'),false);
+ assert.equal(match('Software Engineer','New graduate hire. Graduating July 2027.'),true);
+});
+
+test('Amazon exact posting requires a live application link and uses explicit graduation evidence',()=>{
+ const url='https://www.amazon.jobs/en/jobs/10508052/fixture';
+ const text='<h1>SDE I Intern</h1><a id="apply-button" href="https://www.amazon.jobs/applicant/jobs/10508052/apply">Apply now</a>'+
+  '<div id="job-detail-body">Software Development Engineer 6 months Internship. We hire in India. Location IND, KA, Bengaluru. Year of Graduation 2027.</div>';
+ const [row]=service.parseJobs({text},url);
+ assert.equal(row.location,'India');
+ assert.equal(row.graduationFit,'fits');
+ assert.equal(service.matchesJuly2027Profile({...row,...service.classifyRole(row.title,row.description)}),true);
+ assert.deepEqual(service.parseJobs({text:text.replace('10508052/apply','99/apply')},url),[]);
+});

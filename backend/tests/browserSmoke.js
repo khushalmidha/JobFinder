@@ -150,6 +150,15 @@ async function main() {
     await page.getByRole('button',{name:/^Verified /}).click();
     await page.getByLabel('Select recruitment@verified.example',{exact:true}).waitFor();
     assert.equal(await page.getByLabel('Select jobs@expired.example',{exact:true}).count(),0);
+    await page.getByRole('button',{name:/^Unverified /}).click();
+    await page.getByLabel('Select jobs@expired.example',{exact:true}).check();
+    page.once('dialog',dialog=>dialog.accept());
+    await page.getByRole('button',{name:'Mark personally checked',exact:true}).click();
+    await page.getByLabel('Select jobs@expired.example',{exact:true}).waitFor({state:'detached'});
+    await page.getByRole('button',{name:/^Verified /}).click();
+    await page.getByRole('row').filter({hasText:'jobs@expired.example'}).getByText('Personally checked',{exact:true}).waitFor();
+    assert.equal(await Proof.countDocuments({userId:owner,email:'jobs@expired.example',expiresAt:{$gt:new Date()}}),0);
+
     assert.deepEqual(await page.locator('nav a').evaluateAll(links=>links.map(a=>a.getAttribute('href'))),['/jobs','/']);
     await page.goto(base+'/companies?q=retained');await page.getByRole('heading',{name:'Contacts by Company',exact:true}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('q'),'retained');

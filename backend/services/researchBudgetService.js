@@ -33,4 +33,9 @@ async function reserveResearch(userId, { requests = 1, credits = 0, now = new Da
   if (credits) await reserve(userId, `credits:${now.toISOString().slice(0,7)}`, credits, policy.monthlyCredits);
   return policy;
 }
-module.exports = { policyFor, validatePolicy, reserveResearch, reserve };
+async function releaseUnusedRequests(userId, reserved, used, now) {
+  const unused=reserved-used;
+  if(!Number.isInteger(unused)||unused<=0||used<0)return;
+  await Usage.updateOne({userId,key:'requests:'+now.toISOString().slice(0,10),reserved:{$gte:unused}},{$inc:{reserved:-unused}});
+}
+module.exports = { releaseUnusedRequests, policyFor, validatePolicy, reserveResearch, reserve };

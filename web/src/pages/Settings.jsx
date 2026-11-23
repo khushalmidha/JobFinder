@@ -17,6 +17,7 @@ const Settings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
+  const [hunterBudget,setHunterBudget]=useState('');
   const [copyToast, setCopyToast] = useState('');
 
   // AI Converter state
@@ -1413,6 +1414,28 @@ const Settings = () => {
                 placeholder="AIzaSy..." 
                 className="w-full bg-zinc-800/80 border border-zinc-700 text-zinc-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-yellow-500 outline-none font-mono" 
               />
+            </div>
+
+            <div>
+              <label className="grid gap-2 text-sm">Hunter API key
+                <input type="password" name="hunterApiKey" value={settings.hunterApiKey||''} onChange={handleChange}
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 p-2" />
+              </label>
+              <div className="mt-2 flex flex-wrap items-end gap-2">
+                <label className="grid gap-1 text-sm">Monthly Hunter check limit
+                  <input type="number" min="0" max="50" step="1" value={hunterBudget} onChange={event=>setHunterBudget(event.target.value)}
+                    className="w-24 rounded-lg border border-zinc-700 bg-zinc-800 p-2" />
+                </label>
+                <button type="button" disabled={hunterBudget===''} className="rounded border border-zinc-700 px-3 py-2 text-sm" onClick={async()=>{
+                  const limit=Number(hunterBudget);
+                  if(!Number.isInteger(limit)||limit<0||limit>50){setStatus('Enter a Hunter limit from 0 to 50.');return;}
+                  if(!window.confirm('Save this monthly verification limit? Individual checks will still ask for approval.'))return;
+                  try {
+                    await api.put('/research/budget',{monthlyCredits:limit,paidProvidersEnabled:limit>0,approved:true});
+                    setStatus('Hunter check limit saved.');
+                  } catch(error) {setStatus(error.response?.data?.error || 'Could not save the verification budget.');}
+                }}>Approve check limit</button>
+              </div>
             </div>
 
             <div className="pt-2">
