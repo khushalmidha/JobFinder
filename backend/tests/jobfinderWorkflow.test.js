@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
 const mongoose = require('mongoose');
@@ -43,7 +44,10 @@ test('company import, official job, reviewed profile, dropdown and approved cont
   const folder = fs.mkdtempSync(path.join(os.tmpdir(),'jobfinder-workflow-'));
   const store = new SmartApplyStore(folder);
   t.after(() => { store.close(); fs.rmSync(folder,{recursive:true,force:true}); });
-  store.set('profile', {identity:{name:'Fixture Candidate'}, education:[{degree:'Bachelor of Technology'}], skills:{languages:['Java']}});
+  const pdf = path.join(folder,'reviewed.pdf');
+  const bytes = Buffer.from('%PDF-1.4\n% local fixture');
+  fs.writeFileSync(pdf,bytes);
+  store.set('profile', {_resume:{sha256:crypto.createHash('sha256').update(bytes).digest('hex')}, identity:{name:'Fixture Candidate'}, education:[{degree:'Bachelor of Technology'}], skills:{languages:['Java']}});
   store.set('reviewed', true);
   const profile = store.get('profile');
   const job = await model('CareerWatchJob').findOne().lean();
@@ -58,7 +62,7 @@ test('company import, official job, reviewed profile, dropdown and approved cont
   await page.route('http://localhost/**', async route => {
     if (route.request().method() !== 'GET') { submissions++; return route.abort(); }
     await route.fulfill({contentType:'text/html',body:
-      '<form method="post"><button type="button" aria-label="Degree" aria-haspopup="listbox" data-control="choices">Select degree</button><button>Submit</button></form>' +
+      '<form method="post"><button type="button" aria-label="Degree" aria-haspopup="listbox" data-control="choices">Select degree</button><label>Resume PDF<input type="file"></label><button>Submit</button></form>' +
       '<div id="choices" role="listbox" hidden><div role="option">Bachelor of Technology</div></div>' +
       '<script>const b=document.querySelector("[data-control]"),l=document.querySelector("[role=listbox]");b.onclick=()=>setTimeout(()=>{b.setAttribute("aria-controls","choices");l.hidden=false},250);l.firstChild.onclick=()=>{b.textContent="Bachelor of Technology";b.dataset.value=b.textContent;l.hidden=true};</script>'
     });
@@ -69,6 +73,8 @@ test('company import, official job, reviewed profile, dropdown and approved cont
   assert.equal(await page.getByRole('button',{name:'Degree'}).innerText(),'Select degree');
   const report = await engine.fill();
   assert.equal(report.fields.filter(field=>field.outcome==='verified').length,1);
+  assert.equal((await engine.attachReviewedResume(pdf)).status,'selected_locally');
+  assert.equal(await page.locator('input[type="file"]').evaluate(el=>el.files[0].name),'reviewed.pdf');
   assert.equal(submissions,0);
 
   const lead = await model('ProfessionalLead').create({ userId, company:'Example Employer', domain:'employer.example',

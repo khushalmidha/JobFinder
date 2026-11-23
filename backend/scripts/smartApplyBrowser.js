@@ -28,12 +28,18 @@ async function main() {
     const page = browser.pages()[0] || await browser.newPage(); await page.goto(url);
     const engine = new SmartApplyEngine(page, { profile, allowedHosts, outputDirectory: path.join(home, 'reports'), shouldStop: () => store.get('stopped') === true });
     terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
-    console.log('Dedicated local browser. Sign in/complete challenges manually. Commands: preview, fill, release, submit-manually, confirm, quit. After fill, network writes/navigation stay blocked until you deliberately release for manual control.');
+    console.log('Dedicated local browser. Sign in/complete challenges manually. Commands: preview, fill, attach-resume, release, submit-manually, confirm, quit. After fill, network writes/navigation stay blocked until you deliberately release for manual control.');
     while (true) {
       const command = (await terminal.question('smart-apply> ')).trim();
       if (command === 'quit') break;
       try {
         if (command === 'release') { await engine.releaseForManualReview(); console.log('Manual control restored. Review the page before using Next/Submit. Preview again for further automatic filling.'); continue; }
+        if (command === 'attach-resume') {
+          const filename = (await terminal.question('Reviewed PDF path > ')).trim();
+          const attachment = await engine.attachReviewedResume(filename);
+          console.log('Selected reviewed PDF: ' + attachment.name + '. Check the employer page for any upload status.');
+          continue;
+        }
         if (command === 'submit-manually') {
           if (!engine.report || !['NEEDS_REVIEW','MANUAL_CONTROL'].includes(engine.report.state)) throw Error('Preview and review the application first.');
           if (!store.awaitingConfirmation(jobUrl.href)) throw Error('An application attempt is already tracked.');

@@ -95,6 +95,39 @@ class SmartApplyEngine {
       const report = await this.fillGuarded();
       return report;
   }
+  async attachReviewedResume(filename) {
+    if (!this.networkGuard || this.report?.state !== 'NEEDS_REVIEW' || this.page.url() !== this.report.url || this.shouldStop())
+      throw Error('Fill and review the current step before selecting a resume.');
+    const candidates = this.fields.filter(({row}) => row.type === 'file' && /\b(?:resume|curriculum vitae|cv)\b/i.test(row.context.labelText));
+    if (candidates.length !== 1) throw Error('Select the resume manually when the file input is ambiguous.');
+    const {element,frame,row} = candidates[0];
+    if (!this.allowedFrame(frame)) throw Error('The upload frame needs manual review.');
+    const metadata = await element.evaluate(el => ({
+      connected:el.isConnected, existing:el.files?.length, type:el.type,
+      context:window.__jfSmartApply.extractQuestionContext(el),
+      identity:window.__jfSmartApply.answerIdentity(el)
+    }));
+    metadata.context.scope = JSON.stringify({ documents:JSON.parse(await frameScope(frame)), field:metadata.identity });
+    if (!metadata.connected || metadata.existing || metadata.type !== 'file' || JSON.stringify(metadata.context) !== JSON.stringify(row.context))
+      throw Error('Resume field changed or already has a file. Review it manually.');
+    if (!/\.pdf$/i.test(filename)) throw Error('Choose the reviewed PDF.');
+    const handle = await fs.promises.open(filename, 'r');
+    let buffer;
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size > 15 * 1024 * 1024) throw Error('Choose a PDF up to 15 MiB.');
+      buffer = await handle.readFile();
+    } finally { await handle.close(); }
+    const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+    if (buffer.subarray(0, 5).toString() !== '%PDF-' || hash !== this.profile._resume?.sha256)
+      throw Error('The selected file does not match the reviewed resume hash.');
+    const name = path.basename(filename);
+    await element.setInputFiles({ name, buffer, mimeType:'application/pdf' },{ timeout:this.timeout });
+    const retained = await element.evaluate(el=>el.isConnected && el.files?.length === 1 ? {name:el.files[0].name,size:el.files[0].size} : null);
+    if (retained?.name !== name || retained.size !== buffer.length) throw Error('The page did not retain the file selection. Review it manually.');
+    this.report.attachment = { name, sha256:hash, status:'selected_locally' };
+    return this.report.attachment;
+  }
   async releaseForManualReview() {
     for (const frame of this.guarded || []) await frame.evaluate(() => window.__jfRemoveGuard?.()).catch(() => {});
     this.guarded = [];
@@ -118,8 +151,14 @@ class SmartApplyEngine {
         const before = await element.evaluate(el => window.__jfSmartApply.currentValue(el));
         if (before !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
         const value = row.decision.value;
-        if (row.type === 'checkbox' || row.role === 'checkbox' || row.type === 'file') throw Error('Upload/consent requires manual review.');
-        if (row.tag === 'SELECT') {
+        if (row.type === 'file') throw Error('Select a reviewed resume explicitly.');
+        if (row.type === 'checkbox' || row.role === 'checkbox') {
+          if (row.decision.type !== 'REMEMBERED_ANSWER' || !/^(yes|no)$/i.test(value)) throw Error('Review checkbox manually.');
+          const desired = equal(value, 'yes');
+          const checked = () => element.evaluate(el => !!el.checked || el.getAttribute('aria-checked') === 'true');
+          if (await checked() !== desired) await safeClick(element, this.timeout);
+          if (await checked() !== desired) throw Error('Checkbox selection was not retained.');
+        } else if (row.tag === 'SELECT') {
           const options = await element.evaluate(el => [...el.options].map((o, index) => ({ label: o.label, value: o.value, disabled: o.disabled, index })));
           const matches = options.filter(o => !o.disabled && equal(o.label || o.value, value));
           if (matches.length !== 1) throw Error('No unique exact option; choose manually.');
@@ -156,7 +195,7 @@ class SmartApplyEngine {
           if (matches.length !== 1) throw Error('Radio requires one exact matching option.');
           await safeClick(matches[0], this.timeout);
           if (!await matches[0].evaluate(el => el.checked || el.getAttribute('aria-checked') === 'true')) throw Error('Radio selection was not retained.');
-        } else if (['INPUT', 'TEXTAREA'].includes(row.tag) && !['submit', 'button', 'password', 'hidden'].includes(row.type)) {
+        } else if (['INPUT', 'TEXTAREA'].includes(row.tag) && !['submit', 'button', 'password', 'hidden'].includes(row.type) && (row.type !== 'date' || row.decision.type === 'REMEMBERED_ANSWER')) {
           await element.fill(value, { timeout: this.timeout });
           await element.press('Tab', { timeout: this.timeout });
           if (!equal(await element.inputValue(), value)) throw Error('Value was not retained.');

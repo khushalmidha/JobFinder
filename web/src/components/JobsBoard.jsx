@@ -161,12 +161,12 @@ export default function JobsBoard() {
             }}><option value="">Any</option>{Object.entries(options).map(([value, title]) => <option key={value} value={value}>{title}</option>)}<option value="unknown">Unknown</option></select>
           </label>)}
         </div>
-        {loading && <p className="mt-3 text-sm text-zinc-400">Loading saved jobsâ€¦</p>}
+        {loading && <p className="mt-3 text-sm text-zinc-400">Loading saved jobs…</p>}
         {!loading && !jobs.length && !errors.jobs && <p className="mt-3 text-sm text-zinc-400">No saved matching roles yet. Queue companies and enable monitoring. Unsupported or inaccessible portals are not reported as successfully scanned.</p>}
         <div className="mt-3 space-y-3">{jobs.map((job, index) => <article key={job._id || job.url || index} className="break-words rounded border border-zinc-800 p-3">
           <h4 className="font-semibold">{display(job.title) || 'Untitled role'}</h4>
-          <p className="mt-1 text-sm text-zinc-400">{companyName(job.company || job.companyName)}{job.location ? ` Â· ${display(job.location)}` : ''}</p>
-          <p className="mt-2 text-xs text-zinc-400">Location classification: {regionLabel(job.locationRegion)} Â· Company coverage: {regionLabel(job.companyRegion)}</p>
+          <p className="mt-1 text-sm text-zinc-400">{companyName(job.company || job.companyName)}{job.location ? ` · ${display(job.location)}` : ''}</p>
+          <p className="mt-2 text-xs text-zinc-400">Location classification: {regionLabel(job.locationRegion)} · Company coverage: {regionLabel(job.companyRegion)}</p>
           <p className="mt-2 text-xs text-yellow-300">{eligibility(job)}</p>
           <dl className="mt-2 grid gap-x-4 text-xs text-zinc-400 sm:grid-cols-2">
             {Object.entries(jobFilters).filter(([key]) => key !== 'locationRegion').map(([key,[label,options]]) => <div key={key}><dt className="inline">{label} </dt><dd className="inline">{options[job[key]] || 'Unknown'}</dd></div>)}
@@ -180,7 +180,7 @@ export default function JobsBoard() {
         </article>)}</div>
         {jobMeta.total > jobMeta.limit && <nav aria-label="Career job pagination" className="mt-4 flex flex-wrap items-center gap-3">
           <button type="button" className={button} disabled={busy || loading || jobPage <= 1} onClick={() => setJobPage(page => page - 1)}>Previous job page</button>
-          <span className="text-sm text-zinc-400">Job page {jobPage} of {Math.max(1, Math.ceil(jobMeta.total / jobMeta.limit))} Â· {jobMeta.total} results</span>
+          <span className="text-sm text-zinc-400">Job page {jobPage} of {Math.max(1, Math.ceil(jobMeta.total / jobMeta.limit))} · {jobMeta.total} results</span>
           <button type="button" className={button} disabled={busy || loading || jobPage >= Math.ceil(jobMeta.total / jobMeta.limit)} onClick={() => setJobPage(page => page + 1)}>Next job page</button>
         </nav>}
       </>}
@@ -196,6 +196,6 @@ export default function JobsBoard() {
 
     </div>
 
-    {scanReport && <details open className={panel}><summary className="cursor-pointer font-semibold">{scanReport.type} â€” actual report</summary><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-300">{JSON.stringify(scanReport.result, null, 2)}</pre></details>}
+    {scanReport && <details open className={panel}><summary className="cursor-pointer font-semibold">{scanReport.type} — actual report</summary><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-300">{JSON.stringify(scanReport.result, null, 2)}</pre></details>}
   </section>;
 }
