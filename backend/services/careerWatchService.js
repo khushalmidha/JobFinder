@@ -295,9 +295,44 @@ async function runCareerWatchOnce({userId,dryRun=true,maxCompanies=1,maxRequests
  if(!dryRun)await Config.updateOne({userId},{$set:{lastRunAt:new Date(),lastError:result.status==='complete'?'':result.status}});
  return result;
 }
+async function scanDueContacts(config, { discover = require('./professionalDiscoveryService').runDiscovery, clock = () => new Date() } = {}) {
+ if (config.discoverContacts===false || process.env.RESEARCH_STOP==='true') return;
+ const now=clock(), token=crypto.randomUUID();
+ const task=await Task.findOneAndUpdate({
+  userId:config.userId,employerDomain:{$exists:true,$nin:[null,'']},
+  $and:[
+   {$or:[{nextContactScanAt:{$lte:now}},{nextContactScanAt:null,lastContactScanAt:{$lte:new Date(+now-7*86400000)}},{nextContactScanAt:null,lastContactScanAt:null}]},
+   {$or:[{contactLeaseUntil:null},{contactLeaseUntil:{$lte:now}}]}
+  ]
+ },{$set:{contactLeaseToken:token,contactLeaseUntil:new Date(+now+120000)}},
+ {sort:{regionPriority:-1,nextContactScanAt:1,lastContactScanAt:1},returnDocument:'after'}).lean();
+ if (!task) return;
+ let error='';
+ try {
+  const result=await discover({userId:config.userId,domains:[task.employerDomain],companyContext:{company:task.company,region:task.region},
+   saveToContacts:config.autoImportContacts===true,allowPublicUnverified:true,dryRun:false,maxRequests:12});
+  const scan=result.companies?.[0];
+  if(scan?.status!=='complete') error=scan?.status || 'Discovery did not finish';
+ } catch (failure) { error=String(failure.message).slice(0,500); }
+ const finished=clock();
+ await Task.updateOne({_id:task._id,contactLeaseToken:token},{$set:{
+  nextContactScanAt:new Date(+finished+(error?5*3600000:7*86400000)),contactLastError:error,...(error?{}:{lastContactScanAt:finished})
+ },$unset:{contactLeaseToken:1,contactLeaseUntil:1}});
+}
 function initCareerWatchScheduler(){
  if(process.env.CAREER_WATCH_ENABLED!=='true')return;
- let busy=false;const tick=async()=>{if(busy||process.env.RESEARCH_STOP==='true')return;busy=true;try{for(const config of await Config.find({enabled:true}).lean())await runCareerWatchOnce({userId:config.userId,dryRun:false,maxCompanies:5,maxRequests:30,maxRuntimeSeconds:45,contactDiscover:process.env.PROFESSIONAL_DISCOVERY_BACKGROUND_ENABLED==='true'?require('./professionalDiscoveryService').runDiscovery:null});}catch(error){console.error('Career watch:',error.message);}finally{busy=false;}};
+ let busy=false;
+ const tick=async()=>{
+  if(busy||process.env.RESEARCH_STOP==='true')return;
+  busy=true;
+  try {
+   for(const config of await Config.find({enabled:true}).lean()) {
+    await runCareerWatchOnce({userId:config.userId,dryRun:false,maxCompanies:5,maxRequests:30,maxRuntimeSeconds:45});
+    if(process.env.PROFESSIONAL_DISCOVERY_BACKGROUND_ENABLED==='true') await scanDueContacts(config);
+   }
+  } catch(error){ console.error('Career watch:',error.message); }
+  finally { busy=false; }
+ };
  tick();const timer=setInterval(tick,10000);timer.unref?.();return {stop:()=>clearInterval(timer)};
 }
-module.exports={INTERVAL_MS,INDIA_LOCATION,publicUrl,classifyRole,locationRegion,atsEndpoint,parseJobs,collectCompanyJobs,enqueueWatchCompanies,runCareerWatchOnce,initCareerWatchScheduler};
+module.exports={scanDueContacts,INTERVAL_MS,INDIA_LOCATION,publicUrl,classifyRole,locationRegion,atsEndpoint,parseJobs,collectCompanyJobs,enqueueWatchCompanies,runCareerWatchOnce,initCareerWatchScheduler};

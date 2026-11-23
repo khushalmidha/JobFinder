@@ -2,7 +2,7 @@ const mongoose=require('mongoose');
 const Lead=require('../models/ProfessionalLead'),Suppression=require('../models/RecipientSuppression'),Contact=require('../models/Contact'),Company=require('../models/Company');
 const {fetchCompanyEmails,normalizeDomain,allowedDiscoveryDomain}=require('./publicEmailDiscovery');
 const {reserveResearch,policyFor}=require('./researchBudgetService');
-async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyContext=null,saveToContacts=false,discover=fetchCompanyEmails,reserve=reserveResearch}={}){
+async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyContext=null,saveToContacts=false,allowPublicUnverified=false,discover=fetchCompanyEmails,reserve=reserveResearch}={}){
   if(!mongoose.isValidObjectId(userId))throw Error('Owned discovery login required');
   if(!Array.isArray(domains)||!domains.length||domains.length>100||domains.some(d=>typeof d!=='string'||!allowedDiscoveryDomain(normalizeDomain(d))))throw Error('Provide 1 to 100 employer domains');
   if(typeof dryRun!=='boolean'||!Number.isInteger(maxRequests)||maxRequests<1||maxRequests>500)throw Error('Use boolean dryRun and 1 to 500 total requests');
@@ -32,6 +32,7 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
       );
     }
     for(const row of result.emails||[]){
+      if(allowPublicUnverified && row.inferenceFlag===true) continue;
       const email=String(row.email||'').trim().toLowerCase(),host=email.split('@')[1];
       const corporate=row._repoVerified===true&&repoSource?.domains.includes(host)&&row.sourceUrl?.startsWith('https://github.com/'+repoSource.repository+'/commit/');
       if(!email||(!corporate&&!(host===domain||host?.endsWith('.'+domain)))||!row.sourceUrl)continue;
@@ -40,15 +41,21 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
       if(suppressed||duplicates.some(c=>c.suppressedAt||c.optOutAt||c.deliverabilityStatus==='invalid'||c.verificationStatus==='invalid'||['bounced','removed','replied','reply_received','positive_response','negative_response'].includes(c.status))){report.suppressed++;continue;}
       const lead={userId,email,domain,company:companyContext?.company||names.get(domain)||domain,companyRegion:companyContext?.region||regions.get(domain)||'Unknown',regionPriority:(companyContext?.region||regions.get(domain))==='India'?1:0,name:row.name||'',title:row.title||'Public recruiting inbox',kind:['recruiter','hiring_manager','role_inbox','engineer'].includes(row.kind)?row.kind:'role_inbox',sourceUrl:row.sourceUrl,observedAt:new Date(),publishedAt:row.publishedAt,inferenceFlag:row.inferenceFlag===true,pattern:row.pattern,patternEvidence:row.patternEvidence||[],verificationStatus:row.inferenceFlag===true?'inferred_unverified':'publicly_listed_not_mailbox_verified',confidence:row.confidence||'published',sourceType:corporate?'official_corporate_repository':row.inferenceFlag===true?'pattern_inference':'official_public_page'};
       const existing=await Lead.exists({userId,email});if(existing)report.existingLeads++;else report.newLeads++;
-      if(!dryRun)await Lead.updateOne({userId,email},{$setOnInsert:{...lead,provenance:[{url:lead.sourceUrl,observedAt:lead.observedAt}]}},{upsert:true,runValidators:true});
+      if(!dryRun){
+        if(existing && lead.sourceType==='official_public_page') {
+          await Lead.updateOne({userId,email},{$set:{...lead,provenance:[{url:lead.sourceUrl,observedAt:lead.observedAt}]}},{runValidators:true});
+        } else {
+          await Lead.updateOne({userId,email},{$setOnInsert:{...lead,provenance:[{url:lead.sourceUrl,observedAt:lead.observedAt}]}},{upsert:true,runValidators:true});
+        }
+      }
       report.leads.push(lead);count++;report.sourceTypes[lead.sourceType]++;
     }
     report.emailsFound+=count;
-    report.companies.push({domain,requestsUsed:result.requestsUsed||0,emailsFound:count,status:'complete',limitedByRobots:result.limitedByRobots===true,reason:result.reason||null});
+    report.companies.push({domain,requestsUsed:result.requestsUsed||0,emailsFound:count,status:result.pagesRead===0 && !count ? 'source_unavailable' : 'complete',limitedByRobots:result.limitedByRobots===true,reason:result.reason||null});
   }
   if(!dryRun&&saveToContacts&&report.leads.length){
     const ids=await Lead.find({userId,email:{$in:report.leads.map(l=>l.email)}}).distinct('_id');report.sheet={added:0,duplicates:0,excluded:0,staged:0,mailboxesVerified:0,providerCreditsUsed:0};
-    for(let start=0;start<ids.length;start+=100){const part=await require('./professionalSheetService').importLeads({userId,leadIds:ids.slice(start,start+100)});for(const key of ['added','duplicates','excluded','staged'])report.sheet[key]+=part[key];}
+    for(let start=0;start<ids.length;start+=100){const part=await require('./professionalSheetService').importLeads({userId,leadIds:ids.slice(start,start+100),allowPublicUnverified});for(const key of ['added','duplicates','excluded','staged'])report.sheet[key]+=part[key];}
   }
   return report;
 }

@@ -3,17 +3,23 @@ import { useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp, Download, Play, Pause, RefreshCw, Trash2, Sparkles, CheckCircle2, ShieldCheck, XCircle, AlertTriangle, RotateCcw, ArrowRightLeft, X, FileText, Copy } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
-import ExcelJS from 'exceljs';
-import ContactResearchBar from '../components/ContactResearchBar';
 
+function contactRole(contact) {
+  if (contact.contactKind && contact.contactKind !== 'unknown') return contact.contactKind;
+  const title = contact.role || '';
+  if (/recruit|human resources|talent acquisition|\bhr\b/i.test(title)) return 'recruiter';
+  if (/hiring manager|engineering manager|head of engineering/i.test(title)) return 'hiring_manager';
+  if (/software engineer|software developer|\bsde\b|backend engineer|frontend engineer/i.test(title)) return 'engineer';
+  if (/^(?:careers|jobs|recruiting|recruitment|talent|hr)@/i.test(contact.email || '')) return 'role_inbox';
+  return 'unknown';
+}
 const Dashboard = () => {
   const { state: linkedJob } = useLocation();
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(() => linkedJob?.employer || '');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [activeTab, setActiveTab] = useState('unverified');
   const [kindFilter,setKindFilter]=useState('');
-  const [daysFilter, setDaysFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showCompose, setShowCompose] = useState(false);
   const [composeData, setComposeData] = useState({ ids: [], jobLink: '' });
@@ -22,14 +28,8 @@ const Dashboard = () => {
   const [roles, setRoles] = useState(() => linkedJob?.employer ? { [linkedJob.employer]: linkedJob.role || '' } : {}); // { companyName: 'role' }
   const [queueStatus, setQueueStatus] = useState({ pending: 0, size: 0, isPaused: false, limitFailedCount: 0 });
   const [blockedCompanies, setBlockedCompanies] = useState([]);
-  const [activeTab, setActiveTab] = useState('active'); // 'active', 'invalid', 'blocked'
   const [companyToBlock, setCompanyToBlock] = useState(null);
   const [shareToast, setShareToast] = useState('');
-  const [invalidCompanyFilter, setInvalidCompanyFilter] = useState('all');
-  const [invalidSearch, setInvalidSearch] = useState('');
-  const [ctcFilter, setCtcFilter] = useState('all');
-  const [validatingEmails, setValidatingEmails] = useState(false);
-  const [validationToast, setValidationToast] = useState('');
   const [contactToDelete, setContactToDelete] = useState(null);
   const [deletingContact, setDeletingContact] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
@@ -106,51 +106,8 @@ const Dashboard = () => {
     }
   };
 
-  const handleValidateDeliverability = async () => {
-    try {
-      setValidatingEmails(true);
-      setValidationToast('⚡ Running DNS MX & SMTP checks across all contacts...');
-      const { data } = await api.post('/contacts/validate-deliverability');
-      setValidationToast(data.message);
-      setTimeout(() => setValidationToast(''), 7000);
-      fetchContacts();
-    } catch (err) {
-      setValidationToast(err.response?.data?.error || 'Validation failed');
-      setTimeout(() => setValidationToast(''), 4000);
-    } finally {
-      setValidatingEmails(false);
-    }
-  };
 
-  const handleRestoreToValid = async (contactId) => {
-    try {
-      await api.put(`/contacts/${contactId}/deliverability`, { status: 'valid', reason: 'Manually verified as deliverable' });
-      setContacts(prev => prev.map(c => c._id === contactId ? { ...c, deliverabilityStatus: 'valid' } : c));
-      setShareToast('✓ Contact moved to Active Deliverable Contacts!');
-      setTimeout(() => setShareToast(''), 3000);
-    } catch (err) {
-      console.error('Failed to update deliverability status', err);
-    }
-  };
 
-  const handleRestoreCompanyToValid = async (companyName) => {
-    try {
-      await api.post('/contacts/bulk-deliverability', { 
-        company: companyName, 
-        status: 'valid', 
-        reason: 'Manually verified as deliverable' 
-      });
-      setContacts(prev => prev.map(c => 
-        (c.company || '').toLowerCase() === companyName.toLowerCase() && c.deliverabilityStatus === 'invalid'
-          ? { ...c, deliverabilityStatus: 'valid' } 
-          : c
-      ));
-      setShareToast(`✓ All ${companyName} contacts moved to Active Contacts!`);
-      setTimeout(() => setShareToast(''), 3000);
-    } catch (err) {
-      console.error('Failed to restore company contacts', err);
-    }
-  };
 
   const handleMarkReplied = async (contactId) => {
     try {
@@ -186,15 +143,15 @@ const Dashboard = () => {
     }
   };
 
-  const fetchContacts = async () => {
+  const fetchContacts = async (quiet = false) => {
     try {
-      setLoading(true);
+      if (!quiet) setLoading(true);
       const { data } = await api.get('/contacts');
       setContacts(data);
     } catch (err) {
-      setError('Failed to load contacts');
+      if (!quiet) setError('Failed to load contacts');
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   };
 
@@ -218,32 +175,7 @@ const Dashboard = () => {
     }
   };
 
-  const scanBounces = async () => {
-    try {
-      setLoading(true);
-      const { data } = await api.post('/mail/scan-bounces');
-      alert(data.message);
-      fetchContacts();
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to scan bounces');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const deleteBounced = async () => {
-    if (!window.confirm('Are you sure you want to delete all contacts marked as bounced?')) return;
-    try {
-      setLoading(true);
-      const { data } = await api.delete('/mail/delete-bounced');
-      alert(data.message);
-      fetchContacts();
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete bounced contacts');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleRestoreLimitFailed = async () => {
     try {
@@ -300,7 +232,8 @@ const Dashboard = () => {
       if (typeof document !== 'undefined' && document.hidden) return;
       fetchQueueStatus();
     }, 6000);
-    return () => clearInterval(interval);
+    const refresh = setInterval(() => { if (!document.hidden) fetchContacts(true); }, 60000);
+    return () => { clearInterval(interval); clearInterval(refresh); };
   }, []);
 
   const toggleSelect = (id) => {
@@ -349,91 +282,28 @@ const Dashboard = () => {
   };
 
   // 1. Separate Active (Deliverable) and Invalid contacts
-  const activeContactsList = contacts.filter(c => c.deliverabilityStatus !== 'invalid' || c.emailBlocked);
-  const invalidContactsList = contacts.filter(c => c.deliverabilityStatus === 'invalid' && !c.emailBlocked);
-
-  const filteredContacts = activeContactsList.filter(c => {
-    const s = search.trim().toLowerCase();
-    const matchSearch = s.startsWith('@') ? (c.email || '').trim().toLowerCase().endsWith(s) : !s ||
-      (c.company || '').toLowerCase().includes(s) || 
-      (c.hrName || '').toLowerCase().includes(s) || 
-      (c.email || '').toLowerCase().includes(s) || 
-      (c.role || '').toLowerCase().includes(s);
-    
-    let matchStatus = true;
-    if (statusFilter === 'replied') {
-      matchStatus = c.status === 'replied' || c.status === 'reply_received' || c.status === 'positive_response';
-    } else if (statusFilter === 'shared') {
-      matchStatus = c.isShared === true;
-    } else if (statusFilter === 'private') {
-      matchStatus = !c.isShared;
-    } else if (statusFilter) {
-      matchStatus = c.status === statusFilter;
-    }
-    
-    let matchDays = true;
-    if (daysFilter) {
-      if (daysFilter === 'never_mailed') {
-        matchDays = !c.lastMailedAt;
-      } else if (daysFilter === 'within_1_week') {
-        const dateToCheck = c.lastMailedAt || c.createdAt;
-        if (!dateToCheck) {
-          matchDays = false;
-        } else {
-          const daysAgo = (new Date() - new Date(dateToCheck)) / (1000 * 60 * 60 * 24);
-          matchDays = daysAgo < 7;
-        }
-      } else {
-        const daysMap = {
-          '1_week': 7,
-          '2_weeks': 14,
-          '3_weeks': 21,
-          '4_weeks': 28,
-          '8_weeks': 56,
-          '7': 7,
-          '14': 14,
-          '21': 21,
-          '28': 28,
-          '56': 56,
-          '10': 10,
-          '20': 20,
-          '30': 30
-        };
-        const minDays = daysMap[daysFilter] || parseInt(daysFilter, 10);
-        const dateToCheck = c.lastMailedAt || c.createdAt;
-        if (!dateToCheck) {
-          matchDays = false;
-        } else {
-          const daysAgo = (new Date() - new Date(dateToCheck)) / (1000 * 60 * 60 * 24);
-          matchDays = daysAgo >= minDays;
-        }
-      }
-    }
-
-    let matchCtc = true;
-    if (ctcFilter !== 'all') {
-      const lpa = parseLpa(c.package);
-      if (ctcFilter === '1_cr_plus') matchCtc = lpa >= 100;
-      else if (ctcFilter === '70_to_100') matchCtc = lpa >= 70 && lpa < 100;
-      else if (ctcFilter === '50_to_70') matchCtc = lpa >= 50 && lpa < 70;
-      else if (ctcFilter === '35_to_50') matchCtc = lpa >= 35 && lpa < 50;
-      else if (ctcFilter === '20_to_35') matchCtc = lpa >= 20 && lpa < 35;
-      else if (ctcFilter === '12_to_20') matchCtc = lpa >= 12 && lpa < 20;
-      else if (ctcFilter === 'under_12') matchCtc = lpa < 12;
-      else if (ctcFilter === 'above_50') matchCtc = lpa >= 50;
-    }
-    
-    return matchSearch && matchStatus && matchDays && matchCtc && (!kindFilter||(c.contactKind||'unknown')===kindFilter);
+  const blockedCompanyNames = new Set(blockedCompanies.map(name => name.trim().toLowerCase()));
+  const contactSection = contact => {
+    if (blockedCompanyNames.has((contact.company || '').trim().toLowerCase()) || contact.emailBlocked ||
+      contact.suppressedAt || contact.optOutAt || contact.deliverabilityStatus === 'invalid' ||
+      contact.verificationStatus === 'invalid' || ['bounced','removed'].includes(contact.status)) return 'blocked';
+    return contact.mailboxVerified ? 'verified' : 'unverified';
+  };
+  const sectionCounts = { verified:0, unverified:0, blocked:0 };
+  for (const contact of contacts) sectionCounts[contactSection(contact)]++;
+  const filteredContacts = contacts.filter(contact => {
+    if (contactSection(contact) !== activeTab) return false;
+    const term = search.trim().toLowerCase();
+    const kind = contactRole(contact);
+    const matchesRole = !kindFilter || kind === kindFilter || (kindFilter === 'recruiter' && kind === 'role_inbox');
+    if (term.startsWith('@')) return matchesRole && String(contact.email||'').toLowerCase().endsWith(term);
+    return matchesRole && [contact.company,contact.hrName,contact.email].some(value=>String(value||'').toLowerCase().includes(term));
   });
-
   const capitalizeCompany = (name) => {
     return name.split(' ').map(word => word ? word.charAt(0).toUpperCase() + word.slice(1) : '').join(' ');
   };
 
-  const selectionContacts = filteredContacts.filter(c => {
-    const companyBlocked = blockedCompanies.some(b => b.toLowerCase() === (c.company || 'Unknown').trim().toLowerCase());
-    return activeTab === 'blocked' ? (companyBlocked || c.emailBlocked) : (!companyBlocked && !c.emailBlocked);
-  });
+  const selectionContacts = filteredContacts;
   const allFilteredSelected = selectionContacts.length > 0 && selectionContacts.every(c => selectedIds.has(c._id));
   const toggleSelectAll = () => {
     const next = new Set(selectedIds);
@@ -447,45 +317,6 @@ const Dashboard = () => {
     const normalizedKey = originalComp.toLowerCase();
     
     // Find if we already have this company under a different casing
-    const existingKey = Object.keys(acc).find(k => k.toLowerCase() === normalizedKey);
-    const compKey = existingKey || originalComp;
-    
-    if (!acc[compKey]) acc[compKey] = [];
-    acc[compKey].push(contact);
-    return acc;
-  }, {});
-
-  const activeGroupedContacts = {};
-  const blockedGroupedContacts = {};
-
-  Object.entries(groupedContacts).forEach(([company, companyContacts]) => {
-    const isBlocked = blockedCompanies.some(b => b.toLowerCase() === company.toLowerCase());
-    const blocked = companyContacts.filter(c => isBlocked || c.emailBlocked);
-    const active = companyContacts.filter(c => !isBlocked && !c.emailBlocked);
-    if (blocked.length) blockedGroupedContacts[company] = blocked;
-    if (active.length) activeGroupedContacts[company] = active;
-  });
-
-  // Filter and group invalid contacts for the dedicated Invalid tab
-  const filteredInvalidContacts = invalidContactsList.filter(c => {
-    const s = invalidSearch.toLowerCase();
-    const matchSearch = !invalidSearch ||
-      (c.company || '').toLowerCase().includes(s) ||
-      (c.hrName || '').toLowerCase().includes(s) ||
-      (c.email || '').toLowerCase().includes(s) ||
-      (c.validationReason || '').toLowerCase().includes(s);
-
-    const matchCompany = invalidCompanyFilter === 'all' || 
-      (c.company || '').toLowerCase() === invalidCompanyFilter.toLowerCase();
-
-    return matchSearch && matchCompany;
-  });
-
-  const invalidGroupedContacts = filteredInvalidContacts.reduce((acc, contact) => {
-    const rawComp = (contact.company || 'Unknown').trim();
-    const originalComp = capitalizeCompany(rawComp);
-    const normalizedKey = originalComp.toLowerCase();
-    
     const existingKey = Object.keys(acc).find(k => k.toLowerCase() === normalizedKey);
     const compKey = existingKey || originalComp;
     
@@ -538,55 +369,6 @@ const Dashboard = () => {
     }
   };
 
-  const downloadExcel = async (onlySelected = false) => {
-    const listToExport = onlySelected
-      ? contacts.filter(c => selectedIds.has(c._id))
-      : filteredContacts;
-
-    if (listToExport.length === 0) {
-      alert('No contacts available to export.');
-      return;
-    }
-    
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(onlySelected ? "Selected Contacts" : "Contacts");
-
-    worksheet.columns = [
-      { header: 'Company', key: 'company', width: 22 },
-      { header: 'HR Name', key: 'hrName', width: 22 },
-      { header: 'Email', key: 'email', width: 32 },
-      { header: 'Role', key: 'role', width: 22 },
-      { header: 'Status', key: 'status', width: 16 },
-      { header: 'Date Added', key: 'dateAdded', width: 16 },
-      { header: 'Last Mailed', key: 'lastMailed', width: 16 }
-    ];
-
-    listToExport.forEach(c => {
-      worksheet.addRow({
-        company: c.company || '',
-        hrName: c.hrName || '',
-        email: c.email || '',
-        role: c.role || '',
-        status: c.status || '',
-        dateAdded: new Date(c.createdAt).toLocaleDateString(),
-        lastMailed: c.lastMailedAt ? new Date(c.lastMailedAt).toLocaleDateString() : 'Never'
-      });
-    });
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = URL.createObjectURL(blob);
-    const filename = onlySelected 
-      ? `JobFinder_Selected_${listToExport.length}_Contacts.xlsx` 
-      : "JobFinder_Contacts.xlsx";
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
 
   const downloadTxt = (onlySelected = false, includeDetails = false) => {
     const listToExport = onlySelected 
@@ -732,60 +514,10 @@ const Dashboard = () => {
               {queueStatus.isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
             </button>
           </div>
-          <details className="w-full sm:w-auto">
-            <summary className="cursor-pointer rounded-lg border border-zinc-700 px-3 py-2 text-sm">Contact actions</summary>
-            <div className="mt-2 flex flex-wrap gap-2">
-          <button 
-            onClick={handleValidateDeliverability}
-            disabled={validatingEmails}
-            className="flex items-center space-x-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white px-4 py-2 rounded-lg font-bold transition-all shadow-md text-xs cursor-pointer disabled:opacity-50"
-            title="Checks MX records & SMTP deliverability to separate bad/invalid emails without deleting them"
-          >
-            <Sparkles className="w-4 h-4 text-yellow-300" />
-            <span>{validatingEmails ? 'Validating...' : '⚡ Validate Emails (SMTP/MX)'}</span>
-          </button>
-          <button 
-            onClick={scanBounces}
-            className="flex items-center space-x-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3.5 py-2 rounded-lg font-medium transition-colors border border-zinc-700 text-xs"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Scan Bounces</span>
-          </button>
-          <button 
-            onClick={deleteBounced}
-            className="flex items-center space-x-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3.5 py-2 rounded-lg font-medium transition-colors border border-red-500/20 text-xs"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Delete Bounced</span>
-          </button>
-          <button 
-            onClick={() => downloadTxt(selectedIds.size > 0, false)}
-            disabled={contacts.length === 0}
-            className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-lg font-bold transition-all border text-xs cursor-pointer shadow-sm ${
-              selectedIds.size > 0 
-                ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/50 ring-1 ring-amber-500/30' 
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed'
-            }`}
-            title={selectedIds.size > 0 ? `Download ${selectedIds.size} selected emails as .txt file` : 'Download all emails as .txt file'}
-          >
-            <FileText className="w-3.5 h-3.5 text-amber-400" />
-            <span>{selectedIds.size > 0 ? `Export TXT (${selectedIds.size})` : 'Export TXT'}</span>
-          </button>
-          <button 
-            onClick={() => downloadExcel(selectedIds.size > 0)}
-            disabled={contacts.length === 0}
-            className="flex items-center space-x-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3.5 py-2 rounded-lg font-medium transition-colors border border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs cursor-pointer"
-            title={selectedIds.size > 0 ? `Export ${selectedIds.size} selected to Excel` : 'Export all to Excel'}
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>{selectedIds.size > 0 ? `Export Excel (${selectedIds.size})` : 'Export Excel'}</span>
-          </button>
-            </div>
-          </details>
+
         </div>
       </div>
 
-      <ContactResearchBar onImported={fetchContacts} />
       {/* SMTP Auth Error (535) Banner */}
       {queueStatus.pauseReason === 'SMTP_AUTH_ERROR' && (
         <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-red-500/20 via-orange-500/15 to-amber-500/15 border border-red-500/50 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl backdrop-blur-md animate-in fade-in duration-300">
@@ -836,6 +568,7 @@ const Dashboard = () => {
             </a>
           </div>
         </div>
+
       )}
 
       {/* Connection or Send Error Banner */}
@@ -974,16 +707,6 @@ const Dashboard = () => {
         </div>
       )}
 
-      {validationToast && (
-        <div className="mb-4 p-3 rounded-xl bg-indigo-950/90 border border-indigo-500/50 text-indigo-200 text-xs font-bold flex items-center justify-between shadow-xl animate-in fade-in duration-200">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>{validationToast}</span>
-          </div>
-          <button onClick={() => setValidationToast('')} className="text-zinc-400 hover:text-zinc-200 text-sm font-black ml-2 cursor-pointer">×</button>
-        </div>
-      )}
-
       {shareToast && (
         <div className="mb-4 p-3 rounded-xl bg-blue-950/80 border border-blue-500/40 text-blue-200 text-xs font-bold flex items-center justify-between shadow-lg animate-in fade-in duration-200">
           <div className="flex items-center gap-2">
@@ -994,42 +717,17 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className="flex space-x-4 mb-6 border-b border-zinc-800">
-        <button 
-          onClick={() => { setActiveTab('active'); setSelectedIds(new Set()); }}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'active' ? 'border-yellow-500 text-yellow-500' : 'border-transparent text-zinc-400 hover:text-zinc-200'}`}
-        >
-          Active Contacts ({activeContactsList.filter(c => !c.emailBlocked && !blockedCompanies.some(b => b.toLowerCase() === (c.company || 'Unknown').trim().toLowerCase())).length})
-        </button>
-        <button 
-          onClick={() => { setActiveTab('invalid'); setSelectedIds(new Set()); }}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors flex items-center ${activeTab === 'invalid' ? 'border-amber-500 text-amber-400' : 'border-transparent text-zinc-400 hover:text-zinc-200'}`}
-        >
-          <AlertCircle className="w-4 h-4 mr-1.5 text-amber-400" />
-          Separated Invalid Emails
-          {invalidContactsList.length > 0 && (
-            <span className={`ml-2 px-2 py-0.5 text-xs rounded-full font-bold ${activeTab === 'invalid' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-zinc-800 text-zinc-400'}`}>
-              {invalidContactsList.length}
-            </span>
-          )}
-        </button>
-        <button 
-          onClick={() => { setActiveTab('blocked'); setSelectedIds(new Set()); setSearch(''); setStatusFilter(''); setDaysFilter(''); setCtcFilter('all'); }}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors flex items-center ${activeTab === 'blocked' ? 'border-red-500 text-red-500' : 'border-transparent text-zinc-400 hover:text-zinc-200'}`}
-        >
-          Blocked Emails & Companies
-          {Object.keys(blockedGroupedContacts).length > 0 && (
-            <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full ${activeTab === 'blocked' ? 'bg-red-500/20' : 'bg-zinc-800'}`}>
-              {Object.keys(blockedGroupedContacts).length}
-            </span>
-          )}
-        </button>
+      <div className="flex flex-wrap gap-2 mb-4 border-b border-zinc-800">
+        {Object.entries({verified:'Verified',unverified:'Unverified',blocked:'Blocked'}).map(([key,label]) =>
+          <button key={key} type="button" aria-pressed={activeTab===key} onClick={() => {setActiveTab(key);setSelectedIds(new Set());}}
+            className={'px-3 pb-3 text-sm font-semibold border-b-2 ' + (activeTab===key?'border-yellow-500 text-yellow-300':'border-transparent text-zinc-400')}>
+            {label} ({sectionCounts[key]})
+          </button>)}
       </div>
 
-      {activeTab !== 'invalid' && (
       <div className="bg-zinc-900 rounded-xl shadow-sm border border-zinc-800 mb-8 p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3 flex-1">
-          <div className="relative flex-1 min-w-[240px] sm:min-w-[280px] max-w-md" style={{ minWidth: '220px' }}>
+          <div className="relative w-full sm:min-w-48 sm:flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
             <input 
               type="text" 
@@ -1041,67 +739,9 @@ const Dashboard = () => {
             />
           </div>
 
-          <select aria-label="Contact type" value={kindFilter} onChange={event=>{setKindFilter(event.target.value);setSelectedIds(new Set());}} className="rounded border border-zinc-700 bg-zinc-800 p-2 text-sm"><option value="">All contact types</option><option value="recruiter">HR / Recruiters</option><option value="hiring_manager">Managers</option><option value="engineer">SDE / Engineers</option><option value="role_inbox">Recruiting inboxes</option><option value="unknown">Unclassified</option></select>
-          <div className="relative w-36 sm:w-40 shrink-0">
-            <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full pl-8 pr-7 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-xs sm:text-sm appearance-none text-zinc-200 truncate cursor-pointer"
-            >
-              <option value="">All Statuses</option>
-              <option value="replied">💬 Replied Only</option>
-              <option value="shared">🌐 Shared Only</option>
-              <option value="private">🔒 Private Only</option>
-              <option value="pending">Pending</option>
-              <option value="sent">Sent</option>
-              <option value="bounced">Bounced</option>
-              <option value="failed">Failed</option>
-              <option value="positive_response">Positive Response</option>
-              <option value="negative_response">Negative Response</option>
-              <option value="auto_reply">Auto Reply</option>
-              <option value="follow_up_later">Follow Up Later</option>
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
-          </div>
-
-          <div className="relative w-40 sm:w-44 shrink-0">
-            <select
-              value={daysFilter}
-              onChange={(e) => setDaysFilter(e.target.value)}
-              className="w-full pl-3 pr-7 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-xs sm:text-sm appearance-none text-zinc-200 truncate cursor-pointer"
-              title="Filter contacts by weeks (last mailed or added)"
-            >
-              <option value="">Any Time</option>
-              <option value="1_week">&gt; 1 Week Ago</option>
-              <option value="2_weeks">&gt; 2 Weeks Ago</option>
-              <option value="3_weeks">&gt; 3 Weeks Ago</option>
-              <option value="4_weeks">&gt; 4 Weeks (1 Mo) Ago</option>
-              <option value="8_weeks">&gt; 8 Weeks (2 Mo) Ago</option>
-              <option value="within_1_week">&lt; 1 Week (Recent)</option>
-              <option value="never_mailed">Never Mailed</option>
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
-          </div>
-
-          <div className="relative w-36 sm:w-40 shrink-0">
-            <select
-              value={ctcFilter}
-              onChange={(e) => setCtcFilter(e.target.value)}
-              className="w-full pl-3 pr-7 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-xs sm:text-sm appearance-none text-zinc-200 truncate cursor-pointer"
-              title="Filter by Expected Entry-Level / SDE CTC"
-            >
-              <option value="all">All CTC Ranges</option>
-              <option value="1_cr_plus">💎 1 Cr+</option>
-              <option value="70_to_100">⚡ 70 - 100 LPA</option>
-              <option value="50_to_70">🚀 50 - 70 LPA</option>
-              <option value="35_to_50">🔥 35 - 50 LPA</option>
-              <option value="20_to_35">🦄 20 - 35 LPA</option>
-              <option value="12_to_20">⚡ 12 - 20 LPA</option>
-              <option value="under_12">&lt; 12 LPA</option>
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
-          </div>
+          <select aria-label="Contact type" value={kindFilter} onChange={event=>{setKindFilter(event.target.value);setSelectedIds(new Set());}} className="rounded border border-zinc-700 bg-zinc-800 p-2 text-sm">
+            <option value="">All roles</option><option value="recruiter">HR / Recruiters</option><option value="hiring_manager">Hiring managers</option><option value="engineer">SDE / Engineers</option><option value="unknown">Unclassified</option>
+          </select>
         </div>
 
         <div className="flex items-center space-x-4 shrink-0">
@@ -1114,7 +754,7 @@ const Dashboard = () => {
             />
             <span>Select All Filtered</span>
           </label>
-          {activeTab === 'active' && <button
+          {activeTab !== 'blocked' && <button
             onClick={() => {
               setComposeData({ ids: Array.from(selectedIds), jobLink: '', role: '' });
               setShowCompose(true);
@@ -1127,7 +767,6 @@ const Dashboard = () => {
           </button>}
         </div>
       </div>
-      )}
 
       {/* Bulk Action Bar for Replied & Shared */}
       {selectedIds.size > 0 && (
@@ -1193,14 +832,14 @@ const Dashboard = () => {
 
       {loading ? (
         <div className="text-center p-12 text-zinc-500">Loading contacts...</div>
-      ) : (Object.keys(activeTab === 'active' ? activeGroupedContacts : blockedGroupedContacts).length === 0) ? (
+      ) : (Object.keys(groupedContacts).length === 0) ? (
         <div className="text-center p-12 bg-zinc-900 rounded-xl border border-zinc-800">
           <AlertCircle className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
-          <p className="text-zinc-400 font-medium">No {activeTab === 'active' ? 'active' : 'blocked'} contacts found.</p>
+          <p className="text-zinc-400 font-medium">No {activeTab} contacts found.</p>
         </div>
       ) : (
         <div className="space-y-6">
-          {Object.entries(activeTab === 'active' ? activeGroupedContacts : blockedGroupedContacts).map(([company, companyContacts]) => {
+          {Object.entries(groupedContacts).map(([company, companyContacts]) => {
             const isBlocked = activeTab === 'blocked';
             const companyWideBlocked = blockedCompanies.some(b => b.toLowerCase() === company.toLowerCase());
             
@@ -1391,154 +1030,6 @@ const Dashboard = () => {
       )}
 
       {/* INVALID / UNVERIFIED EMAILS TAB (SEPARATED, NOT DELETED) */}
-      {activeTab === 'invalid' && (
-        <div className="space-y-6">
-          <div className="p-4 bg-amber-950/30 border border-amber-500/40 rounded-xl">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-sm font-bold text-amber-200">Separated Invalid &amp; Unverified Emails (Not Deleted)</h3>
-                <p className="text-xs text-zinc-400 mt-1">
-                  These emails were identified as non-deliverable (e.g. domain does not exist, missing MX records, disposable domain, or malformed syntax). 
-                  They are kept safely here so your Gmail reputation stays 100% protected. You can filter them by company or restore any contact to Active.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Company-wise Filter & Search bar for Invalid Tab */}
-          <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-3 flex-1">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <input
-                  type="text"
-                  placeholder="Search invalid emails or failure reasons..."
-                  value={invalidSearch}
-                  onChange={(e) => setInvalidSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              {/* Companywise Filter */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-zinc-400">Filter Company:</span>
-                <select
-                  value={invalidCompanyFilter}
-                  onChange={(e) => setInvalidCompanyFilter(e.target.value)}
-                  className="bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500 font-medium"
-                >
-                  <option value="all">All Companies ({Object.keys(invalidGroupedContacts).length})</option>
-                  {Object.keys(invalidGroupedContacts).sort().map(comp => (
-                    <option key={comp} value={comp}>{comp} ({invalidGroupedContacts[comp].length})</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <button
-              onClick={handleValidateDeliverability}
-              disabled={validatingEmails}
-              className="bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-500/30 px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${validatingEmails ? 'animate-spin' : ''}`} />
-              Re-Scan Deliverability
-            </button>
-          </div>
-
-          {/* Invalid Contacts List Grouped by Company */}
-          {Object.keys(invalidGroupedContacts).length === 0 ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-12 text-center space-y-3">
-              <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
-              <h3 className="text-base font-bold text-zinc-200">No Invalid Emails Found</h3>
-              <p className="text-xs text-zinc-400 max-w-md mx-auto">
-                {invalidContactsList.length === 0
-                  ? 'All contacts have verified deliverable MX mail servers and valid formats! Hit "Validate Emails (SMTP/MX)" above anytime to verify.'
-                  : 'No invalid emails matched your current company or search filter.'}
-              </p>
-            </div>
-          ) : (
-            Object.entries(invalidGroupedContacts).map(([company, companyContacts]) => (
-              <div key={company} className="bg-zinc-900 border border-amber-500/20 rounded-xl overflow-hidden shadow-sm">
-                <div className="p-4 bg-zinc-950/60 border-b border-zinc-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <h2 className="text-base font-extrabold text-zinc-100">{company}</h2>
-                    <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-2.5 py-0.5 rounded-full font-bold">
-                      {companyContacts.length} invalid email{companyContacts.length > 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => handleRestoreCompanyToValid(company)}
-                    className="px-3 py-1.5 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-                    title={`Move all ${company} contacts back to Active Contacts`}
-                  >
-                    ✓ Move All to Active
-                  </button>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-sm">
-                    <thead className="bg-zinc-950/40 text-zinc-400 text-[11px] font-bold uppercase tracking-wider border-b border-zinc-800">
-                      <tr>
-                        <th className="py-2.5 px-4">Recruiter / HR</th>
-                        <th className="py-2.5 px-4">Separated Email Address</th>
-                        <th className="py-2.5 px-4">Deliverability Failure Reason</th>
-                        <th className="py-2.5 px-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800/50">
-                      {companyContacts.map(contact => (
-                        <tr key={contact._id} className="hover:bg-zinc-800/30 transition">
-                          <td className="py-3 px-4 text-zinc-300 font-medium">
-                            {contact.hrName || 'Professional contact'}
-                              {contact.inferenceFlag && <span className="ml-2 text-xs text-amber-300">Guessed · mailbox unverified</span>}
-                              {!contact.inferenceFlag && contact.verificationStatus==='publicly_sourced' && <span className="ml-2 text-xs text-zinc-500">{contact.deliverabilityStatus==='unverified'?'Public source · mailbox unverified':'Public source'}</span>}
-                              {contact.contactKind && contact.contactKind!=='unknown' && <span className="ml-2 text-xs text-zinc-500">{contact.contactKind}</span>}
-                          </td>
-                          <td className="py-3 px-4 font-mono text-xs text-red-400 font-bold">
-                            {contact.email}
-                          </td>
-                          <td className="py-3 px-4 text-xs">
-                            <span className="px-2 py-0.5 rounded bg-red-950/60 border border-red-800/60 text-red-300 text-[11px] font-semibold">
-                              ⚠️ {contact.validationReason || 'Failed DNS MX check'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => handleRestoreToValid(contact._id)}
-                                className="px-3 py-1.5 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 rounded-lg text-xs font-bold transition cursor-pointer"
-                                title="Override check and move this contact back to Active Contacts"
-                              >
-                                ✓ Move to Active
-                              </button>
-                              <button
-                                onClick={() => copySingleEmail(contact.email)}
-                                className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-amber-300 rounded-lg text-xs font-bold transition cursor-pointer"
-                                title={`Copy ${contact.email} to clipboard`}
-                              >
-                                <Copy className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setContactToDelete(contact)}
-                                className="p-1.5 bg-zinc-800 hover:bg-red-950/60 border border-transparent hover:border-red-800 text-zinc-400 hover:text-red-400 rounded-lg text-xs font-bold transition cursor-pointer"
-                                title="Remove Invalid Contact Permanently"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
       {showCompose && (
         <ComposePanel 
           selectedIds={composeData.ids} 

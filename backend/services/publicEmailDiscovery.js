@@ -106,14 +106,15 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
       url=approvedUrl(new URL(response.location,url));
     }
   }
-  const robots=await permission(domain),limited=robots===null,queue=[`https://${domain}/`];let linkedFallback=false;
-  if(robots!==null&&!robotsAllows(robots,'/'))return {emails:[],reason:'Robots disallows discovery',requestsUsed};
+  const robots=await permission(domain),limited=robots===null,queue=[`https://${domain}/`];let linkedFallback=false,pagesRead=0;
+  if(robots!==null&&!robotsAllows(robots,'/'))return {emails:[],reason:'Robots disallows discovery',pagesRead:0,requestsUsed};
   while(queue.length&&requestsUsed<maxRequests){
     const address=queue.shift();if(visited.has(address))continue;visited.add(address);
     try{
       const response=await page(approvedUrl(address));if(response.status!==200)continue;
       const finalUrl=new URL(response.url);
       if(response.contentType.includes('text/html')){
+        pagesRead++;
         for(const row of extractProfessionalEmails(response.text,response.url,domain))found.set(row.email,row);
         for(const person of require('./professionalPatternService').extractPeople(response.text,response.url,domain)){people.set(person.name,person);if(person.email)found.set(person.email,{...person,confidence:'published_context',verification:'publicly_listed_not_mailbox_verified'});}
         const links=linkedPages(response.text,response.url,domain,{fallback:limited});
@@ -129,7 +130,7 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
     if(fetchPage===fetchPublicPage&&queue.length&&requestsUsed<maxRequests)await new Promise(resolve=>setTimeout(resolve,500));
   }
   const inferred=require('./professionalPatternService').inferCandidates({people:[...people.values()],published:[...found.values()],domain});
-  const result={people:[...people.values()].filter(person=>!person.email).slice(0,100),emails:[...found.values(),...inferred].slice(0,100),requestsUsed,limitedByRobots:limited,pagesVisited:[...visited],reason:errors.length?errors.join('; '):found.size?null:'No published professional recruiting contacts found in checked pages'};
+  const result={pagesRead,people:[...people.values()].filter(person=>!person.email).slice(0,100),emails:[...found.values(),...inferred].slice(0,100),requestsUsed,limitedByRobots:limited,pagesVisited:[...visited],reason:errors.length?errors.join('; '):found.size?null:'No published professional recruiting contacts found in checked pages'};
   if(fetchPage===fetchPublicPage){if(cache.size>=500)cache.delete(cache.keys().next().value);cache.set(cacheKey,{expires:Date.now()+86400000,result});}
   return result;
 }

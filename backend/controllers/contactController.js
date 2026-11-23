@@ -58,14 +58,26 @@ exports.getContacts = async (req, res) => {
     ];
 
     const contacts = await Contact.find(query)
-      .select('company hrName email package role source linkedinUrl status isShared deliverabilityStatus validationReason replySnippet lastMailedAt repliedAt notes createdAt verificationStatus inferenceFlag smtpConnectivity contactKind provenance')
+      .select('company hrName email package role source linkedinUrl status isShared deliverabilityStatus validationReason replySnippet lastMailedAt repliedAt notes createdAt verificationStatus inferenceFlag smtpConnectivity contactKind provenance suppressedAt optOutAt')
       .sort({ createdAt: -1 })
       .lean();
 
     for(const contact of contacts)contact.company=require('../services/companyIdentityService').canonicalCompany(contact.company);
     const blocks = await require('../models/RecipientSuppression').find({userId:req.user._id,email:{$in:contacts.map(c=>String(c.email||'').trim().toLowerCase())}}).select('email source').lean();
     const blocked = new Map(blocks.map(row=>[row.email,row.source]));
-    for(const contact of contacts){contact.emailBlocked=blocked.has(String(contact.email||'').trim().toLowerCase());contact.emailBlockSource=blocked.get(String(contact.email||'').trim().toLowerCase())||null;}
+    const verificationEmails = contacts.filter(contact => contact.verificationStatus==='vendor_verified')
+      .map(contact => contact.email.trim().toLowerCase());
+    const latestProofs = verificationEmails.length ? await require('../models/MailboxProof').aggregate([
+      {$match:{userId:new Contact.base.Types.ObjectId(req.user._id),email:{$in:verificationEmails}}},
+      {$sort:{checkedAt:-1,_id:-1}},{$group:{_id:'$email',outcome:{$first:'$outcome'},expiresAt:{$first:'$expiresAt'}}}
+    ]) : [];
+    const proofByEmail = new Map(latestProofs.map(proof => [proof._id,proof]));
+    for (const contact of contacts) {
+      const email=String(contact.email||'').trim().toLowerCase(),proof=proofByEmail.get(email);
+      contact.emailBlocked=blocked.has(email);
+      contact.emailBlockSource=blocked.get(email)||null;
+      contact.mailboxVerified=proof?.outcome==='valid' && proof.expiresAt>new Date();
+    }
     if (isUnfiltered) {
       contactCache.set(cacheKey, { data: contacts, timestamp: Date.now() });
     }

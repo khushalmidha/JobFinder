@@ -2,7 +2,7 @@ const mongoose=require('mongoose'),crypto=require('node:crypto');
 const Lead=require('../models/ProfessionalLead'),Contact=require('../models/Contact'),Suppression=require('../models/RecipientSuppression');
 const smtp=require('./smtpConnectivityService');
 const {allowedDiscoveryDomain}=require('./publicEmailDiscovery');
-async function importLeads({userId,leadIds,domainCheck=smtp.resolveAuditDomain,probe=smtp.probeSmtpServer,reserve=require('./researchBudgetService').reserveResearch}={}){
+async function importLeads({userId,leadIds,allowPublicUnverified=false,domainCheck=smtp.resolveAuditDomain,probe=smtp.probeSmtpServer,reserve=require('./researchBudgetService').reserveResearch}={}){
  if(!mongoose.isValidObjectId(userId)||!Array.isArray(leadIds)||!leadIds.length||leadIds.length>100||leadIds.some(id=>!mongoose.isValidObjectId(id)))throw Error('Select 1 to 100 owned research leads');
  const owner=await require('../models/User').findById(userId).select('blockedCompanies').lean();if(!owner)throw Error('Owner not found');
  const rows=await Lead.find({userId,_id:{$in:leadIds}}).lean(),key=require('./companyIdentityService').companyKey;
@@ -35,7 +35,9 @@ async function importLeads({userId,leadIds,domainCheck=smtp.resolveAuditDomain,p
   if(!companies.has(lead.company))companies.set(lead.company,require('../models/Company').findOne({name:require('./companyIdentityService').canonicalCompany(lead.company)}).select('_id').lean().exec());
   const company=await companies.get(lead.company);
   const payload={companyId:company?._id,company:lead.company,hrName:lead.name||lead.title||'Recruiting inbox',email,role:lead.title,contactKind:lead.kind,source:'career_crawler',inferenceFlag:lead.inferenceFlag===true,provenance:[{url:lead.sourceUrl,provider:lead.inferenceFlag?'observed_pattern':lead.sourceType||'official_public_page',observedAt:lead.observedAt},...(lead.patternEvidence||[]).map(p=>({url:p.url,provider:'pattern_example',observedAt:lead.observedAt}))]};
-  if(require('./contactAdmissionService').enabled()){const intake=await require('./contactAdmissionService').intake(userId,[payload]);report.staged+=intake.staged;report.added+=intake.added;report.excluded+=intake.rejected;return;}
+  const autoSourced = allowPublicUnverified && lead.sourceType==='official_public_page' &&
+    ['recruiter','role_inbox','hiring_manager','engineer'].includes(lead.kind) && proof?.outcome!=='valid';
+  if(require('./contactAdmissionService').enabled()&&!autoSourced){const intake=await require('./contactAdmissionService').intake(userId,[payload]);report.staged+=intake.staged;report.added+=intake.added;report.excluded+=intake.rejected;return;}
   const stableId=new mongoose.Types.ObjectId(crypto.createHash('sha256').update('professional-sheet:'+userId+':'+email).digest('hex').slice(0,24));
   const result=await Contact.updateOne({_id:stableId,userId},{$setOnInsert:{...payload,userId,smtpConnectivity:connectivity,verificationStatus:lead.inferenceFlag?'inferred_unverified':'publicly_sourced',deliverabilityStatus:'unverified',notes:`${lead.inferenceFlag?'Inferred work address; pattern '+lead.pattern+'. ':'Published professional address. '}Mailbox existence unverified. SMTP server: ${checked.smtp.status}. Role/employer as published, not independently employment-verified.`}},{upsert:true,runValidators:true});
   await Lead.updateOne({_id:lead._id,userId},{$set:{importedToContactAt:new Date()}});

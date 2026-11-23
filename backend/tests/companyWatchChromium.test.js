@@ -99,14 +99,9 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     await panel.getByText('Saved Software Opening',{exact:true}).waitFor();
     assert.equal(await panel.getByRole('link',{name:'Open saved official posting',exact:true}).getAttribute('href'),'https://saved.example/jobs/1');
     await page.getByRole('link',{name:'Mails',exact:true}).click();
-    await page.getByText('Find HR, recruiters, managers & SDE contacts',{exact:true}).click();
-    await page.getByRole('button',{name:'Review saved contacts',exact:true}).click();
-    await page.getByText('Published address required',{exact:true}).waitFor();
-    await page.getByRole('button',{name:'Add selected to Emails',exact:true}).click();
-    await page.getByText(/Added 3; existing 0; excluded 0; awaiting checks 0/).waitFor();
+    await page.getByRole('button',{name:/^Unverified/}).waitFor();
     await page.getByLabel('Contact type',{exact:true}).selectOption('engineer');
     assert.equal(await page.getByRole('row').filter({hasText:'dev.shah@employer.example'}).count(),0);
-    assert.equal(await page.getByRole('row').filter({hasText:'riya@employer.example'}).count(),0);
     assert.equal(await require('../models/Contact').countDocuments({userId:other._id}),0);
     for(const contact of await require('../models/Contact').find())assert.equal(contact.deliverabilityStatus,'unverified');
     for (const width of [390, 1280]) {
@@ -115,13 +110,11 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
       await page.getByLabel('July 2027 graduation').waitFor();
       assert.ok(await page.getByLabel('Sponsorship').isVisible());
       await page.getByRole('link',{name:'Mails',exact:true}).click();
-      await page.getByText('Find HR, recruiters, managers & SDE contacts',{exact:true}).waitFor();
+      await page.getByRole('button',{name:/^Unverified/}).waitFor();
       assert.ok(await page.getByRole('link',{name:'Mails',exact:true}).isVisible());
-      await page.getByText('Contact actions',{exact:true}).click();
-      assert.ok(await page.getByRole('button',{name:'Scan Bounces'}).isVisible());
     }
     assert.equal(externalRequests,0);
-    assert.equal(await require('../models/Contact').countDocuments(),3);
+    assert.equal(await require('../models/Contact').countDocuments(),0);
     assert.equal(await require('../models/MailLog').countDocuments(),0);
     assert.equal(await require('../models/ResearchUsage').countDocuments(),0);
   }finally{

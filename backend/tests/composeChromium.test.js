@@ -337,13 +337,6 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     await page.reload();assert.equal((await Campaign.findById(latestScheduled._id)).approvedDigest,latestScheduled.digest);
     console.log('PASS: unified ColdMail composer immediate default, optional date/time/timezone, past-time rejection, schedule re-preview and durable approval; no real delivery');
 
-    await page.goto(base+'/campaigns');await page.getByRole('heading',{name:'Outreach Queue',exact:true}).waitFor();await page.getByText('Advanced campaign editor',{exact:true}).click();
-    const advanced=page.locator('section[aria-labelledby="campaign-editor"]');await advanced.getByRole('combobox',{name:/Sender account/}).selectOption('smtp-browser-primary');
-    await advanced.getByLabel('Automatically switch between approved sender accounts when a daily limit is reached',{exact:true}).check();
-    await advanced.getByLabel('Approve fallback backup@example.org',{exact:true}).check();await advanced.getByLabel('Approve fallback alternate@example.org',{exact:true}).check();
-    assert.equal(await advanced.getByLabel('Maximum per day',{exact:true}).inputValue(),'1350');
-    await advanced.getByRole('combobox',{name:/Sender account/}).selectOption('smtp-browser-backup');assert.equal(await advanced.getByLabel('Maximum per day',{exact:true}).inputValue(),'900');
-    console.log('PASS: exact approved sender list/caps in main composer, sender edits clear approval, and promoting a fallback clamps the advanced campaign budget; real delivery=0');
     await Contact.create({userId:ownerId,companyId:company._id,company:company.name,email:'dave.hr@alphatech.example',verificationStatus:'unknown'});
     require('../controllers/contactController').invalidateContactCache(ownerId);
     await Company.updateOne({_id:company._id},{$set:{salaryEvidence:[]}});
@@ -358,7 +351,6 @@ test('Chromium ComposePanel E2E: recipients, exclusions, sender, flags, re-previ
     await page.getByLabel('Send date',{exact:true}).fill(recoveryDay);await page.getByLabel('Send time',{exact:true}).fill('09:00');await page.getByLabel('Schedule timezone',{exact:true}).selectOption('Asia/Kolkata');
     await page.getByRole('button',{name:'Review & Preview',exact:true}).click();await modal.waitFor();
     await modal.getByText(/These addresses lack a current trusted mailbox-verification result/).waitFor();
-    await modal.getByRole('link',{name:'Email Checks',exact:true}).waitFor();
     await modal.getByText(/All selected recipients were excluded. Review each reason above/).waitFor();
     assert.equal(await Campaign.countDocuments({userId:ownerId,state:'scheduled'}),2);
     // Production can have admission off and still exclude missing public source

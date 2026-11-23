@@ -60,3 +60,19 @@ test('a company block arriving during SMTP checks prevents main-sheet insertion'
  const row=await Lead.create(lead());const result=await importLeads({userId:owner._id,leadIds:[row._id],...deps,probe:async()=>{await User.updateOne({_id:owner._id},{$set:{blockedCompanies:['Employer']}});return {status:'smtp_reachable',mailboxVerified:false};}});
  assert.equal(result.added,0);assert.equal(result.excluded,1);assert.equal(await Contact.countDocuments(),0);
 });
+
+test('background imports sourced research as unverified under strict admission, with normal proof rules intact',async()=>{
+ process.env.CONTACT_ADMISSION_ENABLED='true';
+ const [published,guessed,blocked]=await Lead.create([
+  lead(),lead({email:'guess@employer.example',inferenceFlag:true}),lead({email:'block@employer.example'})
+ ]);
+ await Suppression.create({userId:owner._id,email:blocked.email,source:'owner_block',reason:'Blocked'});
+ const options={userId:owner._id,leadIds:[published._id,guessed._id,blocked._id],allowPublicUnverified:true,...deps};
+ const result=await importLeads(options);
+ assert.equal(result.added,1);assert.equal(result.excluded,2);
+ assert.equal((await importLeads(options)).duplicates,1);
+ const contact=await Contact.findOne();
+ assert.equal(contact.verificationStatus,'publicly_sourced');
+ assert.equal(contact.deliverabilityStatus,'unverified');
+ assert.equal(contact.smtpConnectivity.mailboxVerified,false);
+});

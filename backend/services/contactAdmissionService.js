@@ -32,6 +32,16 @@ async function stage(userId,input,state,reason,domainStatus) {
 async function assertAdmission(doc) {
   if (!enabled()) return;
   const email = normalize(doc.email);
+  if (doc.source === 'career_crawler' && doc.verificationStatus === 'publicly_sourced' &&
+      doc.deliverabilityStatus === 'unverified' && doc.inferenceFlag !== true && syntaxDisposition(email) === 'supported') {
+    const lead = await require('../models/ProfessionalLead').findOne({
+      userId: doc.userId, email, inferenceFlag: {$ne:true}, sourceType:'official_public_page',
+      observedAt: {$gte:new Date(Date.now()-30*86400000)}
+    }).lean();
+    if (lead && doc.provenance?.some(entry => entry.url === lead.sourceUrl) &&
+        !await Suppression.exists({userId:doc.userId,email}) &&
+        (await latestProof(doc.userId,email))?.outcome !== 'invalid') return;
+  }
   const proof = await validProof(doc.userId,email);
   if (!proof) {
     const invalid = syntaxDisposition(email) === 'invalid';

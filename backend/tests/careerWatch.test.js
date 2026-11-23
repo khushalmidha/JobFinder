@@ -237,3 +237,16 @@ test('two complete Greenhouse misses hide the job and a returning listing restor
  assert.equal((await request('/jobs')).data.jobs[0]._id,String(saved._id));
  assert.equal(await Notification.countDocuments({userId:owner}),1);
 });
+
+test('background contact discovery runs independently of job portal mapping under a durable lease',async()=>{
+ const task=await seed();
+ await Task.updateOne({_id:task._id},{$set:{employerDomain:'fixture.example',portalStatus:'needs_portal_mapping'}});
+ const config={userId:owner,autoImportContacts:true};
+ let calls=0;
+ const discover=async options=>{
+  calls++;assert.equal(options.allowPublicUnverified,true);assert.equal(options.saveToContacts,true);
+  assert.deepEqual(options.domains,['fixture.example']);return {companies:[{status:'complete'}]};
+ };
+ await Promise.all([service.scanDueContacts(config,{discover}),service.scanDueContacts(config,{discover})]);
+ assert.equal(calls,1);assert.ok((await Task.findById(task._id)).lastContactScanAt);
+});
