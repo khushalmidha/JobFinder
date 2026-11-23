@@ -33,6 +33,20 @@ async function main() {
     await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime'].map(m=>require(`../models/${m}`).init()));
     app.all('/submitted',(_req,res)=>{submissions++;res.send('Unexpected submission');});
     app.get('/fixture',(_req,res)=>res.type('html').send(`<!doctype html><title>Synthetic form QA</title><h1>Local Workday / Google-style fixture</h1><p>No real employer or applicant data.</p><form action="/submitted"><label>First name <input id="first" data-automation-id="legalNameSection_firstName"></label><label>Expected salary <input id="salary"></label><button type="button" role="combobox" aria-label="Country" aria-controls="countries">Select</button><div id="countries" role="listbox" hidden><div role="option">India</div></div><div role="combobox" aria-label="State" aria-controls="states">Canada</div><div id="states" hidden><div role="option">Karnataka</div></div><label><input id="consent" type="checkbox">I consent to use my email</label><button>Submit application</button></form><script>window.blocked=0;const trigger=document.querySelector('button[role=combobox]');trigger.onclick=()=>{document.querySelector('#countries').hidden=false};document.querySelector('[role=option]').onclick=()=>{trigger.setAttribute('data-value','India');trigger.textContent='India';for(const method of ['submit','requestSubmit']){try{document.querySelector('form')[method]()}catch{window.blocked++}}};</script>`));
+    app.get('/one-click-fixture', (_req, res) => res.type('html').send(`<!doctype html>
+      <form action="/submitted">
+        <label>Degree <select required id="degree"><option value="placeholder" disabled selected>Choose degree</option><option value="btech">B.Tech</option></select></label>
+        <div id="dependent"></div>
+        <label>Tell us about yourself <textarea id="intro" required></textarea></label>
+        <label>Describe a project <textarea id="project"></textarea></label>
+        <label>Expected salary <input id="salary"></label>
+        <button>Submit application</button>
+      </form>
+      <script>
+        document.querySelector('#degree').onchange = () => {
+          document.querySelector('#dependent').innerHTML = '<label>College <input id="college"></label>';
+        };
+      </script>`));
     const web=path.resolve(__dirname,'../../web/dist');app.use(express.static(web));app.get('/{*splat}',(_req,res)=>res.sendFile('index.html',{root:web}));
     await new Promise(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});const base=`http://127.0.0.1:${server.address().port}`;
     const extensionPath=path.resolve(__dirname,'../../extension/dist');
@@ -61,7 +75,7 @@ async function main() {
     console.log('PASS: packaged MV3 preview/fill, prefilled preservation, sensitive fields, main-world submit/requestSubmit guards; submissions=0');
     // Exercise actual built React import/review controls, not just normalization helpers.
     await popup.getByText('Edit candidate profile', { exact:true }).click();
-    const canonical={identity:{name:'Reviewed Synthetic Applicant',email:'reviewed@example.org',phone:'+919000000001'},education:[{institute:'Synthetic University',degree:'B.Tech',branch:'Computer Science',cgpa:8.8,end:'2027-07'}],preferences:{work_authorization:'TODO'}};
+    const canonical={identity:{name:'Reviewed Synthetic Applicant',email:'reviewed@example.org',phone:'+919000000001'},education:[{institute:'Synthetic University',degree:'B.Tech',branch:'Computer Science',cgpa:8.8,end:'2027-07'}],preferences:{work_authorization:'TODO'},projects:[{name:'Synthetic Ranking',one_line:'Built a ranking fixture using Python'}]};
     await popup.getByLabel('Import resume profile JSON').setInputFiles({name:'synthetic-profile.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(canonical))});
     await popup.getByText('Imported locally. Review the facts and save before filling.',{exact:true}).waitFor();
     assert.equal((await popup.evaluate(()=>chrome.storage.local.get('candidateProfileReviewed'))).candidateProfileReviewed,false);
@@ -72,10 +86,56 @@ async function main() {
     await popup.getByText('Profile saved locally. Preview the current step.',{exact:true}).waitFor();
     const reviewed=await popup.evaluate(()=>chrome.storage.local.get(['candidateProfile','candidateProfileReviewed','candidateProfileVersion']));
     assert.equal(reviewed.candidateProfile.firstName,'Reviewed');assert.equal(reviewed.candidateProfile.preferences.work_authorization,null);assert.equal(reviewed.candidateProfileReviewed,true);
-    await popup.evaluate(async({base})=>{const [tab]=await chrome.tabs.query({url:base+'/fixture'});await chrome.tabs.sendMessage(tab.id,{action:'JF_PREVIEW'},{frameId:0});},{base});
+    // The popup is a regular extension tab in headless Chromium. Point its active-tab
+    // lookup at the local fixture so the real button and message path can be exercised.
+    await fixture.goto(base + '/one-click-fixture');
+    await popup.evaluate(async ({ base }) => {
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      const [target] = await query({ url: base + '/one-click-fixture' });
+      chrome.tabs.query = options => options.active ? Promise.resolve([target]) : query(options);
+    }, { base });
+    await popup.getByRole('button', { name: 'Fill this step', exact: true }).click();
+    await popup.getByText(/2 verified fills/).waitFor();
+    assert.equal(await fixture.locator('#degree').inputValue(), 'btech');
+    assert.equal(await fixture.locator('#college').inputValue(), 'Synthetic University');
+    assert.equal(await fixture.locator('#salary').inputValue(), '');
+    assert.equal(await fixture.locator('#intro').inputValue(), '');
+    const draft = popup.getByLabel('Answer: Tell us about yourself', { exact: true });
+    assert.match(await draft.inputValue(), /Synthetic University/);
+    await draft.locator('..').getByRole('button', { name: 'Approve, remember & fill' }).click();
+    await popup.getByText(/1 verified fills/).waitFor();
+    assert.match(await fixture.locator('#intro').inputValue(), /Synthetic University/);
+    await popup.evaluate(() => {
+      Object.defineProperty(globalThis, 'LanguageModel', { configurable: true, value: {
+        async create() {
+          return {
+            async prompt(payload) {
+              const input = JSON.parse(payload);
+              if (input.question !== 'Describe a project' || payload.includes('reviewed@example.org') ||
+                  input.resumeDetails.supportingEvidence[0]?.text !== 'Built a ranking fixture using Python') {
+                throw new Error('Incorrect AI draft evidence');
+              }
+              return 'I built a ranking fixture using Python.';
+            },
+            destroy() {}
+          };
+        }
+      } });
+    });
+    await popup.getByLabel('Answer: Describe a project', { exact: true }).locator('../..')
+      .getByRole('button', { name: 'Draft with AI', exact: true }).click();
+    await popup.getByLabel('Built a ranking fixture using Python', { exact: true }).check();
+    await popup.getByRole('button', { name: 'Draft with Chrome AI', exact: true }).click();
+    assert.equal(await popup.getByLabel('Review written answer').inputValue(), 'I built a ranking fixture using Python.');
+    assert.equal(await fixture.locator('#project').inputValue(), '');
+    await popup.getByRole('button', { name: 'Approve & fill this question', exact: true }).click();
+    await fixture.waitForFunction(() => document.querySelector('#project').value === 'I built a ranking fixture using Python.');
+    assert.equal(submissions, 0);
+    console.log('PASS: one-click popup, dependent field re-scan and reviewed resume draft; submissions=0');
+    await popup.evaluate(async()=>{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});await chrome.tabs.sendMessage(tab.id,{action:'JF_PREVIEW'},{frameId:0});});
     await popup.getByLabel('Candidate profile JSON').fill(JSON.stringify({...canonical,identity:{...canonical.identity,name:'Edited Synthetic Applicant'}},null,2));
     assert.equal((await popup.evaluate(()=>chrome.storage.local.get('candidateProfileReviewed'))).candidateProfileReviewed,false);
-    const changed=await popup.evaluate(async({base})=>{const [tab]=await chrome.tabs.query({url:base+'/fixture'});return chrome.tabs.sendMessage(tab.id,{action:'JF_FILL'},{frameId:0});},{base});
+    const changed=await popup.evaluate(async()=>{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});return chrome.tabs.sendMessage(tab.id,{action:'JF_FILL'},{frameId:0});});
     assert.equal(changed.success,false);assert.match(changed.error,/Profile changed/);assert.equal(submissions,0);
     console.log('PASS: actual MV3 JSON file import, mandatory fact review, canonical save and edit invalidation; submissions=0');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);

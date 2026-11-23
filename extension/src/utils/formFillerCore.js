@@ -169,13 +169,17 @@ function emptyDropdownPrompt(el, displayed) {
 }
 function currentValue(el) {
   const role = el.getAttribute('role') || (el.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
+  if (el.tagName === 'SELECT' && !el.multiple) {
+    const option = el.selectedOptions[0];
+    return !option || option.matches(':disabled') ? '' : el.value;
+  }
   if(el.type==='radio')return radioGroup(el).some(r=>r.checked)?'selected':'';
   if (role === 'radiogroup') return el.querySelector('[aria-checked="true"]')?.getAttribute('data-value') || text(el.querySelector('[aria-checked="true"]'));
   if (['checkbox', 'radio'].includes(el.type) || role === 'checkbox') return (el.checked || el.getAttribute('aria-checked') === 'true') ? 'checked' : '';
   if (role === 'combobox' || role === 'listbox') {
     const explicit = el.getAttribute('aria-valuetext') || el.value || el.getAttribute('data-value');
     if (explicit) return explicit;
-    const displayed = text(el);
+    const displayed = questionText(el);
     // Match a known prompt or this field's label, never arbitrary Select-prefixed text.
     return emptyDropdownPrompt(el, displayed) ? '' : displayed;
   }
@@ -196,7 +200,7 @@ function safeClick(el) {
 const exactOption = (items, value) => {
   const matches = [...items].filter(el => {
     const label = el.tagName === 'OPTION' ? el.label : el.getAttribute('aria-label') || [...(el.labels || [])].map(text).join(' ') || text(el);
-    return !el.disabled && norm(label || el.getAttribute('data-value') || el.value) === norm(value);
+    return !el.matches(':disabled') && el.getAttribute('aria-disabled') !== 'true' && norm(label || el.getAttribute('data-value') || el.value) === norm(value);
   });
   if (matches.length !== 1) throw new Error('No unique exact option; choose manually.');
   return matches[0];
@@ -205,15 +209,15 @@ async function waitForChoice(el, value, stopped) {
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline && !stopped() && el.isConnected) {
     const popupId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-    if (popupId && !/\s/.test(popupId)) {
-      const popup = el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId);
-      if (popup && rendered(popup)) {
-        const options = [...popup.querySelectorAll('[role="option"]')].filter(option =>
-          rendered(option) && option.getAttribute('aria-disabled') !== 'true' &&
-          norm(option.getAttribute('aria-label') || text(option)) === norm(value));
-        if (options.length > 1) throw new Error('Ambiguous dropdown options.');
-        if (options.length === 1) return options[0];
-      }
+    const popup = popupId && !/\s/.test(popupId)
+      ? el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId)
+      : !popupId ? el : null;
+    if (popup && rendered(popup)) {
+      const options = [...popup.querySelectorAll('[role="option"]')].filter(option =>
+        rendered(option) && !option.closest('[hidden], [aria-hidden="true"], [aria-disabled="true"]') &&
+        norm(option.getAttribute('aria-label') || text(option)) === norm(value));
+      if (options.length > 1) throw new Error('Ambiguous dropdown options.');
+      if (options.length === 1) return options[0];
     }
     await new Promise(resolve => setTimeout(resolve, 25));
   }
@@ -237,9 +241,40 @@ export class FormFillSession {
   }
   stop() { this.stopped = true; this.state = 'STOPPED'; }
   report() {
-    return { state: this.state, rescanRequired: !!this.rescanRequired, fields: this.rows.map(({ element: _element, ...row }) => row),
+    return { state: this.state, rescanRequired: !!this.rescanRequired, fields: this.rows.map(({ element: _element, committedValue: _committedValue, ...row }) => row),
       filledCount: this.rows.filter(r => r.outcome === 'filled').length,
       needsReviewCount: this.rows.filter(r => r.action === 'needs_review' || r.outcome === 'needs_review').length };
+  }
+  async fillStep(profile) {
+    this.scan(profile);
+    const guardedDocuments = new Set(this.rows.map(row => row.element.ownerDocument));
+    const attempted = new Map();
+    for (let pass = 0; pass < 3; pass++) {
+      if (pass) {
+        this.scan(profile);
+        for (const row of this.rows) {
+          const previous = attempted.get(row.context.scope);
+          if (previous?.outcome === 'filled' && row.before === previous.committedValue) {
+            row.outcome = 'filled';
+            row.committedValue = previous.committedValue;
+          }
+          if (previous?.element === row.element && previous.outcome === 'needs_review' &&
+              JSON.stringify(previous.context) === JSON.stringify(row.context)) {
+            row.action = 'needs_review';
+            row.outcome = previous.outcome;
+            row.reason = previous.reason;
+          }
+          if (!guardedDocuments.has(row.element.ownerDocument)) {
+            row.action = 'needs_review';
+            row.reason = 'New application frame. Start fill again to review it.';
+          }
+        }
+      }
+      const report = await this.fill();
+      for (const row of this.rows) attempted.set(row.context.scope, row);
+      if (this.stopped || !report.rescanRequired) return report;
+    }
+    return this.report();
   }
   async fill() {
     if (this.state !== 'PLAN') throw new Error('Preview this step before filling.');
@@ -277,6 +312,7 @@ export class FormFillSession {
             const option=exactOption(radioGroup(el),value);safeClick(option);
             if(!option.checked)throw new Error('Radio selection was not retained.');
           } else if (type === 'select') {
+            if (el.multiple) throw new Error('Review multiple selections manually.');
             const choice = exactOption(el.options, value);
             if ([...el.options].filter(option => option.value === choice.value).length !== 1) throw new Error('Duplicate option values require manual selection.');
             setValue(el, choice.value);
@@ -305,11 +341,14 @@ export class FormFillSession {
           if (el.type!=='radio' && !['combobox', 'listbox', 'radiogroup', 'checkbox'].includes(type) && norm(el.value) !== norm(type === 'select' ? exactOption(el.options, value).value : value)) throw new Error('Value was not retained.');
           if (typeof row.element.checkValidity === 'function' && !row.element.checkValidity()) throw new Error('Site validation requires review.');
           row.outcome = 'filled';
+          row.committedValue = currentValue(row.element);
         } catch (error) { row.outcome = 'needs_review'; row.reason = error.message; }
       }
       if (!this.stopped) {
         const known = new Set(this.rows.map(row => row.element));
-        this.rescanRequired = collectFields(this.root).some(control => !known.has(control));
+        this.rescanRequired = collectFields(this.root).some(control => !known.has(control)) ||
+          this.rows.some(row => row.outcome === 'needs_review' && row.element.isConnected &&
+            JSON.stringify({ ...extractQuestionContext(row.element), scope: answerScope(row.element) }) !== JSON.stringify(row.context));
         this.state = this.rescanRequired || this.rows.some(r => r.action === 'needs_review' || r.outcome === 'needs_review') ? 'NEEDS_REVIEW' : 'IDLE';
       }
     } finally {
