@@ -31,9 +31,10 @@ function classifyRole(title='',description=''){
  if(fresher||(range&&Number(range[1])===0&&Number(range[2])<=1)||/less than (?:one|1) year|under (?:one|1) year|0\s*[-\u2013\u2014]\s*11\s*months?/.test(text))return {eligibility:'eligible',eligibilityReason:'Explicit fresher or under-one-year eligibility',track:'fte',experienceEvidence:(range||minimum||bare)?.[0]||'Explicit fresher language'};
  return {eligibility:'needs_review',eligibilityReason:'Entry experience requirement not sufficiently explicit',track:'fte',experienceEvidence:(range||minimum||bare)?.[0]||''};
 }
+const INDIA_LOCATION = /\bindia\b|\b(?:bengaluru|bangalore|hyderabad|pune|mumbai|chennai|noida|gurugram|gurgaon|delhi|kolkata|ahmedabad|kochi|coimbatore|indore|jaipur|chandigarh|trivandrum|thiruvananthapuram|mysore)\b|^IN$/i;
 function locationRegion(location){
  const text=String(location||'').trim();
- if(/\bindia\b|\b(?:bengaluru|bangalore|hyderabad|pune|mumbai|chennai|noida|gurugram|gurgaon|delhi|kolkata|ahmedabad|kochi|coimbatore|indore|jaipur|chandigarh|trivandrum|thiruvananthapuram|mysore)\b/i.test(text)||text==='IN')return 'India';
+ if(INDIA_LOCATION.test(text))return 'India';
  if(/\b(?:united states|united kingdom|usa|uk|canada|germany|singapore|japan|australia|france|amsterdam|london|san francisco|new york|seattle|toronto|berlin|munich|tokyo|sydney|dublin|zurich|dubai|emea)\b/i.test(text))return 'overseas';
  return 'unknown';
 }
@@ -110,8 +111,27 @@ function parseJobs(response,url,type){
  }
  return out.map(({baseSalary,leverRange,...job})=>({...job,...postingEvidence({...job,baseSalary,leverRange})}));
 }
+// The official Greenhouse endpoint returns all published posts with a total.
+function fullGreenhouseBoard(response, url) {
+ const board = new URL(url).pathname.match(/^\/v1\/boards\/([a-z0-9_-]+)\/jobs$/i)?.[1];
+ if (!board || new URL(url).hostname!=='boards-api.greenhouse.io') return null;
+ let data;
+ try { data=JSON.parse(response.text); } catch { return null; }
+ if (!Array.isArray(data?.jobs) || data.meta?.total!==data.jobs.length) return null;
+ const scope='greenhouse:'+board.toLowerCase()+':';
+ const keys = data.jobs.map(row=>Number.isSafeInteger(row?.id)&&row.id>0 ? scope+row.id : null);
+ return keys.includes(null)||new Set(keys).size!==keys.length ? null : {scope,keys};
+}
+async function reconcileGreenhouseBoard(userId, board, now) {
+ const scope = {userId,requisitionKey:{$regex:'^'+board.scope}};
+ await Job.updateMany({...scope,requisitionKey:{$in:board.keys,$regex:'^'+board.scope}},
+  {$unset:{boardMissingSince:1,closedAt:1}});
+ const missing={...scope,requisitionKey:{$nin:board.keys,$regex:'^'+board.scope},closedAt:null};
+ await Job.updateMany({...missing,boardMissingSince:{$lte:new Date(+now-INTERVAL_MS)}},{$set:{closedAt:now}});
+ await Job.updateMany({...missing,boardMissingSince:null},{$set:{boardMissingSince:now}});
+}
 async function collectCompanyJobs(task,{fetchPage=fetchPublicPage,maxRequests=12,maxRuntimeSeconds=30,shouldStop=()=>process.env.RESEARCH_STOP==='true',delayMs=fetchPage===fetchPublicPage?250:0}={}){
- const start=Date.now(),robots=new Map(),seen=new Set(),jobs=new Map(),errors=[];let requestsUsed=0;
+ const start=Date.now(),robots=new Map(),seen=new Set(),jobs=new Map(),errors=[],completeBoards=[];let requestsUsed=0;
  if(task.portalStatus==='needs_portal_mapping')return {jobs:[],requestsUsed:0,errors:['Official careers portal mapping required'],status:'needs_portal_mapping',unsupported:true};
  const initial=publicUrl(task.careersUrl||'https://'+task.domain+'/');if(!initial)return {jobs:[],requestsUsed:0,errors:['Invalid careers URL'],status:'unsupported'};
  const root=new URL(initial).hostname;
@@ -137,6 +157,10 @@ async function collectCompanyJobs(task,{fetchPage=fetchPublicPage,maxRequests=12
    const response=await get(item.url,{api:!!item.type});
    if([301,302,303,307,308].includes(response.status)){const next=publicUrl(response.location,item.url);const host=next?new URL(next).hostname:'';if(next&&(item.redirects||0)<2&&(host.replace(/^www\./,'')===root.replace(/^www\./,'')||atsEndpoint(next))){queue.unshift({url:next,redirects:(item.redirects||0)+1});}else errors.push('Unsupported redirect target');continue;}
    if(response.status!==200){errors.push('HTTP '+response.status+' at '+item.url);continue;}
+   if(item.type==='greenhouse'){
+    const board=fullGreenhouseBoard(response,item.url);
+    if(board)completeBoards.push(board);
+   }
    for(const job of parseJobs(response,item.url,item.type))jobs.set(requisitionFromUrl(job.url)?.key || job.url,{...job,...classifyRole(job.title,job.description)});
    if(item.type)continue;
    for(const link of links(response.text,item.url)){
@@ -146,7 +170,7 @@ async function collectCompanyJobs(task,{fetchPage=fetchPublicPage,maxRequests=12
    const direct=atsEndpoint(item.url);if(direct)queue.unshift(direct);
   }catch(error){errors.push(error.message);}
  }
- return {jobs:[...jobs.values()],requestsUsed,errors,status:jobs.size?'ok':errors.length?'restricted_or_error':'no_jobs_or_unsupported',unsupported:!jobs.size};
+ return {jobs:[...jobs.values()],completeBoards,requestsUsed,errors,status:jobs.size?'ok':errors.length?'restricted_or_error':'no_jobs_or_unsupported',unsupported:!jobs.size};
 }
 async function enqueueWatchCompanies(userId,{companyIds}={}){
  const Company=require('../models/Company'),Prospect=require('../models/CompanyProspect');
@@ -219,7 +243,7 @@ async function runCareerWatchOnce({userId,dryRun=true,maxCompanies=1,maxRequests
 
  for(let i=0;i<maxCompanies&&result.requestsUsed<maxRequests&&Date.now()-started<maxRuntimeSeconds*1000;i++){
   let task,token,reserved=0,requestDay;const claimedAt=clock();
-  const order=config?.indiaFocus!==false?{regionPriority:-1,priority:-1,nextScanAt:1}:{priority:-1,nextScanAt:1};
+  const order={regionPriority:-1,priority:-1,nextScanAt:1};
   const query={userId,portalStatus:{$ne:'needs_portal_mapping'},_id:{$nin:visited},nextScanAt:{$lte:claimedAt},$or:[{state:{$ne:'running'}},{leaseUntil:{$lte:claimedAt}}]};
   if(dryRun)task=await Task.findOne(query).sort(order).lean();
   else{
@@ -246,11 +270,15 @@ async function runCareerWatchOnce({userId,dryRun=true,maxCompanies=1,maxRequests
    if(!renewal.matchedCount){result.status='lease_lost';break;}
    const region=locationRegion(row.location),locationPriority=region==='India'?2:region==='unknown'?1:0;
    const updated=await saveCareerJob(userId,{...row,description:row.description.slice(0,20000),company:task.company,domain:task.domain,companyRegion:task.region,locationRegion:region,locationPriority,lastSeenAt:clock(),salaryStatus:'unverified'},clock());
-   if(updated && (!updated.validThrough || updated.validThrough > clock()) && row.eligibility==='eligible'&&(config.indiaFocus===false||region==='India')){
+   if(updated && (!updated.validThrough || updated.validThrough > clock()) && row.eligibility==='eligible'&&(region==='India'||row.remoteEligibility==='india')){
     const note=await Notification.updateOne({userId,jobId:updated._id},{$setOnInsert:{title:row.title,company:task.company,url:row.url}},{upsert:true});result.newJobs+=note.upsertedCount||0;
    }
   }
   if(['stopped','lease_lost'].includes(result.status)){await Task.updateOne(owned(),{$set:{state:'queued'},$unset:{leaseToken:1,leaseUntil:1}});break;}
+  if (report.completeBoards?.length && await Task.exists(owned()) && process.env.RESEARCH_STOP!=='true' &&
+    await Config.exists({userId,enabled:true})) {
+   for (const board of report.completeBoards) await reconcileGreenhouseBoard(userId,board,clock());
+  }
   // Free contact research has an independent, conservative HTTP budget. A weekly
   // refresh avoids spending it repeatedly on the first companies in the queue.
   if(task.employerDomain&&config.discoverContacts!==false&&contactDiscover&&(!task.lastContactScanAt||+clock()-+task.lastContactScanAt>=7*24*3600000)){
@@ -272,4 +300,4 @@ function initCareerWatchScheduler(){
  let busy=false;const tick=async()=>{if(busy||process.env.RESEARCH_STOP==='true')return;busy=true;try{for(const config of await Config.find({enabled:true}).lean())await runCareerWatchOnce({userId:config.userId,dryRun:false,maxCompanies:5,maxRequests:30,maxRuntimeSeconds:45,contactDiscover:process.env.PROFESSIONAL_DISCOVERY_BACKGROUND_ENABLED==='true'?require('./professionalDiscoveryService').runDiscovery:null});}catch(error){console.error('Career watch:',error.message);}finally{busy=false;}};
  tick();const timer=setInterval(tick,10000);timer.unref?.();return {stop:()=>clearInterval(timer)};
 }
-module.exports={INTERVAL_MS,publicUrl,classifyRole,locationRegion,atsEndpoint,parseJobs,collectCompanyJobs,enqueueWatchCompanies,runCareerWatchOnce,initCareerWatchScheduler};
+module.exports={INTERVAL_MS,INDIA_LOCATION,publicUrl,classifyRole,locationRegion,atsEndpoint,parseJobs,collectCompanyJobs,enqueueWatchCompanies,runCareerWatchOnce,initCareerWatchScheduler};

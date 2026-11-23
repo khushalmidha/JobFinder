@@ -663,10 +663,10 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto font-sans">
-      <div className="flex justify-between items-center mb-8">
+    <div className="px-4 py-6 md:px-8 max-w-7xl mx-auto font-sans">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold text-zinc-100">Contacts by Company</h1>
             {!loading && contacts.length > 0 && (
               <span className="bg-zinc-800 text-yellow-500 text-xs px-2.5 py-1 rounded-full font-bold border border-yellow-500/20 shadow-sm">
@@ -674,10 +674,9 @@ const Dashboard = () => {
               </span>
             )}
           </div>
-          <p className="text-zinc-400 text-sm mt-1">Manage outreach per company and inject specific Job Links.</p>
         </div>
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2 bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-800">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
+          <div className="flex max-w-full flex-wrap items-center gap-2 bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-800">
             <span className="text-xs font-medium text-zinc-400">
               Queue: {queueStatus.pending || 0}
             </span>
@@ -733,6 +732,9 @@ const Dashboard = () => {
               {queueStatus.isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
             </button>
           </div>
+          <details className="w-full sm:w-auto">
+            <summary className="cursor-pointer rounded-lg border border-zinc-700 px-3 py-2 text-sm">Contact actions</summary>
+            <div className="mt-2 flex flex-wrap gap-2">
           <button 
             onClick={handleValidateDeliverability}
             disabled={validatingEmails}
@@ -778,6 +780,8 @@ const Dashboard = () => {
             <Download className="w-3.5 h-3.5" />
             <span>{selectedIds.size > 0 ? `Export Excel (${selectedIds.size})` : 'Export Excel'}</span>
           </button>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -1203,8 +1207,8 @@ const Dashboard = () => {
             return (
             <div key={company} className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden shadow-sm">
               {/* Company Header */}
-              <div className="p-4 border-b border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center space-x-3">
+              <div className="p-4 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                   {!isBlocked && (
                     <input 
                       type="checkbox" 
@@ -1228,8 +1232,8 @@ const Dashboard = () => {
                 </div>
                 
                 {!isBlocked && (
-                  <div className="flex items-center space-x-3 w-full md:w-auto">
-                    <div className="relative flex-1 md:w-48">
+                  <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
+                    <div className="relative min-w-32 flex-1 lg:w-40">
                       <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                       <input 
                         type="text" 
@@ -1239,7 +1243,7 @@ const Dashboard = () => {
                         className="w-full pl-9 pr-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 focus:ring-2 focus:ring-yellow-500 outline-none text-sm text-zinc-200 placeholder:text-zinc-500"
                       />
                     </div>
-                    <div className="relative flex-1 md:w-48">
+                    <div className="relative min-w-32 flex-1 lg:w-40">
                       <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                       <input 
                         type="text" 

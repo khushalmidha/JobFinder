@@ -142,6 +142,7 @@ class SmartApplyEngine {
     for (const { element, frame, row } of this.fields) {
       if (this.shouldStop()) { this.report.state = 'STOPPED'; break; }
       if (row.action !== 'fill') continue;
+      let replacement;
       try {
         if (!this.allowedFrame(frame) || this.page.url() !== this.report.url) throw Error('Page changed; preview again.');
         const current = await element.evaluate(el => ({ context: window.__jfSmartApply.extractQuestionContext(el), identity: window.__jfSmartApply.answerIdentity(el) }));
@@ -180,10 +181,24 @@ class SmartApplyEngine {
           await option.first().waitFor({ state: 'visible', timeout: this.timeout });
           if (await option.count() !== 1) throw Error('Ambiguous dropdown options.');
           await safeClick(option, this.timeout);
-          await element.evaluate(el => el.blur());
-          // Allow the framework to commit blur and selection updates before reading back.
+          if (await element.evaluate(el => el.isConnected)) await element.evaluate(el => el.blur());
           await new Promise(resolve => setTimeout(resolve, 50));
-          const actual = await element.evaluate(el => el.getAttribute('aria-valuetext') || el.getAttribute('data-value') || (el.tagName === 'INPUT' ? '' : el.textContent));
+          if (this.page.url() !== this.report.url || !this.allowedFrame(frame) ||
+            JSON.stringify(JSON.parse(row.context.scope).documents) !== await frameScope(frame))
+            throw Error('Application step changed; preview again.');
+          const connected = await element.evaluate(el => el.isConnected);
+          if (!connected) {
+            const handle = await frame.evaluateHandle(identity => {
+              const { collectFields, answerIdentity } = window.__jfSmartApply;
+              const matches = collectFields(document, new Set(), { frames:false }).filter(el => JSON.stringify(answerIdentity(el)) === JSON.stringify(identity));
+              return matches.length === 1 ? matches[0] : null;
+            }, current.identity);
+            replacement = handle.asElement();
+            if (!replacement) { await handle.dispose(); throw Error('Dropdown changed; preview again.'); }
+            await replacement.evaluate(el => el.blur());
+          }
+          const actual = await (replacement || element).evaluate(el => el.isConnected ?
+            el.getAttribute('aria-valuetext') || el.getAttribute('data-value') || (el.tagName === 'INPUT' ? '' : el.textContent) : null);
           if (!equal(actual, value)) throw Error('Dropdown selection was not retained.');
         } else if (row.type === 'radio' || row.role === 'radiogroup') {
           const groupHandle = await element.evaluateHandle(el => el.getAttribute('role') === 'radiogroup' ? [...el.querySelectorAll('[role="radio"]')] : window.__jfSmartApply.radioGroup(el));
@@ -200,7 +215,7 @@ class SmartApplyEngine {
           await element.press('Tab', { timeout: this.timeout });
           if (!equal(await element.inputValue(), value)) throw Error('Value was not retained.');
         } else throw Error('Unsupported widget: complete manually.');
-        if (!await element.evaluate(el => !el.checkValidity || el.checkValidity())) throw Error('Site validation requires review.');
+        if (!await (replacement || element).evaluate(el => !el.checkValidity || el.checkValidity())) throw Error('Site validation requires review.');
         row.outcome = 'verified';
       } catch (error) {
         row.outcome = 'needs_review'; row.reason = error.message;
@@ -208,7 +223,7 @@ class SmartApplyEngine {
           // Clear only our own uncommitted query; never erase an applicant edit.
           try { const pending = await element.inputValue(); const committed = await element.getAttribute('aria-valuetext') || await element.getAttribute('data-value'); if (!committed && pending === row.decision.value) await element.fill(row.before || '', { timeout: this.timeout }); } catch { /* Detached/changed fields remain manual. */ }
         }
-      }
+      } finally { await replacement?.dispose(); }
     }
     if (this.report.state !== 'STOPPED') this.report.state = 'NEEDS_REVIEW';
     await this.saveReport(); return this.report;

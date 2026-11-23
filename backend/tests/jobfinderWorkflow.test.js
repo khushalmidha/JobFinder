@@ -64,7 +64,7 @@ test('company import, official job, reviewed profile, dropdown and approved cont
     await route.fulfill({contentType:'text/html',body:
       '<form method="post"><button type="button" aria-label="Degree" aria-haspopup="listbox" data-control="choices">Select degree</button><label>Resume PDF<input type="file"></label><button>Submit</button></form>' +
       '<div id="choices" role="listbox" hidden><div role="option">Bachelor of Technology</div></div>' +
-      '<script>const b=document.querySelector("[data-control]"),l=document.querySelector("[role=listbox]");b.onclick=()=>setTimeout(()=>{b.setAttribute("aria-controls","choices");l.hidden=false},250);l.firstChild.onclick=()=>{b.textContent="Bachelor of Technology";b.dataset.value=b.textContent;l.hidden=true};</script>'
+      '<script>const b=document.querySelector("[data-control]"),l=document.querySelector("[role=listbox]");b.onclick=()=>setTimeout(()=>{b.setAttribute("aria-controls","choices");l.hidden=false},250);l.firstChild.onclick=()=>{const next=b.cloneNode();next.textContent="Bachelor of Technology";next.dataset.value=next.textContent;b.replaceWith(next);l.hidden=true};</script>'
     });
   });
   await page.goto('http://localhost/apply');

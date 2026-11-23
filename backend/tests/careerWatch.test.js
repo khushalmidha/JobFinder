@@ -135,11 +135,11 @@ test('India focus prioritizes Indian company scans and alerts only for evidenced
  const fetchPage=async url=>url.endsWith('robots.txt')?{status:200,text:'User-agent: *\nAllow: /',contentType:'text/plain'}:{status:200,contentType:'text/html',text:'<script type="application/ld+json">'+JSON.stringify(postings)+'</script>'};
  const report=await service.runCareerWatchOnce({userId:owner,dryRun:false,fetchPage});assert.equal(report.companies[0].company,'Fixture');assert.equal(report.newJobs,1);
  assert.equal(await Job.countDocuments(),3);assert.equal((await Job.findOne({locationRegion:'India'})).location,'Bengaluru, IN');
- const response=await request('/jobs');assert.equal(response.data.total,2);assert.equal(response.data.jobs[0].locationRegion,'India');
+ const response=await request('/jobs');assert.equal(response.data.total,1);assert.equal(response.data.jobs[0].locationRegion,'India');
  assert.equal(service.locationRegion('Remote worldwide'),'unknown');assert.equal(service.locationRegion('Singapore'),'overseas');
  assert.equal(service.locationRegion('Hyderabad, India'),'India');
  const bad=await request('/config','PUT',{enabled:true,indiaFocus:'false'});assert.equal(bad.status,400);
- const good=await request('/config','PUT',{enabled:true,indiaFocus:false});assert.equal(good.status,200);assert.equal((await request('/jobs')).data.total,3);
+ const good=await request('/config','PUT',{enabled:true,indiaFocus:false});assert.equal(good.status,200);assert.equal(good.data.config.indiaFocus,true);assert.equal((await request('/jobs?locationRegion=overseas')).data.total,1);
 });
 
 
@@ -180,14 +180,15 @@ test('explicit source deadline can expire and reopen without changing job identi
   '<script type="application/ld+json">'+JSON.stringify({'@type':'JobPosting',title:'Backend Engineer',description:'New graduate role',
     url:'https://fixture.example/jobs/deadline',jobLocation:'India',validThrough})+'</script>'});
  await service.runCareerWatchOnce({userId:owner,dryRun:false,fetchPage});
- const first=(await request('/jobs')).data.jobs[0];
- assert.equal(first.postingStatus,'expired');
+ const first=await Job.findOne({userId:owner});
+ assert.equal((await request('/jobs')).data.total,0);
+ assert.equal(first.validThrough.toISOString(),'2000-01-01T00:00:00.000Z');
  assert.equal(await Notification.countDocuments(),0);
  validThrough='2099-01-01T00:00:00Z';
  await Task.updateOne({_id:task._id},{$set:{nextScanAt:new Date(0)}});
  await service.runCareerWatchOnce({userId:owner,dryRun:false,fetchPage});
  const reopened=(await request('/jobs')).data.jobs[0];
- assert.equal(reopened._id,first._id);
+ assert.equal(reopened._id,String(first._id));
  assert.equal(reopened.postingStatus,'published_deadline_active');
  assert.equal(await Notification.countDocuments(),1);
 });
@@ -196,4 +197,43 @@ test('Lever structured pay remains a sourced range and preserves currency and pe
  const url='https://jobs.eu.lever.co/fixture/12345678-1234-1234-1234-123456789abc';
  const [job]=service.parseJobs({text:JSON.stringify([{hostedUrl:url,text:'Software Engineer',salaryRange:{currency:'EUR',interval:'per year',min:60000,max:70000}}])},url,'lever');
  assert.deepEqual(job.salaryEvidence,{currency:'EUR',period:'per year',amount:undefined,min:60000,max:70000,kind:'posted_salary_range',sourceUrl:url});
+});
+
+test('two complete Greenhouse misses hide the job and a returning listing restores the same record',async()=>{
+ const task=await seed();
+ await Task.updateOne({_id:task._id},{$set:{careersUrl:'https://boards.greenhouse.io/fixture'}});
+ let now=new Date(), payload={jobs:[],meta:{total:0}}, failed=false;
+ const fetchPage=async address=>{
+  if(address.endsWith('/robots.txt'))return {status:200,text:'User-agent: *\nAllow: /'};
+  if(address.includes('/v1/boards/'))return {status:failed?503:200,text:JSON.stringify(payload)};
+  return {status:200,text:''};
+ };
+ async function scan(){
+  await service.runCareerWatchOnce({userId:owner,dryRun:false,fetchPage,clock:()=>now});
+  now=new Date(+now+service.INTERVAL_MS);
+ }
+ const jobs=[{id:42,title:'Software Engineer',content:'0-1 years experience',
+  absolute_url:'https://boards.greenhouse.io/fixture/jobs/42',location:{name:'India'}}];
+ payload={jobs,meta:{total:1}};
+ await scan();
+ const saved=await Job.findOne({userId:owner});
+ assert.equal((await request('/jobs')).data.total,1);
+ payload={jobs:[],meta:{total:0}};
+ await scan();
+ assert.equal((await request('/jobs')).data.total,1);
+ failed=true;
+ await scan();
+ failed=false;
+ payload.meta.total=1;
+ await scan();
+ assert.equal((await request('/jobs')).data.total,1);
+ payload.meta.total=0;
+ await scan();
+ assert.equal((await request('/jobs')).data.total,0);
+ assert.equal((await request('/notifications')).data.unread,0);
+ assert.ok((await Job.findById(saved._id)).closedAt);
+ payload={jobs,meta:{total:1}};
+ await scan();
+ assert.equal((await request('/jobs')).data.jobs[0]._id,String(saved._id));
+ assert.equal(await Notification.countDocuments({userId:owner}),1);
 });

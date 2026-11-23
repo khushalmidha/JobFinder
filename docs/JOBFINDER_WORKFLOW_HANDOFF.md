@@ -36,3 +36,11 @@ The remaining platform work includes real-provider fixture expansion, uploads th
 Greenhouse job URLs with recognized board and requisition segments, and Lever hosted URLs with recognized tenant and posting IDs, now have a stable owner-scoped key. Existing URL-only rows are adopted in place when the key can be recovered. Existing duplicates are preserved for review. Install the additive partial unique index declared in CareerWatchJob when production auto-indexing is disabled. Reverting the service leaves existing record IDs and notifications usable. Explicit timezone-bearing JSON-LD deadlines can expire and reopen a posting. Absence from a partial or failed scan leaves its last observed state intact.
 
 The live verification brief is in [Antigravity JobFinder ATS QA](delegation/ANTIGRAVITY_JOBFINDER_ATS_QA.md).
+
+## India-only job feed and closure
+
+Active Jobs and its notifications require India location evidence or an explicit remote-from-India statement. The archived postings panel uses recorded location evidence and excludes exact URLs already known closed or expired for the owner. The original jobs and application history are retained.
+
+For Greenhouse, two valid full-board responses at least one scan interval apart can hide a missing posting. The response must have matching total and row count and unique official job post IDs. An incomplete, failed or restricted response cannot hide jobs. A returning posting clears the closure marker on the same record. Explicit past deadlines hide postings across supported sources. Other sources need verified closure evidence before removal. The basis for treating this Greenhouse endpoint as a full snapshot is the [official list-jobs contract](https://docs.greenhouse.io/job-board.html#list-jobs).
+
+The Antigravity rerender finding from 649d71f was incorporated with unique exact-field matching, a frame/step check and disposal of the replacement handle. The Chromium workflow fixture now replaces the dropdown activator after selection and verifies the committed value. This test is local evidence.

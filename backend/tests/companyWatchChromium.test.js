@@ -71,24 +71,12 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     assert.equal(await panel.locator('article').filter({has:page.getByText('Software Engineer - New Graduate',{exact:true})}).getByRole('link',{name:'Open application',exact:true}).getAttribute('href'),job.url);
 
     await panel.getByText('Monitoring settings',{exact:true}).click();
-    const indiaFocus=panel.getByLabel('Focus on India jobs',{exact:true});
-    assert.equal(await indiaFocus.isChecked(),true);
     assert.equal(await panel.getByText('Overseas engineering opening',{exact:true}).count(),0);
     await panel.getByRole('button',{name:'Next job page',exact:true}).click();
     await panel.getByText(/Job page 2 of 2/).waitFor();
-    await panel.getByText('Location evidence pending',{exact:true}).waitFor();
-    await panel.getByText('Location classification: Unconfirmed · Company coverage: Unconfirmed',{exact:true}).waitFor();
-    await indiaFocus.click();
-    await panel.getByText(/India focus disabled. Overseas results are available/).waitFor();
-    await panel.getByText(/Job page 1 of 2/).waitFor();
-    assert.equal((await Config.findOne({userId:owner._id})).indiaFocus,false);
-    await panel.getByRole('button',{name:'Next job page',exact:true}).click();
-    await panel.getByText('Overseas engineering opening',{exact:true}).waitFor();
-    await panel.getByText('Location classification: Overseas · Company coverage: Overseas',{exact:true}).waitFor();
-    await indiaFocus.click();
-    await panel.getByText(/India focus enabled. Overseas jobs are excluded/).waitFor();
-    await panel.getByText(/Job page 1 of 2/).waitFor();
-    assert.equal((await Config.findOne({userId:owner._id})).indiaFocus,true);
+    await panel.getByText('Older India opening',{exact:false}).first().waitFor();
+    assert.equal(await panel.getByText('Location evidence pending',{exact:true}).count(),0);
+    assert.equal(await panel.getByText('Overseas engineering opening',{exact:true}).count(),0);
 
     const monitoring=panel.getByLabel('Enable five-hour company monitoring',{exact:true});
     assert.equal(await monitoring.isChecked(),false);await monitoring.click();
@@ -129,6 +117,8 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
       await page.getByRole('link',{name:'Mails',exact:true}).click();
       await page.getByText('Find HR, recruiters, managers & SDE contacts',{exact:true}).waitFor();
       assert.ok(await page.getByRole('link',{name:'Mails',exact:true}).isVisible());
+      await page.getByText('Contact actions',{exact:true}).click();
+      assert.ok(await page.getByRole('button',{name:'Scan Bounces'}).isVisible());
     }
     assert.equal(externalRequests,0);
     assert.equal(await require('../models/Contact').countDocuments(),3);

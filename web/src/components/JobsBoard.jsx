@@ -10,14 +10,12 @@ const jobFilters = {
   roleFamily: ['Role', { software:'Software', ai_ml:'Applied AI / ML', quant:'Quant', product:'Product' }],
   graduationFit: ['July 2027 graduation', { fits:'Fits stated batch', outside:'Outside stated batch' }],
   employmentType: ['Employment type', { internship:'Internship', full_time:'Full-time', other:'Other' }],
-  locationRegion: ['Location', { India:'India', overseas:'Overseas' }],
   remoteEligibility: ['Remote eligibility', { india:'Remote from India' }],
   sponsorship: ['Sponsorship', { explicit:'Explicit', case_by_case:'Case by case', unavailable:'Unavailable' }],
 };
 const errorText = error => error?.response?.data?.error || error?.message || 'Request failed. Try again.';
 const rowsOf = (data, key) => Array.isArray(data?.[key]) ? data[key] : [];
 const display = value => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-const regionLabel = value => String(value || '').toLowerCase() === 'india' ? 'India' : String(value || '').toLowerCase() === 'overseas' ? 'Overseas' : 'Unconfirmed';
 const companyName = value => display(value) || display(value?.name) || 'Company not recorded';
 function safeUrl(value) {
   try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : null; } catch { return null; }
@@ -91,14 +89,6 @@ export default function JobsBoard() {
     setMessage(enabled ? 'Five-hour monitoring configuration enabled. Check worker status below for backend availability.' : 'Monitoring disabled. Saved jobs and notifications are preserved.');
     await refresh();
   }
-  async function toggleIndiaFocus() {
-    const indiaFocus = status?.config?.indiaFocus === false;
-    const { data } = await api.put('/career-watch/config', { enabled: !!status?.config?.enabled, indiaFocus });
-    setStatus(previous => ({ ...previous, config: data.config || data }));
-    setJobPage(1);
-    setMessage(indiaFocus ? 'India focus enabled. Overseas jobs are excluded; unknown locations stay labelled for review.' : 'India focus disabled. Overseas results are available with their recorded location labels.');
-    await refresh(1);
-  }
   async function enqueue() {
     const { data } = await api.post('/career-watch/enqueue', {});
     setMessage(data.message || `Company queue updated${Number.isInteger(data.enqueued) ? `: ${data.enqueued} companies enqueued` : ''}. Existing records are preserved.`);
@@ -120,11 +110,9 @@ export default function JobsBoard() {
   return <section aria-labelledby={`${id}-title`} className="space-y-4 text-zinc-100">
     <header className={panel}>
       <h2 id={`${id}-title`} className="text-xl font-bold text-yellow-400">Job postings</h2>
-      <p className="mt-2 text-sm text-zinc-400">Monitor your supplied company list every five hours for FTE roles requiring less than one year of experience, or explicit six-month internships with FTE conversion. Missing experience or conversion evidence requires review.</p>
-      <p className="mt-2 text-xs text-zinc-500">Salary evidence is shown separately; an opening does not verify a fixed-base offer.</p>
+      <p className="mt-1 text-sm text-zinc-400">India and roles explicitly open to remote applicants in India.</p>
       <details className="mt-4"><summary className="cursor-pointer text-sm text-zinc-400">Monitoring settings</summary><div className="mt-4 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!config?.enabled} disabled={busy || !status || !!errors.status} onChange={() => run(toggleMonitoring)} /> Enable five-hour company monitoring</label>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config?.indiaFocus !== false} disabled={busy || loading || !status || !!errors.status} onChange={() => run(toggleIndiaFocus)} /> Focus on India jobs</label>
         <button type="button" className={button} disabled={busy || loading} onClick={() => run(enqueue)}>Queue supplied companies</button>
         <button type="button" className={button} disabled={busy} onClick={() => run(inspectJobs)}>Run career dry scan</button>
         <button type="button" className={button} disabled={busy || loading} onClick={refresh}>Refresh monitoring</button>
@@ -162,14 +150,13 @@ export default function JobsBoard() {
           </label>)}
         </div>
         {loading && <p className="mt-3 text-sm text-zinc-400">Loading saved jobs…</p>}
-        {!loading && !jobs.length && !errors.jobs && <p className="mt-3 text-sm text-zinc-400">No saved matching roles yet. Queue companies and enable monitoring. Unsupported or inaccessible portals are not reported as successfully scanned.</p>}
-        <div className="mt-3 space-y-3">{jobs.map((job, index) => <article key={job._id || job.url || index} className="break-words rounded border border-zinc-800 p-3">
+        {!loading && !jobs.length && !errors.jobs && <p className="mt-3 text-sm text-zinc-400">No active India jobs match these filters.</p>}
+        <div className="mt-3 space-y-3">{jobs.map((job, index) => <article key={job._id || job.url || index} className="break-words rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
           <h4 className="font-semibold">{display(job.title) || 'Untitled role'}</h4>
           <p className="mt-1 text-sm text-zinc-400">{companyName(job.company || job.companyName)}{job.location ? ` · ${display(job.location)}` : ''}</p>
-          <p className="mt-2 text-xs text-zinc-400">Location classification: {regionLabel(job.locationRegion)} · Company coverage: {regionLabel(job.companyRegion)}</p>
           <p className="mt-2 text-xs text-yellow-300">{eligibility(job)}</p>
           <dl className="mt-2 grid gap-x-4 text-xs text-zinc-400 sm:grid-cols-2">
-            {Object.entries(jobFilters).filter(([key]) => key !== 'locationRegion').map(([key,[label,options]]) => <div key={key}><dt className="inline">{label} </dt><dd className="inline">{options[job[key]] || 'Unknown'}</dd></div>)}
+            {Object.entries(jobFilters).map(([key,[label,options]]) => <div key={key}><dt className="inline text-zinc-500">{label} · </dt><dd className="inline">{options[job[key]] || 'Unknown'}</dd></div>)}
             <div><dt className="inline">Compensation </dt><dd className="inline">{job.salaryEvidence ? <Link url={job.salaryEvidence.sourceUrl}>{job.salaryEvidence.currency} {job.salaryEvidence.amount ?? [job.salaryEvidence.min,job.salaryEvidence.max].join('–')} / {job.salaryEvidence.period} {job.salaryEvidence.kind === 'posted_salary_range' ? 'posted salary range' : 'posted base'}</Link> : 'Unknown'}</dd></div>
           </dl>
           {Object.entries(job.evidence || {}).map(([key, value]) => <p key={key} className="mt-1 break-words text-xs text-zinc-400">{key} · {value}</p>)}

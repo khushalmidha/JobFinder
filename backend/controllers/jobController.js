@@ -68,6 +68,15 @@ exports.getJobs = async (req, res) => {
       ];
     }
 
+    if (req.query.indiaEvidenceOnly === 'true') {
+      const { INDIA_LOCATION } = require('../services/careerWatchService');
+      const closedUrls = await require('../models/CareerWatchJob').distinct('url', {
+        userId:req.user._id, $or:[{closedAt:{$ne:null}},{validThrough:{$lte:new Date()}}]
+      });
+      query.location = INDIA_LOCATION;
+      query.url = { $nin:closedUrls };
+    }
+
     const total = await JobOpening.countDocuments(query);
     // Sort by priority first (critical = 6m interns, high = freshers, normal = full-time), then detectedAt desc
     const jobs = await JobOpening.find(query)
