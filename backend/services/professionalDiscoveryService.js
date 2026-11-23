@@ -32,7 +32,11 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
       );
     }
     for(const row of result.emails||[]){
-      if(allowPublicUnverified && row.inferenceFlag===true) continue;
+      if (allowPublicUnverified) {
+        if (row.inferenceFlag === true || /fraud|scam|recruitment.?agency|accessibility/i.test(row.sourceUrl || '')) continue;
+        if ((!row.kind || row.kind === 'role_inbox') &&
+          !/^(?:careers?|jobs?|recruit(?:ing|ment)?|talent|hiring|hr|campus)(?:[._-](?:india|in|careers?|jobs?))?@/i.test(row.email || '')) continue;
+      }
       const email=String(row.email||'').trim().toLowerCase(),host=email.split('@')[1];
       const corporate=row._repoVerified===true&&repoSource?.domains.includes(host)&&row.sourceUrl?.startsWith('https://github.com/'+repoSource.repository+'/commit/');
       if(!email||(!corporate&&!(host===domain||host?.endsWith('.'+domain)))||!row.sourceUrl)continue;
