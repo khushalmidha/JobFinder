@@ -16,6 +16,19 @@ class SmartApplyStore {
   answers() { return this.db.prepare('SELECT value FROM answers').all().map(row => JSON.parse(row.value)); }
   saveAnswer(entry) { this.db.prepare('INSERT OR REPLACE INTO answers VALUES (?,?)').run(entry.key, JSON.stringify(entry)); }
   application(id, url, state, report) { this.db.prepare('INSERT OR REPLACE INTO applications VALUES (?,?,?,?,?)').run(id, url, state, JSON.stringify(report), new Date().toISOString()); }
+  applicationStatus(jobUrl) {
+    return this.db.prepare('SELECT state, updatedAt FROM applications WHERE id=?').get('job:' + jobUrl) || null;
+  }
+  awaitingConfirmation(jobUrl) {
+    return this.db.prepare('INSERT OR IGNORE INTO applications VALUES (?,?,?,?,?)')
+      .run('job:' + jobUrl, jobUrl, 'awaiting_confirmation', '{}', new Date().toISOString()).changes === 1;
+  }
+  confirmApplication(jobUrl, receipt) {
+    if (typeof receipt !== 'string' || !receipt.trim()) throw Error('An observed employer confirmation reference is required.');
+    const result = this.db.prepare('UPDATE applications SET state=?, report=?, updatedAt=? WHERE id=? AND state=?')
+      .run('applied', JSON.stringify({receipt:receipt.trim()}), new Date().toISOString(), 'job:' + jobUrl, 'awaiting_confirmation');
+    return result.changes === 1;
+  }
   close() { this.db.close(); }
 }
 module.exports = { SmartApplyStore };

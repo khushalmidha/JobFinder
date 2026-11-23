@@ -28,7 +28,15 @@ router.get('/tasks',wrap(async(req,res)=>{
  res.json({tasks,total,page,limit});
 }));
 router.get('/jobs',wrap(async(req,res)=>{
- const userId=req.user._id,filter={userId};const config=await Config.findOne({userId}).lean();if(config?.indiaFocus!==false)filter.locationRegion={$ne:'overseas'};if(req.query.eligibility){if(!['eligible','needs_review','excluded'].includes(req.query.eligibility))throw Error('Unknown eligibility filter');filter.eligibility=req.query.eligibility;}
+ const userId=req.user._id,filter={userId};const config=await Config.findOne({userId}).lean();if(config?.indiaFocus!==false && !req.query.locationRegion)filter.locationRegion={$ne:'overseas'};if(req.query.eligibility){if(!['eligible','needs_review','excluded'].includes(req.query.eligibility))throw Error('Unknown eligibility filter');filter.eligibility=req.query.eligibility;}
+ const choices={employmentType:['internship','full_time','other'],graduationFit:['fits','outside'],remoteEligibility:['india'],sponsorship:['explicit','case_by_case','unavailable'],locationRegion:['India','overseas'],roleFamily:['software','ai_ml','quant','product']};
+ for(const [field,values] of Object.entries(choices)){
+  const value=req.query[field];
+  if(value===undefined)continue;
+  if(value==='unknown')filter[field]={$nin:values};
+  else if(values.includes(value))filter[field]=value;
+  else throw Error('Unknown job filter');
+ }
  const page=Math.max(1,Math.min(10000,parseInt(req.query.page)||1)),limit=50;
  const [jobs,total]=await Promise.all([Job.find(filter).sort({locationPriority:-1,firstSeenAt:-1}).skip((page-1)*limit).limit(limit).lean(),Job.countDocuments(filter)]);
  res.json({jobs:jobs.map(j=>({...j,eligibilityStatus:j.eligibility,reason:j.eligibilityReason,discoveredAt:j.firstSeenAt})),total,page,limit});

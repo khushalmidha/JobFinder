@@ -1,0 +1,34 @@
+# JobFinder workflow handoff
+
+This branch builds on Smart Apply PR #32 at `341bc6e`. Main was `38e6457` at the start. The primary checkout contained unrelated tracked edits and untracked files, so implementation uses a separate worktree and branch `feat/jobfinder-workflow`.
+
+## Use the local workflow
+
+1. **Companies.** Set `MONGODB_URI` to a test database with an existing administrator. Run `node backend/scripts/importCompanies.js --user-id ADMIN_ID` for a dry run. The bundled staging JSON represents the attached workbook. The existing import test verifies 733 source rows, 519 India and 214 overseas, collapsing to 709 company names while preserving source rows. For a revised workbook, prepare the source JSON using the shape in `backend/data` and pass `--source FILE`. Apply a reviewed local preview via `--apply --preview-id ID --digest DIGEST`. Use the existing company-import rollback command with the same run ID if necessary.
+2. **Resume.** Run `python backend/scripts/extractResumeProfile.py RESUME.pdf SEED.json REVIEW.json` with PyMuPDF installed. Keep all three files outside Git. The extractor records PDF text and hyperlink provenance separately from seed data. I generated a fresh unreviewed profile from the supplied PDF and private seed with 38 source entries. For the runner, set `SMART_APPLY_HOME` to a private directory, run `node backend/scripts/smartApply.js import-profile REVIEW.json`, edit the stored profile and run `node backend/scripts/smartApply.js approve-profile --reviewed`. Approval records the reviewed version hash and overridden sections. The last reviewed version is retained locally when re-importing.
+3. **Extension.** Run `npm --prefix extension run build` and load `extension/dist` via Chrome Extensions → Developer mode → Load unpacked. Import and review the local JSON in Smart Apply. On an application step use Preview and Fill. Review unresolved controls and choose the reviewed resume in the browser file picker. Preview again after dependent fields or a new step appear.
+4. **Application records.** In the Playwright runner, review the answers and attachment and use `submit-manually` to record a pending attempt and return control to the applicant. After the employer confirms submission, enter `confirm` and record the observed reference. To reconcile after closing the session use `node backend/scripts/smartApply.js confirm-application URL RECEIPT`. The local tracking key is the opening URL with its fragment removed. Keep the same opening URL on reconnection.
+5. **Jobs and Emails.** Jobs filters the server-side career-watch results and links to the employer application and a company-scoped contact view. Legacy postings remain accessible. Jobs shows July 2027 batch fit, location and explicit evidence where available. Compensation currently comes from structured published base salary and retains currency and period. The two primary navigation links are Jobs and Mails, the existing label for Emails. From Emails open the contact research panel, review source URLs and add selected public addresses. People without a published address remain research leads. Drafts use the existing composer and campaign approval.
+
+## Configure the Google Sheet mirror
+
+Set `GOOGLE_CONTACT_SHEET_OWNER` to the authenticated JobFinder owner's Mongo ID, `GOOGLE_CONTACT_SHEET_ID` to the exact spreadsheet ID, `GOOGLE_CONTACT_SHEET_TAB` to the exact tab name and `GOOGLE_CONTACT_SHEET_TOKEN` to an authorized Google OAuth access token with spreadsheet write access. Renew the token outside JobFinder when it expires. Docker Compose passes these values to the backend. Keep the credential in server-side configuration.
+
+Use a dedicated tab whose A:G header row is exactly `contact_key, company, name, title, email, source_url, verification`. Use this tab as the append-only contact table. Existing rows are read for dedupe by key and email. Preview Google Sheet reads the exact configured tab and binds approval to the previewed rows and destination. Approve Sheet append sends RAW data and returns the provider's range on success. The service holds a durable Mongo lock across attempts for each destination. An unknown result remains blocked until **Check pending Sheet sync** verifies that all expected rows are present and match. If rows are missing or edited, investigate the provider result before clearing anything. A missing row at the time of a read alone cannot rule out an append still in flight. Existing tables with a different layout need an explicit mapping or dedicated tab.
+
+To roll back, unset the mirror configuration and revert the UI/code to the previous build. Keep the receipts and prior contact records. No backfill or deletion is required for the new job fields or research-lead collection. Older job rows show Unknown until scanned again.
+
+## Verification and coverage
+
+Baseline commands were `npm --prefix web run build`, `npm --prefix extension run build`, both packages' `run lint`, and `npm --prefix backend test`. Build and lint passed with pre-existing warnings. The baseline backend suite had 248 passes and one intermittent Chromium compose timeout. No separate typecheck task or TypeScript project configuration was found. Local Node was v24.11.0. The backend declares >=24.15.0, so use the declared version for deployment and CI.
+
+The local workflow fixture exercises importer idempotency, scoped career-watch ingestion, ranking, reviewed SQLite profile storage, a delayed portaled dropdown in Chromium, owned contact import/dedupe, a rendered draft and a mock Sheets append with lost response. The mock also tests an unresolved missing row and preserves the destination lock without a second append. Company watch browser coverage exercises both pages at 390px and 1280px, legacy job visibility, and review/import behavior. Use the exact commands in the PR verification section.
+
+| Platform | Verified boundary |
+| --- | --- |
+| Workday | Workday-style fixtures for native fields, wrapped labels, dropdowns and stale fields. Live tenant behavior remains unverified. |
+| Google Forms | Synthetic respondent widgets and required/manual review. No live Google respondent submission. |
+| Greenhouse and Lever | Career feed adapter paths exist. Application pages use the shared form assistant. Live tenant-specific adapters remain unverified. |
+| Google Sheets | Exact destination validation and append/reconciliation exercised with a mock. No authorized live Sheet destination or receipt was available. |
+
+The remaining platform work includes real-provider fixture expansion, upload and rerendering cases requiring tenant-specific behavior, employer requisition IDs across changing URLs, role closure/reopen semantics and additional pay types. Application history is local to the runner. Real sends and submissions require deliberate user action. The implementation used disposable test databases and zero paid calls.

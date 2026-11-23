@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp, Download, Play, Pause, RefreshCw, Trash2, Sparkles, CheckCircle2, ShieldCheck, XCircle, AlertTriangle, RotateCcw, ArrowRightLeft, X, FileText, Copy } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
@@ -6,9 +7,10 @@ import ExcelJS from 'exceljs';
 import ContactResearchBar from '../components/ContactResearchBar';
 
 const Dashboard = () => {
+  const { state: linkedJob } = useLocation();
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => linkedJob?.employer || '');
   const [statusFilter, setStatusFilter] = useState('');
   const [kindFilter,setKindFilter]=useState('');
   const [daysFilter, setDaysFilter] = useState('');
@@ -16,8 +18,8 @@ const Dashboard = () => {
   const [showCompose, setShowCompose] = useState(false);
   const [composeData, setComposeData] = useState({ ids: [], jobLink: '' });
   const [error, setError] = useState('');
-  const [jobLinks, setJobLinks] = useState({}); // { companyName: 'jobLink' }
-  const [roles, setRoles] = useState({}); // { companyName: 'role' }
+  const [jobLinks, setJobLinks] = useState(() => linkedJob?.employer ? { [linkedJob.employer]: linkedJob.jobUrl || '' } : {}); // { companyName: 'jobLink' }
+  const [roles, setRoles] = useState(() => linkedJob?.employer ? { [linkedJob.employer]: linkedJob.role || '' } : {}); // { companyName: 'role' }
   const [queueStatus, setQueueStatus] = useState({ pending: 0, size: 0, isPaused: false, limitFailedCount: 0 });
   const [blockedCompanies, setBlockedCompanies] = useState([]);
   const [activeTab, setActiveTab] = useState('active'); // 'active', 'invalid', 'blocked'

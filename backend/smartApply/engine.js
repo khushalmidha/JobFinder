@@ -127,16 +127,23 @@ class SmartApplyEngine {
           const selected = await element.evaluate(el => ({ index: el.selectedIndex, value: el.value, label: el.selectedOptions[0]?.label }));
           if (selected.index !== matches[0].index || !equal(selected.value, matches[0].value) || !equal(selected.label, matches[0].label)) throw Error('Selection was not retained.');
         } else if (['combobox', 'listbox'].includes(row.role)) {
-          const popup = await element.getAttribute('aria-controls') || await element.getAttribute('aria-owns');
-          if (!popup || /\s/.test(popup)) throw Error('Dropdown needs one associated popup.');
           if (row.tag === 'BUTTON' && await element.getAttribute('type') !== 'button') throw Error('Potential submit button requires manual action.');
           await safeClick(element, this.timeout);
           if (row.tag === 'INPUT') await element.type(value, { delay: 20, timeout: this.timeout + value.length * 30 });
+          const association = await frame.waitForFunction(el => {
+            const id = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+            return id && !/\s/.test(id) ? id : null;
+          }, element, { timeout: this.timeout });
+          const popup = await association.jsonValue();
+          await association.dispose();
           const listbox = frame.locator(`[id=${JSON.stringify(popup)}]`);
-          const option = listbox.getByRole('option', { name: value, exact: true });
+          const option = listbox.getByRole('option', { name: value, exact: true }).filter({visible:true}).and(frame.locator(':not([aria-disabled=true])'));
           await option.first().waitFor({ state: 'visible', timeout: this.timeout });
           if (await option.count() !== 1) throw Error('Ambiguous dropdown options.');
           await safeClick(option, this.timeout);
+          await element.evaluate(el => el.blur());
+          // Allow the framework to commit blur and selection updates before reading back.
+          await new Promise(resolve => setTimeout(resolve, 50));
           const actual = await element.evaluate(el => el.getAttribute('aria-valuetext') || el.getAttribute('data-value') || (el.tagName === 'INPUT' ? '' : el.textContent));
           if (!equal(actual, value)) throw Error('Dropdown selection was not retained.');
         } else if (row.type === 'radio' || row.role === 'radiogroup') {

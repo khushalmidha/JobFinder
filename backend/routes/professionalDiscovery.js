@@ -13,11 +13,30 @@ async function rows(req){
   return found.filter(row=>!blockedCompanies.has(companyKey(row.company)));
 }
 router.get('/leads',wrap(async(req,res)=>res.json({leads:await rows(req)})));
+router.get('/people',wrap(async(req,res)=>{
+  const owner=await require('../models/User').findById(req.user._id).select('blockedCompanies').lean();
+  const {companyKey}=require('../services/companyIdentityService');
+  const blocked=new Set((owner?.blockedCompanies||[]).map(companyKey));
+  const people=await require('../models/ProfessionalResearchPerson').find({userId:req.user._id}).sort({observedAt:-1}).limit(100).lean();
+  res.json({people:people.filter(person=>!blocked.has(companyKey(person.company)))});
+}));
 router.get('/status',wrap(async(req,res)=>{const found=await rows(req);res.json({counts:found.reduce((out,r)=>{out[r.kind]=(out[r.kind]||0)+1;return out;},{}),total:found.length,paidProvidersEnabled:false,defaultDryRun:true});}));
 router.post('/scan',wrap(async(req,res)=>res.json(await require('../services/professionalDiscoveryService').runDiscovery({userId:req.user._id,domains:req.body.domains,dryRun:req.body.dryRun===undefined?true:req.body.dryRun,maxRequests:req.body.maxRequests===undefined?25:req.body.maxRequests,saveToContacts:req.body.saveToContacts===true}))));
 router.post('/import',wrap(async(req,res)=>res.json(await require('../services/professionalSheetService').importLeads({userId:req.user._id,leadIds:req.body.leadIds}))));
+router.post('/google-sheet',wrap(async(req,res)=>{
+  const { GOOGLE_CONTACT_SHEET_OWNER, GOOGLE_CONTACT_SHEET_ID, GOOGLE_CONTACT_SHEET_TAB, GOOGLE_CONTACT_SHEET_TOKEN } = process.env;
+  if (!GOOGLE_CONTACT_SHEET_OWNER || String(req.user._id) !== GOOGLE_CONTACT_SHEET_OWNER) return res.status(403).json({error:'Google Sheet is not configured for this account'});
+  const { leadIds, approvedDigest, reconcile } = req.body;
+  if (reconcile !== true && (!Array.isArray(leadIds) || !leadIds.length || leadIds.length > 100 || leadIds.some(id => typeof id !== 'string'))) throw Error('Choose 1 to 100 research contacts');
+  const selected = new Set(leadIds);
+  const {createClient,syncContacts} = require('../services/googleContactSheet');
+  const leads = reconcile === true ? [] : (await rows(req)).filter(row=>selected.has(String(row._id)) && row.observedAt >= new Date(Date.now()-30*86400000));
+  const destination = { spreadsheetId: GOOGLE_CONTACT_SHEET_ID, tab: GOOGLE_CONTACT_SHEET_TAB };
+  const client = createClient({...destination,accessToken:GOOGLE_CONTACT_SHEET_TOKEN});
+  res.json(await syncContacts({destination,client,leads,approvedDigest,reconcile:reconcile===true}));
+}));
 router.get('/export',wrap(async(req,res)=>{
-  const found=await rows(req),format=req.query.format||'csv';if(!['csv','xlsx'].includes(format))throw Error('Use CSV or XLSX');
+  const found=(await rows(req)).filter(row=>!row.inferenceFlag),format=req.query.format||'csv';if(!['csv','xlsx'].includes(format))throw Error('Use CSV or XLSX');
   const columns=['company','companyRegion','domain','name','title','kind','email','sourceUrl','observedAt','verificationStatus','confidence'];
   // Keep cells literal in spreadsheet consumers; never export executable formulas.
   const literal=value=>{const s=String(value??'');return /^[=+@-]/.test(s)?"'"+s:s;};

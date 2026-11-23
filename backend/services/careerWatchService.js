@@ -1,3 +1,4 @@
+const { postingEvidence } = require('./jobPostingEvidence');
 const crypto=require('node:crypto');
 const Task=require('../models/CareerWatchTask'),Config=require('../models/CareerWatchConfig'),Job=require('../models/CareerWatchJob'),Notification=require('../models/CareerWatchNotification');
 const {fetchPublicPage,robotsAllows}=require('./safePublicFetch');
@@ -6,7 +7,7 @@ function clean(value){return String(value||'').replace(/<[^>]*>/g,' ').replace(/
 function publicUrl(value,base){try{const u=new URL(value,base);if(u.protocol!=='https:'||u.username||u.password||(u.port&&u.port!=='443')||/(^|\.)linkedin\.com$/i.test(u.hostname))return null;u.hash='';return u.href;}catch{return null;}}
 function classifyRole(title='',description=''){
  const t=clean(title).toLowerCase(),text=clean(title+' '+description).toLowerCase();
- if(!/software|developer|\bsde\b|backend|front.?end|full.?stack|machine learning|\bai\b|\bml\b|data scientist|data engineer/.test(t))return {eligibility:'excluded',eligibilityReason:'Not a target software/AI/ML role',track:'other'};
+ if(!/software|developer|\bsde\b|backend|front.?end|full.?stack|machine learning|\bai\b|\bml\b|data scientist|data engineer|quant|product manager|\bapm\b|applied scientist/.test(t))return {eligibility:'excluded',eligibilityReason:'Not a target software/AI/ML role',track:'other'};
  if(/\b(senior|sr\.?|staff|principal|director|manager|architect|lead)\b/.test(t))return {eligibility:'excluded',eligibilityReason:'Senior role',track:'fte'};
  const ranges=[...text.matchAll(/\b(\d+(?:\.\d+)?)\s*(?:-|\u2013|\u2014|to)\s*(\d+(?:\.\d+)?)\s*years?\b/g)],range=ranges[0];
  const minima=[...text.matchAll(/(?:at least|minimum(?: of)?|min\.?|requires?)\s*(\d+(?:\.\d+)?)\s*(?:\+\s*)?years?\b|\b(\d+(?:\.\d+)?)\s*\+\s*years?\b/g)],minimum=minima[0];
@@ -54,16 +55,16 @@ function parseJobs(response,url,type){
  if(type){let data;try{data=JSON.parse(response.text);}catch{return out;}
   for(const row of (Array.isArray(data)?data:data.jobs||[])){
    const jobUrl=publicUrl(row.absolute_url||row.hostedUrl||row.jobUrl||row.url,url);if(!jobUrl)continue;
-   out.push({url:jobUrl,title:clean(row.title||row.text),description:clean(row.content||row.descriptionPlain||row.descriptionHtml||row.description||'')+' '+clean(row.employmentType||row.categories?.commitment||'').replaceAll('_',' '),location:clean(row.location?.name||row.categories?.location||row.location||''),sourceType:type});
+   out.push({url:jobUrl,title:clean(row.title||row.text),description:clean(row.content||row.descriptionPlain||row.descriptionHtml||row.description||'')+' '+clean(row.employmentType||row.categories?.commitment||'').replaceAll('_',' '),location:clean(row.location?.name||row.categories?.location||row.location||''),sourceType:type,applyUrl:publicUrl(row.applyUrl||jobUrl,url),employmentType:row.employmentType||row.categories?.commitment});
   }
  }else{
   const walk=value=>{if(Array.isArray(value)){value.forEach(walk);return;}if(!value||typeof value!=='object')return;
-   if([].concat(value['@type']||[]).includes('JobPosting')){const jobUrl=publicUrl(value.url||value['@id']||url,url);if(jobUrl)out.push({url:jobUrl,title:clean(value.title),description:clean(value.description)+' '+clean(value.employmentType).replaceAll('_',' '),location:clean(jobLocation(value.jobLocation)||value.jobLocationType||''),sourceType:'official_jsonld'});}
+   if([].concat(value['@type']||[]).includes('JobPosting')){const jobUrl=publicUrl(value.url||value['@id']||url,url);if(jobUrl)out.push({url:jobUrl,title:clean(value.title),description:clean(value.description)+' '+clean(value.employmentType).replaceAll('_',' '),location:clean(jobLocation(value.jobLocation)||value.jobLocationType||''),sourceType:'official_jsonld',employmentType:[].concat(value.employmentType||[]).join(' '),baseSalary:value.baseSalary});}
    if(value['@graph'])walk(value['@graph']);
   };
   for(const match of String(response.text).matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi))try{walk(JSON.parse(match[1]));}catch{}
  }
- return out;
+ return out.map(({baseSalary,...job})=>({...job,...postingEvidence({...job,baseSalary})}));
 }
 async function collectCompanyJobs(task,{fetchPage=fetchPublicPage,maxRequests=12,maxRuntimeSeconds=30,shouldStop=()=>process.env.RESEARCH_STOP==='true',delayMs=fetchPage===fetchPublicPage?250:0}={}){
  const start=Date.now(),robots=new Map(),seen=new Set(),jobs=new Map(),errors=[];let requestsUsed=0;

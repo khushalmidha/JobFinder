@@ -1,10 +1,19 @@
 import React, { useCallback, useEffect, useId, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import api from '../services/api';
 import SavedJobPostings from './SavedJobPostings';
 
 const panel = 'rounded-xl border border-zinc-800 bg-zinc-950 p-4 md:p-5';
 const button = 'rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:border-yellow-500 disabled:opacity-40';
 const tabs = [ ['jobs', 'Career jobs'], ['notifications', 'Notifications'] ];
+const jobFilters = {
+  roleFamily: ['Role', { software:'Software', ai_ml:'Applied AI / ML', quant:'Quant', product:'Product' }],
+  graduationFit: ['July 2027 graduation', { fits:'Fits stated batch', outside:'Outside stated batch' }],
+  employmentType: ['Employment type', { internship:'Internship', full_time:'Full-time', other:'Other' }],
+  locationRegion: ['Location', { India:'India', overseas:'Overseas' }],
+  remoteEligibility: ['Remote eligibility', { india:'Remote from India' }],
+  sponsorship: ['Sponsorship', { explicit:'Explicit', case_by_case:'Case by case', unavailable:'Unavailable' }],
+};
 const errorText = error => error?.response?.data?.error || error?.message || 'Request failed. Try again.';
 const rowsOf = (data, key) => Array.isArray(data?.[key]) ? data[key] : [];
 const display = value => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
@@ -22,6 +31,7 @@ function Link({ url, children }) {
   return href ? <a href={href} target="_blank" rel="noreferrer" className="text-yellow-400 underline break-all">{children}</a> : <span className="text-zinc-500">Source URL unavailable</span>;
 }
 function eligibility(job) {
+  if (job.eligibility === 'excluded') return 'Outside current preferences';
   if (job.eligible === true || job.isEligible === true || ['eligible', 'qualified', 'match'].includes(job.eligibilityStatus || job.classification || job.status)) return 'Matches recorded eligibility';
   return 'Eligibility needs review';
 }
@@ -31,6 +41,7 @@ export default function JobsBoard() {
   const [tab, setTab] = useState('jobs');
   const [status, setStatus] = useState(null);
   const [jobs, setJobs] = useState([]);
+  const [filters, setFilters] = useState({});
   const [jobPage, setJobPage] = useState(1);
   const [jobMeta, setJobMeta] = useState({ total: 0, limit: 50 });
   const [notifications, setNotifications] = useState([]);
@@ -43,7 +54,8 @@ export default function JobsBoard() {
   const refresh = useCallback(async (requestedPage) => {
     const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : jobPage;
     setLoading(true);
-    const requests = [ ['status', '/career-watch/status'], ['jobs', `/career-watch/jobs?page=${page}`], ['notifications', '/career-watch/notifications'] ];
+    const query = new URLSearchParams({ ...filters, page });
+    const requests = [ ['status', '/career-watch/status'], ['jobs', `/career-watch/jobs?${query}`], ['notifications', '/career-watch/notifications'] ];
     const results = await Promise.allSettled(requests.map(([, path]) => api.get(path)));
     const nextErrors = {};
     results.forEach((result, index) => {
@@ -57,7 +69,7 @@ export default function JobsBoard() {
     });
     setErrors(previous => ({ ...previous, status: null, jobs: null, notifications: null, discovery: null, ...nextErrors }));
     setLoading(false);
-  }, [jobPage]);
+  }, [filters, jobPage]);
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
@@ -140,20 +152,35 @@ export default function JobsBoard() {
     <div role="tabpanel" id={`${id}-content`} aria-labelledby={`${id}-${tab}`} className={panel}>
       {tab === 'jobs' && <>
         <h3 className="font-semibold">Career portal results</h3>
-        {loading && <p className="mt-3 text-sm text-zinc-400">Loading saved jobs…</p>}
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Object.entries(jobFilters).map(([key, [label, options]]) => <label key={key} className="grid gap-1 text-sm">
+            {label}<select className="min-w-0 rounded border border-zinc-700 bg-zinc-900 p-2" value={filters[key] || ''} onChange={event => {
+              const next = { ...filters };
+              if (event.target.value) next[key] = event.target.value; else delete next[key];
+              setFilters(next); setJobPage(1);
+            }}><option value="">Any</option>{Object.entries(options).map(([value, title]) => <option key={value} value={value}>{title}</option>)}<option value="unknown">Unknown</option></select>
+          </label>)}
+        </div>
+        {loading && <p className="mt-3 text-sm text-zinc-400">Loading saved jobsâ€¦</p>}
         {!loading && !jobs.length && !errors.jobs && <p className="mt-3 text-sm text-zinc-400">No saved matching roles yet. Queue companies and enable monitoring. Unsupported or inaccessible portals are not reported as successfully scanned.</p>}
-        <div className="mt-3 space-y-3">{jobs.map((job, index) => <article key={job._id || job.url || index} className="rounded border border-zinc-800 p-3">
+        <div className="mt-3 space-y-3">{jobs.map((job, index) => <article key={job._id || job.url || index} className="break-words rounded border border-zinc-800 p-3">
           <h4 className="font-semibold">{display(job.title) || 'Untitled role'}</h4>
-          <p className="mt-1 text-sm text-zinc-400">{companyName(job.company || job.companyName)}{job.location ? ` · ${display(job.location)}` : ''}</p>
-          <p className="mt-2 text-xs text-zinc-400">Location classification: {regionLabel(job.locationRegion)} · Company coverage: {regionLabel(job.companyRegion)}</p>
+          <p className="mt-1 text-sm text-zinc-400">{companyName(job.company || job.companyName)}{job.location ? ` Â· ${display(job.location)}` : ''}</p>
+          <p className="mt-2 text-xs text-zinc-400">Location classification: {regionLabel(job.locationRegion)} Â· Company coverage: {regionLabel(job.companyRegion)}</p>
           <p className="mt-2 text-xs text-yellow-300">{eligibility(job)}</p>
+          <dl className="mt-2 grid gap-x-4 text-xs text-zinc-400 sm:grid-cols-2">
+            {Object.entries(jobFilters).filter(([key]) => key !== 'locationRegion').map(([key,[label,options]]) => <div key={key}><dt className="inline">{label} </dt><dd className="inline">{options[job[key]] || 'Unknown'}</dd></div>)}
+            <div><dt className="inline">Compensation </dt><dd className="inline">{job.salaryEvidence ? <Link url={job.salaryEvidence.sourceUrl}>{job.salaryEvidence.currency} {job.salaryEvidence.amount ?? [job.salaryEvidence.min,job.salaryEvidence.max].join('–')} / {job.salaryEvidence.period} posted base</Link> : 'Unknown'}</dd></div>
+          </dl>
+          {Object.entries(job.evidence || {}).map(([key, value]) => <p key={key} className="mt-1 break-words text-xs text-zinc-400">{key} · {value}</p>)}
           {job.reason && <p className="mt-1 text-xs text-zinc-400">{display(job.reason)}</p>}
           <p className="mt-2 text-xs text-zinc-500">Observed: {timestamp(job.discoveredAt || job.firstSeenAt || job.createdAt)}</p>
-          <p className="mt-2 text-sm"><Link url={job.url || job.applyUrl}>Official job posting</Link></p>
+          <p className="mt-2 text-sm"><Link url={job.applyUrl || job.url}>Open application</Link>{job.url && job.applyUrl && job.url !== job.applyUrl && <> · <Link url={job.url}>Posting evidence</Link></>}</p>
+          {job.company && <RouterLink to="/" state={{ employer:job.company, jobUrl:safeUrl(job.applyUrl || job.url), role:job.title }} className="mt-2 inline-block text-sm text-yellow-400 underline">Find contacts for this job</RouterLink>}
         </article>)}</div>
         {jobMeta.total > jobMeta.limit && <nav aria-label="Career job pagination" className="mt-4 flex flex-wrap items-center gap-3">
           <button type="button" className={button} disabled={busy || loading || jobPage <= 1} onClick={() => setJobPage(page => page - 1)}>Previous job page</button>
-          <span className="text-sm text-zinc-400">Job page {jobPage} of {Math.max(1, Math.ceil(jobMeta.total / jobMeta.limit))} · {jobMeta.total} results</span>
+          <span className="text-sm text-zinc-400">Job page {jobPage} of {Math.max(1, Math.ceil(jobMeta.total / jobMeta.limit))} Â· {jobMeta.total} results</span>
           <button type="button" className={button} disabled={busy || loading || jobPage >= Math.ceil(jobMeta.total / jobMeta.limit)} onClick={() => setJobPage(page => page + 1)}>Next job page</button>
         </nav>}
       </>}
@@ -169,6 +196,6 @@ export default function JobsBoard() {
 
     </div>
 
-    {scanReport && <details open className={panel}><summary className="cursor-pointer font-semibold">{scanReport.type} — actual report</summary><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-300">{JSON.stringify(scanReport.result, null, 2)}</pre></details>}
+    {scanReport && <details open className={panel}><summary className="cursor-pointer font-semibold">{scanReport.type} â€” actual report</summary><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-300">{JSON.stringify(scanReport.result, null, 2)}</pre></details>}
   </section>;
 }

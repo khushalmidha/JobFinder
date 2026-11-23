@@ -98,7 +98,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       <button type="button" className="p-2 border rounded" onClick={() => command('JF_STOP')}>Stop</button>
     </div>
     {error && <p role="status">{error}</p>}
-    {report && <div aria-live="polite"><p>{report.state} · {report.filledCount || 0} verified fills · {report.needsReviewCount || 0} need review</p>
+    {report && <div aria-live="polite"><p>{report.state} · {report.filledCount || 0} verified fills · {report.needsReviewCount || 0} need review</p>{report.rescanRequired && <p>New or changed fields are visible. Preview this step again.</p>}
       <ul>{report.fields?.map(field => <li key={field.id} className="py-2 border-b border-zinc-700">
         <strong>{field.context.labelText}</strong>: {field.outcome || field.action}
         {field.action === 'fill' && <span> → {field.decision.value} ({field.decision.source})</span>}

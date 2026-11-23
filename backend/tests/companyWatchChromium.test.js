@@ -68,7 +68,7 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     await panel.getByText('Software Engineer - Experience Unspecified',{exact:true}).waitFor();
     await panel.getByText('Eligibility needs review',{exact:true}).waitFor();
     assert.equal(await panel.getByText('Private other-owner job',{exact:true}).count(),0);
-    assert.equal(await panel.locator('article').filter({has:page.getByText('Software Engineer - New Graduate',{exact:true})}).getByRole('link',{name:'Official job posting',exact:true}).getAttribute('href'),job.url);
+    assert.equal(await panel.locator('article').filter({has:page.getByText('Software Engineer - New Graduate',{exact:true})}).getByRole('link',{name:'Open application',exact:true}).getAttribute('href'),job.url);
 
     await panel.getByText('Monitoring settings',{exact:true}).click();
     const indiaFocus=panel.getByLabel('Focus on India jobs',{exact:true});
@@ -112,16 +112,26 @@ test('Chromium company watch integrates real jobs, owner-scoped notifications an
     assert.equal(await panel.getByRole('link',{name:'Open saved official posting',exact:true}).getAttribute('href'),'https://saved.example/jobs/1');
     await page.getByRole('link',{name:'Mails',exact:true}).click();
     await page.getByText('Find HR, recruiters, managers & SDE contacts',{exact:true}).click();
-    await page.getByRole('button',{name:'Add saved research contacts',exact:true}).click();
-    await page.getByText(/Added 4; existing 0; excluded 0; awaiting checks 0/).waitFor();
+    await page.getByRole('button',{name:'Review saved contacts',exact:true}).click();
+    await page.getByText('Published address required',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Add selected to Emails',exact:true}).click();
+    await page.getByText(/Added 3; existing 0; excluded 0; awaiting checks 0/).waitFor();
     await page.getByLabel('Contact type',{exact:true}).selectOption('engineer');
-    await page.getByRole('row').filter({hasText:'dev.shah@employer.example'}).waitFor();
-    await page.getByText('Guessed · mailbox unverified',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('row').filter({hasText:'dev.shah@employer.example'}).count(),0);
     assert.equal(await page.getByRole('row').filter({hasText:'riya@employer.example'}).count(),0);
     assert.equal(await require('../models/Contact').countDocuments({userId:other._id}),0);
     for(const contact of await require('../models/Contact').find())assert.equal(contact.deliverabilityStatus,'unverified');
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({width,height:820});
+      await page.getByRole('link',{name:'Jobs',exact:true}).click();
+      await page.getByLabel('July 2027 graduation').waitFor();
+      assert.ok(await page.getByLabel('Sponsorship').isVisible());
+      await page.getByRole('link',{name:'Mails',exact:true}).click();
+      await page.getByText('Find HR, recruiters, managers & SDE contacts',{exact:true}).waitFor();
+      assert.ok(await page.getByRole('link',{name:'Mails',exact:true}).isVisible());
+    }
     assert.equal(externalRequests,0);
-    assert.equal(await require('../models/Contact').countDocuments(),4);
+    assert.equal(await require('../models/Contact').countDocuments(),3);
     assert.equal(await require('../models/MailLog').countDocuments(),0);
     assert.equal(await require('../models/ResearchUsage').countDocuments(),0);
   }finally{

@@ -201,21 +201,30 @@ const exactOption = (items, value) => {
   if (matches.length !== 1) throw new Error('No unique exact option; choose manually.');
   return matches[0];
 };
-async function waitForPopup(el, popupId, stopped) {
-  const deadline = Date.now() + 1500;
-  while (Date.now() < deadline && !stopped()) {
-    const popup = el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId);
-    if (popup && rendered(popup) && popup.querySelector('[role="option"]')) return popup;
+async function waitForChoice(el, value, stopped) {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline && !stopped() && el.isConnected) {
+    const popupId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+    if (popupId && !/\s/.test(popupId)) {
+      const popup = el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId);
+      if (popup && rendered(popup)) {
+        const options = [...popup.querySelectorAll('[role="option"]')].filter(option =>
+          rendered(option) && option.getAttribute('aria-disabled') !== 'true' &&
+          norm(option.getAttribute('aria-label') || text(option)) === norm(value));
+        if (options.length > 1) throw new Error('Ambiguous dropdown options.');
+        if (options.length === 1) return options[0];
+      }
+    }
     await new Promise(resolve => setTimeout(resolve, 25));
   }
-  throw new Error('Dropdown options unavailable; complete manually.');
+  throw new Error('Dropdown option unavailable; complete manually.');
 }
 
 export class FormFillSession {
   constructor(root) { this.root = root; this.state = 'IDLE'; this.rows = []; this.stopped = false; }
   scan(profile) {
     if (this.state === 'FILL') throw new Error('Fill already running.');
-    this.stopped = false; this.state = 'SCAN';
+    this.stopped = false; this.state = 'SCAN'; this.rescanRequired = false;
     this.rows = collectFields(this.root).map((element, index) => {
       const context = { ...extractQuestionContext(element), scope: answerScope(element) };
       const decision = classifyQuestion(context, profile);
@@ -228,7 +237,7 @@ export class FormFillSession {
   }
   stop() { this.stopped = true; this.state = 'STOPPED'; }
   report() {
-    return { state: this.state, fields: this.rows.map(({ element: _element, ...row }) => row),
+    return { state: this.state, rescanRequired: !!this.rescanRequired, fields: this.rows.map(({ element: _element, ...row }) => row),
       filledCount: this.rows.filter(r => r.outcome === 'filled').length,
       needsReviewCount: this.rows.filter(r => r.action === 'needs_review' || r.outcome === 'needs_review').length };
   }
@@ -257,9 +266,14 @@ export class FormFillSession {
           if (currentValue(el) !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
           const { value } = row.decision;
           const type = row.context.inputType;
-          if (el.type === 'checkbox' || type === 'checkbox') throw new Error('Review checkbox manually.');
           if (el.maxLength >= 0 && value.length > el.maxLength) throw new Error('Answer exceeds character limit.');
-          if (el.type === 'radio') {
+          if (el.type === 'checkbox' || type === 'checkbox') {
+            if (row.decision.type !== 'REMEMBERED_ANSWER' || !/^(yes|no)$/i.test(value)) throw new Error('Review checkbox manually.');
+            const checked = () => el.checked || el.getAttribute('aria-checked') === 'true';
+            const desired = norm(value) === 'yes';
+            if (checked() !== desired) safeClick(el);
+            if (checked() !== desired) throw new Error('Checkbox selection was not retained.');
+          } else if (el.type === 'radio') {
             const option=exactOption(radioGroup(el),value);safeClick(option);
             if(!option.checked)throw new Error('Radio selection was not retained.');
           } else if (type === 'select') {
@@ -271,25 +285,33 @@ export class FormFillSession {
             safeClick(option);
             if (option.getAttribute('aria-checked') !== 'true') throw new Error('Radio selection was not retained.');
           } else if (type === 'combobox' || type === 'listbox') {
-            const popupId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-            if (!popupId || popupId.includes(' ')) throw new Error('Dropdown has no unique associated popup.');
             safeClick(el);
-            const popup = await waitForPopup(el, popupId, () => this.stopped);
+            const option = await waitForChoice(el, value, () => this.stopped);
             if (this.stopped) break;
-            const option = exactOption(popup.querySelectorAll('[role="option"]'), value);
+            const identity = answerScope(el);
             safeClick(option);
+            el.blur();
             await new Promise(resolve => setTimeout(resolve, 40));
-            if (norm(currentValue(el)) !== norm(value) && norm(text(el)) !== norm(value)) throw new Error('Dropdown value was not retained.');
-          } else if (['text', 'email', 'tel', 'url', 'number', 'search', 'textarea'].includes(type)) {
+            const controls = collectFields(this.root).filter(candidate => answerScope(candidate) === identity);
+            const committed = controls.length === 1 ? controls[0] : null;
+            if (!committed || norm(currentValue(committed)) !== norm(value) ||
+              (committed.tagName === 'INPUT' && !committed.getAttribute('aria-valuetext') && !committed.getAttribute('data-value') &&
+                option.getAttribute('aria-selected') !== 'true')) throw new Error('Dropdown selection was not retained.');
+            row.element = committed;
+          } else if (['text', 'email', 'tel', 'url', 'number', 'search', 'textarea'].includes(type) || (type === 'date' && row.decision.type === 'REMEMBERED_ANSWER')) {
             setValue(el, value);
           } else throw new Error('Unsupported control; complete manually.');
-          if (!el.isConnected) throw new Error('Field rerendered; preview the updated step.');
-          if (el.type!=='radio' && !['combobox', 'listbox', 'radiogroup'].includes(type) && norm(el.value) !== norm(type === 'select' ? exactOption(el.options, value).value : value)) throw new Error('Value was not retained.');
-          if (typeof el.checkValidity === 'function' && !el.checkValidity()) throw new Error('Site validation requires review.');
+          if (!row.element.isConnected) throw new Error('Field rerendered; preview the updated step.');
+          if (el.type!=='radio' && !['combobox', 'listbox', 'radiogroup', 'checkbox'].includes(type) && norm(el.value) !== norm(type === 'select' ? exactOption(el.options, value).value : value)) throw new Error('Value was not retained.');
+          if (typeof row.element.checkValidity === 'function' && !row.element.checkValidity()) throw new Error('Site validation requires review.');
           row.outcome = 'filled';
         } catch (error) { row.outcome = 'needs_review'; row.reason = error.message; }
       }
-      if (!this.stopped) { this.state = 'VERIFY'; this.state = this.rows.some(r => r.action === 'needs_review' || r.outcome === 'needs_review') ? 'NEEDS_REVIEW' : 'IDLE'; }
+      if (!this.stopped) {
+        const known = new Set(this.rows.map(row => row.element));
+        this.rescanRequired = collectFields(this.root).some(control => !known.has(control));
+        this.state = this.rescanRequired || this.rows.some(r => r.action === 'needs_review' || r.outcome === 'needs_review') ? 'NEEDS_REVIEW' : 'IDLE';
+      }
     } finally {
       for (const doc of docs) doc.removeEventListener('submit', prevent, true);
       for (const restore of restores.reverse()) restore();

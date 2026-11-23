@@ -129,7 +129,7 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
     if(fetchPage===fetchPublicPage&&queue.length&&requestsUsed<maxRequests)await new Promise(resolve=>setTimeout(resolve,500));
   }
   const inferred=require('./professionalPatternService').inferCandidates({people:[...people.values()],published:[...found.values()],domain});
-  const result={emails:[...found.values(),...inferred].slice(0,100),requestsUsed,limitedByRobots:limited,pagesVisited:[...visited],reason:errors.length?errors.join('; '):found.size?null:'No published professional recruiting contacts found in checked pages'};
+  const result={people:[...people.values()].filter(person=>!person.email).slice(0,100),emails:[...found.values(),...inferred].slice(0,100),requestsUsed,limitedByRobots:limited,pagesVisited:[...visited],reason:errors.length?errors.join('; '):found.size?null:'No published professional recruiting contacts found in checked pages'};
   if(fetchPage===fetchPublicPage){if(cache.size>=500)cache.delete(cache.keys().next().value);cache.set(cacheKey,{expires:Date.now()+86400000,result});}
   return result;
 }

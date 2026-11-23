@@ -15,7 +15,7 @@ async function importLeads({userId,leadIds,domainCheck=smtp.resolveAuditDomain,p
   if(smtp.syntaxDisposition(email)!=='supported'||!allowedDiscoveryDomain(domain))return reject('Unsupported professional address');
   if(blockedCompanies.has(key(lead.company)))return reject('Company blocked');
   if(!lead.sourceUrl||Date.now()-new Date(lead.observedAt)>30*86400000)return reject('Fresh source evidence required');
-  if(lead.inferenceFlag&&(!lead.name||!lead.pattern||lead.patternEvidence?.length<2))return reject('Named person and observed pattern evidence required');
+  if(lead.inferenceFlag)return reject('Published address evidence required');
   const existing=await Contact.find({userId,email:{$regex:'^'+email.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$',$options:'i'}}).lean();
   const permanent=require('./campaignService').permanentContactReason;
   if(await Suppression.exists({userId,email})||existing.some(row=>permanent(row)))return reject('Existing suppression or invalid evidence preserved');

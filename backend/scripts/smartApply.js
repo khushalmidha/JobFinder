@@ -1,3 +1,4 @@
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { normalizeProfile, profileGaps, rememberAnswer } = require('../../extension/src/utils/candidateProfile.js');
@@ -9,18 +10,31 @@ const store = new SmartApplyStore(home);
 try {
   if (command === 'import-profile') {
     const profile = normalizeProfile(JSON.parse(fs.readFileSync(args[0], 'utf8')));
+    const previous = store.get('profile');
+    if (previous && store.get('reviewed')) store.set('previousReviewedProfile', previous);
+    store.set('importedProfile', profile);
     store.set('profile', profile); store.set('reviewed', false);
     fs.writeFileSync(path.join(home, 'profile.json'), JSON.stringify(profile, null, 2), { mode: 0o600 });
     console.log('Imported locally; not approved. Review profile.json, then run approve-profile. Missing:', profileGaps(profile).join(', '));
   } else if (command === 'approve-profile') {
     if (!args.includes('--reviewed')) throw Error('Read/edit profile.json, then pass --reviewed to approve those exact facts.');
     const profile = normalizeProfile(JSON.parse(fs.readFileSync(path.join(home, 'profile.json'), 'utf8')));
-    store.set('profile', profile); store.set('reviewed', true);
+    const imported = store.get('importedProfile');
+    const overrides = Object.keys(profile).filter(key => !key.startsWith('_') && JSON.stringify(imported?.[key]) !== JSON.stringify(profile[key]));
+    const version = createHash('sha256').update(JSON.stringify(profile)).digest('hex');
+    store.set('profile', { ...profile, _review: { version, overrideSections: overrides, reviewedAt: new Date().toISOString() } });
+    store.set('reviewed', true);
     console.log('Profile approved locally. Unknown facts still require manual answers.');
   } else if (command === 'remember') {
     const input = JSON.parse(fs.readFileSync(args[0], 'utf8'));
     const entries = rememberAnswer(store.answers(), input);
     store.saveAnswer(entries.at(-1)); console.log('Reviewed answer saved locally.');
+  } else if (command === 'confirm-application') {
+    const url = new URL(args[0]);
+    url.hash = '';
+    const reference = args[1];
+    if (!store.confirmApplication(url.href, reference)) throw Error('No application awaiting confirmation for this URL.');
+    console.log('Application confirmed locally.');
   } else if (command === 'status') {
     console.log(JSON.stringify({ home, reviewed: store.get('reviewed') === true, missing: profileGaps(store.get('profile') || {}), savedAnswers: store.answers().length, stopped: store.get('stopped') === true }, null, 2));
   } else if (command === 'rank-jobs') {
