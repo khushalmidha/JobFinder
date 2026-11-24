@@ -4,7 +4,7 @@ const schema = new mongoose.Schema({
   stopped: { type: Boolean, default: false },
   paidProvidersEnabled: { type: Boolean, default: false },
   monthlyCredits: { type: Number, default: 0, min: 0, max: 1000 },
-  dailyRequests: { type: Number, default: 25, min: 0, max: 500 },
+  dailyRequests: { type: Number, default: 25, min: 0, max: 2000 },
   maxRuntimeSeconds: { type: Number, default: 30, min: 5, max: 120 }
 }, { timestamps: true });
 module.exports = mongoose.model('ResearchPolicy', schema);

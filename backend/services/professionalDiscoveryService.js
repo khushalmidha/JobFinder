@@ -21,7 +21,7 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
     if(remaining<2){report.companies.push({domain,requestsUsed:0,emailsFound:0,status:'budget_exhausted'});continue;}
     const allowance=Math.min(20,remaining,Math.max(2,Math.floor(remaining/(selected.length-index))));
     const repository=require('./corporateRepositoryDiscovery'),repoSource=repository.sourceFor(domain),withRepository=!!repoSource&&allowance>=3&&discover===fetchCompanyEmails;
-    const result=await discover(domain,{maxRequests:allowance-(withRepository?1:0),maxRuntimeSeconds:policy?.maxRuntimeSeconds||30,shouldStop:async()=>process.env.RESEARCH_STOP==='true'||(await policyFor(userId)).stopped});
+    const result=await discover(domain,{preferredUrl:companyContext?.careersUrl,maxRequests:allowance-(withRepository?1:0),maxRuntimeSeconds:policy?.maxRuntimeSeconds||30,shouldStop:async()=>process.env.RESEARCH_STOP==='true'||(await policyFor(userId)).stopped});
     if(withRepository&&process.env.RESEARCH_STOP!=='true'&&!(await policyFor(userId)).stopped){const extra=await repository.discoverCorporateRepository(domain);result.emails=[...(result.emails||[]),...extra.emails];result.requestsUsed=(result.requestsUsed||0)+extra.requestsUsed;}
     report.requestsUsed+=result.requestsUsed||0;let count=0;
     for (const person of result.people || []) {
@@ -37,7 +37,7 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
       if (allowPublicUnverified) {
         if (/fraud|scam|recruitment.?agency|accessibility/i.test(row.sourceUrl || '')) continue;
         if ((!row.kind || row.kind === 'role_inbox') &&
-          !/^(?:careers?|jobs?|recruit(?:ing|ment)?|talent|hiring|hr|campus)(?:[._-](?:india|in|careers?|jobs?))?@/i.test(row.email || '')) continue;
+          !/^(?:careers?|jobs?|recruit(?:ing|ment)?|talent|hiring|hr|hrconnect|humancapital|campus)(?:[._-](?:india|in|careers?|jobs?))?@/i.test(row.email || '')) continue;
       }
       const email=String(row.email||'').trim().toLowerCase(),host=email.split('@')[1];
       const corporate=row._repoVerified===true&&repoSource?.domains.includes(host)&&row.sourceUrl?.startsWith('https://github.com/'+repoSource.repository+'/commit/');

@@ -9,7 +9,7 @@ function validatePolicy(body) {
     if (typeof body[key] !== 'boolean') throw new Error(`${key} must be boolean`);
     out[key] = body[key];
   }
-  for (const [key, min, max] of [['monthlyCredits',0,1000], ['dailyRequests',0,500], ['maxRuntimeSeconds',5,120]]) if (key in body) {
+  for (const [key, min, max] of [['monthlyCredits',0,1000], ['dailyRequests',0,2000], ['maxRuntimeSeconds',5,120]]) if (key in body) {
     if (!Number.isInteger(body[key]) || body[key] < min || body[key] > max) throw new Error(`Invalid ${key}`);
     out[key] = body[key];
   }

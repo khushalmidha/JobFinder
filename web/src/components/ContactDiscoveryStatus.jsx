@@ -28,7 +28,7 @@ export default function ContactDiscoveryStatus() {
   if (!status) return null;
   return <details className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-300">
     <summary className="cursor-pointer font-semibold">{labels[status.state]} · {status.newContacts} added today</summary>
-    <p className="mt-2">Today (IST) · {status.checkedDomains} employer domains checked · {status.newPublishedLeads} new sourced leads · goal {status.dailyGoal} contacts</p>
+    <p className="mt-2">Today (IST) · {status.checkedDomains} employer domains checked · {status.newPublishedLeads} new sourced leads</p>
     <p>{status.requestsUsed}/{status.requestLimit} research requests used. {status.autoImport ? 'Eligible contacts go into Unverified.' : 'Eligible leads stay in research until imported.'}</p>
     <p>{status.lastAttemptAt ? `Last attempt ${time.format(new Date(status.lastAttemptAt))} IST${status.lastAttemptFailed ? ' · source unavailable or scan incomplete' : ''}` : 'No background attempt recorded yet.'}</p>
   </details>;

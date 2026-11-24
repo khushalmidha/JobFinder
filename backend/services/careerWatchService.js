@@ -328,7 +328,7 @@ async function runCareerWatchOnce({userId,dryRun=true,maxCompanies=1,maxRequests
   if(task.employerDomain&&config.discoverContacts!==false&&contactDiscover&&(!task.lastContactScanAt||+clock()-+task.lastContactScanAt>=7*24*3600000)){
    try{
     const renewed=await Task.updateOne(owned(),{$set:{leaseUntil:new Date(+clock()+120000)}});if(!renewed.matchedCount)throw Error('Contact scan lease lost');
-    const contacts=await contactDiscover({userId,domains:[task.employerDomain],companyContext:{company:task.company,region:task.region},saveToContacts:config.autoImportContacts===true,dryRun:false,maxRequests:5});
+    const contacts=await contactDiscover({userId,domains:[task.employerDomain],companyContext:{company:task.company,region:task.region,careersUrl:task.careersUrl},saveToContacts:config.autoImportContacts===true,dryRun:false,maxRequests:5});
     const stopped=contacts.companies?.some(c=>c.status==='stopped');
     await Task.updateOne(owned(),{$set:stopped?{contactLastError:'Contact research stopped'}:{lastContactScanAt:clock(),contactLastError:''}});
    }catch(error){await Task.updateOne(owned(),{$set:{contactLastError:String(error.message).slice(0,500)}});}

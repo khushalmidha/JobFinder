@@ -3,7 +3,7 @@ const { linkedBoards, extractPostingContacts, isEmployerPage } = require('./publ
 
 const emailRe = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const ignored = /^(no-?reply|donotreply|postmaster|abuse|security|privacy|support|unsubscribe|billing|info)@/i;
-const hiring = /(^|[._-])(recruit(?:ing|ment|er)?|talent|careers?|jobs?|hiring|campus|staffing|hr)([._-]|$)/i;
+const hiring = /(^|[._-])(recruit(?:ing|ment|er)?|talent|careers?|jobs?|hiring|campus|staffing|hr|hrconnect|humancapital)([._-]|$)/i;
 const maxBytes = 1500000; // Bounded modern company pages often exceed 400KB.
 function normalizeDomain(domain) {
   const text = String(domain || '').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0].split(':')[0];
@@ -64,12 +64,21 @@ function linkedPages(html,base,domain,{fallback=false}={}){
   return [...new Set(links)].sort((a,b)=>priority(a)-priority(b));
 }
 const cache=new Map();
-async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage,maxRequests=5,maxRuntimeSeconds=30,shouldStop=()=>process.env.RESEARCH_STOP==='true'}={}){
+async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage,preferredUrl,maxRequests=5,maxRuntimeSeconds=30,shouldStop=()=>process.env.RESEARCH_STOP==='true'}={}){
   domain=normalizeDomain(domain);
   if(!allowedDiscoveryDomain(domain))return {emails:[],reason:'Provide a professional employer domain',requestsUsed:0};
   if(await shouldStop())return {emails:[],reason:'Research is stopped',requestsUsed:0};
   maxRequests=Math.max(1,Math.min(20,Number(maxRequests)||5));
-  const cacheKey=domain+':'+maxRequests,previous=cache.get(cacheKey);
+  let preferred;
+  try {
+    const url=new URL(preferredUrl);
+    if(isEmployerPage(url.hostname,domain) && url.protocol==='https:' && !url.port && !url.username && !url.password &&
+      /career|jobs?|hiring|join|recruit|contact/i.test(url.pathname)) {
+      url.hash='';
+      preferred=url.href;
+    }
+  } catch { /* No mapped public careers page. */ }
+  const cacheKey=JSON.stringify([domain,maxRequests,preferred]),previous=cache.get(cacheKey);
   if(fetchPage===fetchPublicPage&&previous?.expires>Date.now())return {...previous.result,cached:true,requestsUsed:0};
   let requestsUsed=0;const errors=[],found=new Map(),people=new Map(),visited=new Set(),started=Date.now(),permissions=new Map(),boardsChecked=new Set();
   const approvedUrl=value=>{
@@ -109,7 +118,11 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
     }
   }
   const robots=await permission(domain),limited=robots===null,queue=[`https://${domain}/`];let linkedFallback=false,pagesRead=0;
-  if(robots!==null&&!robotsAllows(robots,'/'))return {emails:[],reason:'Robots disallows discovery',pagesRead:0,requestsUsed};
+  if(preferred && robots!==null){
+    const hint=new URL(preferred);
+    if(hint.hostname===domain || await permission(hint.hostname)!==null)queue.unshift(preferred);
+  }
+  if(queue.length===1&&robots!==null&&!robotsAllows(robots,'/'))return {emails:[],reason:'Robots disallows discovery',pagesRead:0,requestsUsed};
   while(queue.length&&requestsUsed<maxRequests){
     const address=queue.shift();if(visited.has(address))continue;visited.add(address);
     try{
@@ -117,9 +130,9 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
       const finalUrl=new URL(response.url);
       if(response.contentType.includes('text/html')){
         pagesRead++;
-        for(const row of extractProfessionalEmails(response.text,response.url,domain))found.set(row.email,row);
+        for(const row of extractProfessionalEmails(response.text,response.url,domain))if(!found.has(row.email))found.set(row.email,row);
         for(const person of require('./professionalPatternService').extractPeople(response.text,response.url,domain)){people.set(person.name,person);if(person.email)found.set(person.email,{...person,confidence:'published_context',verification:'publicly_listed_not_mailbox_verified'});}
-        for (const board of linkedBoards(response.text, response.url)) {
+        for (const board of !limited ? linkedBoards(response.text, response.url) : []) {
           if (boardsChecked.size >= 2 || requestsUsed >= maxRequests) break;
           if (boardsChecked.has(board.endpoint.url)) continue;
           boardsChecked.add(board.endpoint.url);
@@ -131,14 +144,14 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
           } catch (error) { errors.push(error.message); }
         }
         const links=linkedPages(response.text,response.url,domain,{fallback:limited});
-        if(limited){if(visited.size===1&&!linkedFallback&&links.length){queue.push(links[0]);linkedFallback=true;}}
+        if(limited){if(visited.size===1&&!linkedFallback&&links.length){queue.push(links.includes(preferred)?preferred:links[0]);linkedFallback=true;}}
         else queue.push(...links);
       }else if(!limited&&/xml|text/.test(response.contentType)&&/sitemap/.test(finalUrl.pathname)){
         for(const match of response.text.matchAll(/<loc>\s*([^<]+)\s*<\/loc>/gi)){
           try{const target=approvedUrl(match[1]);if(!target.search&&/career|jobs?|contact|talent|recruit|hiring/i.test(target.pathname))queue.unshift(target.href);}catch{}
         }
       }
-      if(!limited&&visited.size===1)queue.push(...['/sitemap.xml','/careers','/jobs','/contact'].map(path=>new URL(path,finalUrl.origin).href));
+      if(!limited&&finalUrl.pathname==='/'&&address===`https://${domain}/`)queue.push(...['/sitemap.xml','/careers','/jobs','/contact'].map(path=>new URL(path,finalUrl.origin).href));
     }catch(error){errors.push(error.message);}
     if(fetchPage===fetchPublicPage&&queue.length&&requestsUsed<maxRequests)await new Promise(resolve=>setTimeout(resolve,500));
   }

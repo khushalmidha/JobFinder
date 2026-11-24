@@ -55,3 +55,30 @@ test('robots uses matching user-agent groups, longest path, literal query and wi
   assert.equal(r('User-agent: *\nDisallow: /jobs\nAllow: /jobs','/jobs'),true);
   assert.equal(r('Disallow: /','/careers'),false);
 });
+
+test('mapped official careers page gets priority but respects domain and robots scope', async () => {
+  const { fetchCompanyEmails } = require('../services/publicEmailDiscovery');
+  const mapped = 'https://acme.com/join/team';
+  const requested = [];
+  const fetchPage = async (url) => {
+    requested.push(url);
+    if (url.endsWith('/robots.txt')) return {status:200,contentType:'text/plain',text:'User-agent: *\nDisallow: /'};
+    return {status:200,contentType:'text/html',text:'<p>Apply by emailing careers@acme.com</p>'};
+  };
+  const denied = await fetchCompanyEmails('acme.com', { preferredUrl: mapped, fetchPage, maxRequests: 3 });
+  assert.deepEqual(denied.emails, []);
+  assert.deepEqual(requested, ['https://acme.com/robots.txt']);
+
+  requested.length = 0;
+  const approved = async (url) => {
+    requested.push(url);
+    if (url.endsWith('/robots.txt')) return {status:200,contentType:'text/plain',text:'User-agent: *\nDisallow: /\nAllow: /join/team'};
+    return {status:200,contentType:'text/html',text:'<p>Apply by emailing humancapital@acme.com</p>'};
+  };
+  const allowed = await fetchCompanyEmails('acme.com', { preferredUrl: mapped, fetchPage: approved, maxRequests: 3 });
+  assert.deepEqual(requested, ['https://acme.com/robots.txt', mapped]);
+  assert.deepEqual(allowed.emails.map(row=>row.email), ['humancapital@acme.com']);
+  requested.length = 0;
+  await fetchCompanyEmails('acme.com', { preferredUrl: 'https://not-acme.example/careers', fetchPage: approved, maxRequests: 3 });
+  assert.deepEqual(requested, ['https://acme.com/robots.txt']);
+});

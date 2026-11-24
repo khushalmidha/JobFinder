@@ -38,7 +38,7 @@ router.get('/background-status',wrap(async(req,res)=>{
   const enabled=process.env.CAREER_WATCH_ENABLED==='true'&&process.env.PROFESSIONAL_DISCOVERY_BACKGROUND_ENABLED==='true'&&
     config?.enabled===true&&config?.discoverContacts!==false;
   res.json({state:!enabled?'disabled':budget.stopped?'paused':budget.remaining<2?'budget_exhausted':'enabled',
-    dailyGoal:200,newContacts,newPublishedLeads,checkedDomains:checkedDomains.length,
+    newContacts,newPublishedLeads,checkedDomains:checkedDomains.length,
     autoImport:config?.autoImportContacts===true,lastAttemptAt:lastAttempt?.lastContactAttemptAt||lastSuccess?.lastContactScanAt||null,
     lastAttemptFailed:Boolean(lastAttempt?.contactLastError),requestLimit:budget.limit,requestsUsed:budget.used});
 }));
