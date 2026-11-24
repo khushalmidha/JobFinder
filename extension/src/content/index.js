@@ -1,10 +1,11 @@
 import { FormFillSession, collectFields, extractQuestionContext } from '../utils/formFillerCore.js';
 
 import { createFormNotice } from './formNotice.js';
+import { perceptionApplicationDraft } from '../utils/perceptionApplicationDraft.js';
 
 if (!window.__JOBFINDER_INJECTED__) {
   window.__JOBFINDER_INJECTED__ = true;
-  const session = new FormFillSession(document);
+  const session = new FormFillSession(document, perceptionApplicationDraft);
   let fillBusy = false;
   let stopRequested = false;
   let latestRun = null;
@@ -26,7 +27,7 @@ if (!window.__JOBFINDER_INJECTED__) {
     () => startFill(true, () => {}),
     () => {
       const row = session.rows.find(item => item.element.isConnected &&
-        (item.action === 'needs_review' || item.outcome === 'needs_review'));
+        (item.action === 'needs_review' || item.outcome === 'needs_review' || item.decision.type === 'REVIEW_DRAFT'));
       row?.element.scrollIntoView({ block: 'center' });
       row?.element.focus({ preventScroll: true });
     }

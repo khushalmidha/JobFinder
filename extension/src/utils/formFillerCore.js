@@ -342,7 +342,10 @@ async function chooseCalendarDate(el, value, stopped) {
 }
 
 export class FormFillSession {
-  constructor(root) { this.root = root; this.state = 'IDLE'; this.rows = []; this.stopped = false; this.choiceSnapshots = new WeakMap(); }
+  constructor(root, proposeDraft) {
+    this.root = root; this.state = 'IDLE'; this.rows = []; this.stopped = false;
+    this.choiceSnapshots = new WeakMap(); this.proposeDraft = proposeDraft;
+  }
   contextFor(element) {
     const context = { ...extractQuestionContext(element), scope: answerScope(element) };
     const snapshot = this.choiceSnapshots.get(element);
@@ -370,11 +373,16 @@ export class FormFillSession {
   }
   scan(profile) {
     if (this.state === 'FILL') throw new Error('Fill already running.');
+    this.profile = profile;
     this.stopped = false; this.state = 'SCAN'; this.rescanRequired = false;
     this.rows = collectFields(this.root).map((element, index) => {
       const context = this.contextFor(element);
-      const decision = classifyQuestion(context, profile);
       const before = currentValue(element);
+      let decision = classifyQuestion(context, profile);
+      const draft = this.proposeDraft && !before && decision.requiresManualReview &&
+        ['WRITTEN_ANSWER', 'UNKNOWN_REQUIRED', 'UNMATCHED_OPTIONAL'].includes(decision.type) &&
+        this.proposeDraft(context, profile, element);
+      if (draft) decision = { type: 'REVIEW_DRAFT', value: draft.value, source: draft.source, reason: 'Review this draft before submitting.' };
       return { id: index, element, context, before, decision,
         action: before ? 'preserve' : decision.requiresManualReview ? 'needs_review' : 'fill' };
     });
@@ -385,7 +393,7 @@ export class FormFillSession {
   report() {
     return { state: this.state, rescanRequired: !!this.rescanRequired, fields: this.rows.map(({ element: _element, committedValue: _committedValue, ...row }) => row),
       filledCount: this.rows.filter(r => r.outcome === 'filled').length,
-      needsReviewCount: this.rows.filter(r => r.action === 'needs_review' || r.outcome === 'needs_review').length };
+      needsReviewCount: this.rows.filter(r => r.action === 'needs_review' || r.outcome === 'needs_review' || r.decision.type === 'REVIEW_DRAFT').length };
   }
   async fillStep(profile, onProgress) {
     this.scan(profile);
@@ -399,6 +407,7 @@ export class FormFillSession {
           if (previous?.outcome === 'filled' && row.before === previous.committedValue) {
             row.outcome = 'filled';
             row.committedValue = previous.committedValue;
+            if (previous.decision.type === 'REVIEW_DRAFT') row.decision = previous.decision;
           }
           if (previous?.element === row.element && previous.outcome === 'needs_review' &&
               JSON.stringify(previous.context) === JSON.stringify(row.context)) {
@@ -446,6 +455,9 @@ export class FormFillSession {
           if (!el.isConnected || !rendered(el) || JSON.stringify(this.contextFor(el)) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
           if (currentValue(el) !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
           const { value } = row.decision;
+          if (row.decision.type === 'REVIEW_DRAFT' &&
+              this.proposeDraft?.(row.context, this.profile, el, true)?.value !== value)
+            throw new Error('The selected direction changed. Fill again to propose a matching draft.');
           const type = row.context.inputType;
           if (row.decision.type === 'EXPERIENCE_YEARS' && type === 'number' && el.min !== '' && Number(value) < Number(el.min))
             throw new Error('The form does not accept your default experience value.');
@@ -476,12 +488,23 @@ export class FormFillSession {
               throw new Error('Dropdown options changed. Read the options again.');
             const option = exactOption(choices, value);
             if (this.stopped) break;
-            const identity = answerScope(el);
+            const identity = row.context.scope;
             safeClick(option);
             el.blur();
-            await new Promise(resolve => setTimeout(resolve, 40));
-            const controls = collectFields(this.root).filter(candidate => answerScope(candidate) === identity);
-            const committed = controls.length === 1 ? controls[0] : null;
+            let committed = null;
+            const until = Date.now() + 1500;
+            while (!this.stopped && Date.now() < until) {
+              await new Promise(resolve => setTimeout(resolve, 45));
+              // Portaled menus can temporarily hide the form from accessibility during their exit animation.
+              const controls = el.isConnected
+                ? (rendered(el) && !el.closest('[aria-hidden="true"], [inert]') && answerScope(el) === identity ? [el] : [])
+                : collectFields(this.root).filter(candidate => answerScope(candidate) === identity);
+              if (controls.length === 1 && norm(currentValue(controls[0])) === norm(value)) {
+                committed = controls[0];
+                break;
+              }
+            }
+            if (this.stopped) break;
             if (!committed || norm(currentValue(committed)) !== norm(value) ||
               (committed.tagName === 'INPUT' && !committed.getAttribute('aria-valuetext') && !committed.getAttribute('data-value') &&
                 option.getAttribute('aria-selected') !== 'true')) throw new Error('Dropdown selection was not retained.');

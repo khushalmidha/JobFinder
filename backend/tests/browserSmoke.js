@@ -313,6 +313,57 @@ async function main() {
     assert.equal(submissions, 0);
     await Promise.all([approval.close(), approvalPopup.close()]);
     console.log('PASS: real popup approves custom dropdown, checkbox, radio and calendar date after month navigation');
+    await context.route('https://binary.so/5vjppCB', route => route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html>
+      <title>Research Engineering Intern — Perception &amp; Embodied AI</title>
+      <h1>MetaCognition application</h1>
+      <form action="/submitted">
+        <div><label>Name *</label><input id="name"></div>
+        <div><label>Why MetaCognition, and what draws you to connecting perception with memory? *</label><textarea id="motivation"></textarea></div>
+        <div><div><label>Which direction would you most like to work on first? *</label></div><div><button id="radix-direction" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="directions">Choose</button></div></div>
+        <div id="directions" role="menu" hidden><div role="menuitem">Perception–memory integration</div><div role="menuitem">Sensor &amp; hardware integration</div></div>
+        <div><label>What would you try first in that direction, and why? *</label><textarea id="experiment"></textarea></div>
+        <button>Submit</button>
+      </form>
+      <script>
+        const direction = document.getElementById('radix-direction');
+        const choices = document.getElementById('directions');
+        direction.onpointerdown = () => { direction.setAttribute('aria-expanded', 'true'); choices.hidden = false; };
+        choices.querySelectorAll('[role=menuitem]').forEach(choice => choice.onclick = () => {
+          direction.textContent = choice.textContent; direction.setAttribute('aria-expanded', 'false'); choices.hidden = true;
+          direction.form.setAttribute('aria-hidden', 'true');
+          setTimeout(() => direction.form.removeAttribute('aria-hidden'), 180);
+        });
+      </script>` }));
+    const binary = await context.newPage();
+    const binaryPopup = await context.newPage();
+    await binaryPopup.goto(popupUrl);
+    await binaryPopup.evaluate(async () => {
+      const { candidateProfile } = await chrome.storage.local.get('candidateProfile');
+      candidateProfile.projects = [{ name: 'Synthetic ranking project', one_line: 'Built retrieval and ranking for a test news feed.' }];
+      await chrome.storage.local.set({ candidateProfile });
+    });
+    await binary.goto('https://binary.so/5vjppCB');
+    const fillBinary = async expected => {
+      await binary.waitForFunction(() => !!document.querySelector('[data-jobfinder-ui]'));
+      const result = await startFill(binaryPopup, binary.url());
+      assert.equal(result.running, true);
+      await binary.waitForFunction(expected => document.querySelector('#experiment').value.includes(expected), expected);
+      await binary.getByText('Fill done · Review needed', { exact: true }).waitFor();
+      assert.match(await binary.locator('#motivation').inputValue(), /Synthetic ranking project/);
+    };
+    assert.equal(await binary.locator('#motivation').inputValue(), '');
+    await fillBinary('occluder');
+    assert.equal(await binary.locator('#radix-direction').textContent(), 'Perception–memory integration');
+    await binary.evaluate(() => {
+      document.querySelector('form').reset();
+      document.querySelector('#radix-direction').textContent = 'Sensor & hardware integration';
+    });
+    assert.equal(await binary.locator('#experiment').inputValue(), '');
+    await fillBinary('inertial data');
+    assert.equal(await binary.locator('#radix-direction').textContent(), 'Sensor & hardware integration');
+    assert.equal(submissions, 0);
+    await Promise.all([binary.close(), binaryPopup.close()]);
+    console.log('PASS: clean Binary-style form, cleared draft refill, and experiment matched to the selected direction');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);
     page.on('pageerror',error=>console.error('Browser page error:',error.message));
     page.on('response',response=>{if(response.url().includes('/api/') && response.status()>=400)console.error('API failed:',response.status(),response.url());});
