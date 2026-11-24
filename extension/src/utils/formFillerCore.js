@@ -120,6 +120,25 @@ function experienceYearsQuestion(context) {
 function profileChoice(type, value) {
   return { type, value, verified: true, confidence: null, source: 'applicant_confirmed_preference' };
 }
+const collegeOtherLabel = /^(?:college|university|college\s*\/\s*university)\s*\((?:if )?other\)\s*\*?$/i;
+const collegeSelectLabel = /^(?:your )?(?:college|university|college\s*\/\s*university)(?: name)?\s*\*?$/i;
+export function applicantAddressField(context) {
+  if (!['text', 'textarea', 'number', 'select', 'combobox'].includes(context.inputType)) return null;
+  const label = norm(context.labelText).replace(/[\s:*]+$/, '');
+  if (/^(?:full address|home address|street address|permanent address|address line 1)$/.test(label)) return 'address';
+  if (/^(?:home town|hometown|home city|city|town)$/.test(label)) return 'city';
+  if (/^(?:home state|state|state\/province|province|state of residence)$/.test(label)) return 'state';
+  if (/^(?:pin\s?code|postal code|zip code|zip)$/.test(label)) return 'postalCode';
+  return null;
+}
+export function internshipStartMonth(label) {
+  const question = norm(label);
+  if (!/\binternship\b/.test(question) || !/\b(?:would you be|are you|will you be|can you be) available to start in\b/.test(question)) return '';
+  const match = question.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(20\d{2})\b/);
+  if (!match) return '';
+  const month = ['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(match[1]) + 1;
+  return `${match[2]}-${String(month).padStart(2, '0')}`;
+}
 export function profileLinkField(context) {
   if (!['text', 'url'].includes(context.inputType)) return null;
   const label = norm(context.labelText).replace(/[\s:*?]+$/, '');
@@ -176,6 +195,18 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   }
   if (context.inputType === 'date-picker' || context.inputType === 'date') return review('DATE_REVIEW', 'Choose and approve the exact date.');
   if (context.inputType === 'checkbox') return review('CHECKBOX_REVIEW', 'Confirm whether this option applies to you.');
+  if (profile.preferences?.confirmed_internship_start_month &&
+      internshipStartMonth(context.labelText) === profile.preferences.confirmed_internship_start_month) {
+    const yes = (context.options || []).filter(option => norm(option) === 'yes');
+    if (yes.length === 1 && context.options.some(option => norm(option) === 'no')) return profileChoice('INTERNSHIP_START_MONTH', yes[0]);
+  }
+  const addressField = applicantAddressField(context);
+  if (addressField) {
+    const value = profile.location?.[addressField];
+    return value ? profileChoice('PROFILE_ADDRESS', String(value)) : review('PROFILE_ADDRESS', 'Save your confirmed address to use this field.');
+  }
+  if (collegeOtherLabel.test(context.labelText || ''))
+    return review('COLLEGE_OTHER', 'Used when the paired college list says Other.');
   if (/gender|disabil|veteran|ethnic|race\b/i.test(q) && norm(profile.preferences?.eeo_default) === 'prefer not to say' && context.options?.some(option => norm(option) === 'prefer not to say'))
     return { type: 'EEO_PREFERENCE', value: context.options.find(option => norm(option) === 'prefer not to say'), verified: true, source: 'applicant_profile_eeo_preference', confidence: null };
   const years = profile.preferences?.default_experience_years;
@@ -218,7 +249,7 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
     [/cgpa|\bgpa\b|grade point/i, 'CGPA', profile.cgpa],
     [/graduat|passout|end year/i, 'GRADUATION_YEAR', profile.graduationYear],
     [/degree|qualification/i, 'DEGREE', profile.degree],
-    [/major|discipline|field of study|branch/i, 'MAJOR', profile.major],
+    [/major|discipline|field of study|branch|speciali[sz]ation|\bstream\b/i, 'MAJOR', profile.major],
     [/university|college|institution|school/i, 'COLLEGE', profile.college],
     [/country(?!.*code)/i, 'COUNTRY', profile.location?.country],
     [/state|province/i, 'STATE', profile.location?.state],
@@ -309,6 +340,23 @@ function setValue(el, value) {
   Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
   el.dispatchEvent(new win.Event('input', { bubbles: true, composed: true }));
   el.dispatchEvent(new win.Event('change', { bubbles: true, composed: true }));
+}
+function collegeControls(element) {
+  const container = element.form || element.closest('[role="form"]');
+  if (!container) return null;
+  const controls = [...(container.elements || container.querySelectorAll('input, textarea, select'))];
+  const primary = controls.filter(control => control.tagName === 'SELECT' && collegeSelectLabel.test(extractQuestionContext(control).labelText));
+  const secondary = controls.filter(control => control.matches('input:not([type]), input[type="text"], textarea') &&
+    collegeOtherLabel.test(extractQuestionContext(control).labelText));
+  return primary.length === 1 && secondary.length <= 1 ? { primary: primary[0], secondary: secondary[0] || null } : null;
+}
+function selectedCollegeOther(select) {
+  return /^other(?:\s*\(.*\))?$/i.test(select?.selectedOptions[0]?.label.trim() || '');
+}
+function choiceKey(value, type) {
+  const key = norm(value).replace(/[^\p{L}\p{N}]/gu, '');
+  if (type === 'DEGREE' && key === 'bacheloroftechnology') return 'btech';
+  return type === 'COLLEGE' ? key.replace(/^indianinstituteofinformationtechnology/, 'iiit') : key;
 }
 function safeClick(el, event) {
   if (el.closest('a, [formaction], button:not([type="button"]), input[type="submit"], input[type="image"]'))
@@ -415,12 +463,31 @@ export class FormFillSession {
   }
   scan(profile) {
     if (this.state === 'FILL') throw new Error('Fill already running.');
-    this.profile = profile;
+    this.profile = normalizeProfile(profile);
     this.stopped = false; this.state = 'SCAN'; this.rescanRequired = false;
     this.rows = collectFields(this.root).map((element, index) => {
       const context = this.contextFor(element);
       const before = currentValue(element);
       let decision = classifyQuestion(context, profile);
+      if (element.tagName === 'SELECT' && ['COLLEGE', 'DEGREE', 'MAJOR', 'PROFILE_ADDRESS'].includes(decision.type) && !decision.requiresManualReview) {
+        const candidates = [...element.options].filter(option => !option.matches(':disabled') &&
+          choiceKey(option.label, decision.type) === choiceKey(decision.value, decision.type));
+        const exact = candidates.filter(option => norm(option.label) === norm(decision.value));
+        if (!exact.length && candidates.length === 1) decision = { ...decision, value: candidates[0].label };
+      }
+      if (element.tagName === 'SELECT' && collegeSelectLabel.test(context.labelText) && decision.type === 'COLLEGE' && !decision.requiresManualReview) {
+        const exact = [...element.options].some(option => !option.matches(':disabled') && norm(option.label) === norm(decision.value));
+        const other = [...element.options].filter(option => !option.matches(':disabled') && /^other(?:\s*\(.*\))?$/i.test(option.label.trim()));
+        const paired = collegeControls(element);
+        if (!exact && other.length === 1 && paired?.primary === element &&
+            (!paired.secondary || (!paired.secondary.disabled && !paired.secondary.readOnly)))
+          decision = profileChoice('COLLEGE_OTHER_OPTION', other[0].label);
+      }
+      if (decision.type === 'COLLEGE_OTHER' && this.profile.college) {
+        const paired = collegeControls(element);
+        if (paired?.secondary === element && selectedCollegeOther(paired.primary))
+          decision = profileChoice('COLLEGE_OTHER', String(this.profile.college));
+      }
       const draft = this.proposeDraft && !before && decision.requiresManualReview &&
         ['WRITTEN_ANSWER', 'UNKNOWN_REQUIRED', 'UNMATCHED_OPTIONAL'].includes(decision.type) &&
         this.proposeDraft(context, profile, element);
@@ -518,6 +585,14 @@ export class FormFillSession {
             const choice = exactOption(el.options, value);
             if ([...el.options].filter(option => option.value === choice.value).length !== 1) throw new Error('Duplicate option values require manual selection.');
             setValue(el, choice.value);
+            if (row.decision.type === 'COLLEGE_OTHER_OPTION') {
+              const deadline = Date.now() + 700;
+              while (!this.stopped && Date.now() < deadline) {
+                const alternate = collegeControls(el)?.secondary;
+                if (alternate && rendered(alternate)) break;
+                await new Promise(resolve => setTimeout(resolve, 35));
+              }
+            }
           } else if (type === 'radiogroup') {
             const option = exactOption(el.querySelectorAll('[role="radio"]'), value);
             safeClick(option);
@@ -566,6 +641,8 @@ export class FormFillSession {
       if (!this.stopped) {
         const known = new Set(this.rows.map(row => row.element));
         this.rescanRequired = collectFields(this.root).some(control => !known.has(control)) ||
+          this.rows.some(row => row.action === 'needs_review' && row.decision.type === 'COLLEGE_OTHER' &&
+            this.profile.college && selectedCollegeOther(collegeControls(row.element)?.primary)) ||
           this.rows.some(row => row.outcome === 'needs_review' && row.element.isConnected &&
             JSON.stringify(this.contextFor(row.element)) !== JSON.stringify(row.context));
         this.state = this.rescanRequired || this.rows.some(r => r.action === 'needs_review' || r.outcome === 'needs_review') ? 'NEEDS_REVIEW' : 'IDLE';

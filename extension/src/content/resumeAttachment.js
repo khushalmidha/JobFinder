@@ -13,7 +13,8 @@ function nearbyResumeLabel(input) {
     const nearby = [...node.querySelectorAll('label, legend')].map(label => label.textContent.trim());
     if ([...own, aria, ...nearby].some(label => resumeLabel.test(label))) return node;
   }
-  return null;
+  return [...own, aria].some(label => resumeLabel.test(label)) && input.form?.querySelectorAll('input[type="file"]').length === 1
+    ? input.form : null;
 }
 
 export function findResumeTarget(document) {

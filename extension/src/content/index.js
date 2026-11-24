@@ -2,14 +2,20 @@ import { FormFillSession, collectFields, extractQuestionContext, profileLinkFiel
 
 import { createFormNotice } from './formNotice.js';
 import { perceptionApplicationDraft } from '../utils/perceptionApplicationDraft.js';
+import { resumeBulletDraft } from '../utils/resumeAnswerDraft.js';
 import { attachReviewedResume, findResumeTarget } from './resumeAttachment.js';
-import { readSmartApplyPreferences, rememberProfileLink } from '../utils/profileMemory.js';
+import { readApplicantFormDetails, readSmartApplyPreferences, rememberProfileLink } from '../utils/profileMemory.js';
 
 const version = chrome.runtime.getManifest().version;
 if (window.__JOBFINDER_INJECTED__ !== version) {
   window.__JOBFINDER_INJECTED__ = version;
   document.querySelector('[data-jobfinder-ui]')?.remove();
-  const session = new FormFillSession(document, perceptionApplicationDraft);
+  const session = new FormFillSession(document, (context, profile, el, committed) => {
+    const tailored = perceptionApplicationDraft(context, profile, el, committed);
+    if (tailored) return tailored;
+    const bullets = resumeBulletDraft(context, profile);
+    return bullets ? { value: bullets.answer, source: bullets.sources.join(', ') } : null;
+  });
   let fillBusy = false;
   let stopRequested = false;
   let latestRun = null;
@@ -147,6 +153,9 @@ if (window.__JOBFINDER_INJECTED__ !== version) {
       respond({ hasForm: collectFields(document).length > 0, formFieldsCount: collectFields(document).length, title: document.title });
     } else if (request.action === 'JF_STATUS') {
       respond(status());
+    } else if (request.action === 'JF_READ_FORM_DETAILS') {
+      if (fillBusy) respond({ success: false, error: 'Wait for the current fill to finish.' });
+      else respond({ success: true, details: readApplicantFormDetails(document) });
     } else if (request.action === 'JF_PREVIEW') {
       if (fillBusy) { respond({ success: false, error: 'Fill already running.' }); return false; }
       readSmartApplyPreferences().then(data => {

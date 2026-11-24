@@ -1,5 +1,5 @@
 import { normalizeProfile } from './candidateProfile.js';
-import { normalizeProfileLink } from './formFillerCore.js';
+import { applicantAddressField, collectFields, extractQuestionContext, internshipStartMonth, normalizeProfileLink } from './formFillerCore.js';
 
 export const defaultResumeKey = 'smartApplyDefaultResume';
 const linkKinds = ['scholar', 'orcid', 'researchgate', 'research', 'linkedin', 'github'];
@@ -54,4 +54,23 @@ export async function forgetProfileLink(kind, expectedOwner) {
   const key = linkStorageKey(kind);
   const saved = (await chrome.storage.local.get(key))[key];
   if (saved?.owner === expectedOwner) await chrome.storage.local.remove(key);
+}
+
+export function readApplicantFormDetails(document) {
+  const found = new Map();
+  const months = new Set();
+  for (const element of collectFields(document, new Set(), { frames: false })) {
+    const context = extractQuestionContext(element);
+    const key = applicantAddressField(context);
+    const value = (element.selectedOptions?.[0]?.label || element.value || '').trim();
+    if (key && value && value.length <= 240 && !/^(?:select|choose|other)\b/i.test(value) &&
+        (key !== 'postalCode' || /^[a-z\d][a-z\d -]{2,11}$/i.test(value))) {
+      if (!found.has(key)) found.set(key, new Set());
+      found.get(key).add(value);
+    }
+    const month = internshipStartMonth(context.labelText);
+    if (month && value.toLowerCase() === 'yes' && context.options.some(option => option.trim().toLowerCase() === 'no')) months.add(month);
+  }
+  const location = Object.fromEntries([...found].filter(([, values]) => values.size === 1).map(([key, values]) => [key, [...values][0]]));
+  return { location, month: months.size === 1 ? [...months][0] : '' };
 }

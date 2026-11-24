@@ -111,6 +111,28 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       setError('Imported locally. Review the facts and save before filling.');
     } catch (err) { setError(err.message); }
   }
+  async function saveDetailsFromForm() {
+    setBusy(true);
+    setError('');
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id || !tab.url) throw new Error('Open the completed application form first.');
+      const response = await sendToApplicationTab(tab, { action: 'JF_READ_FORM_DETAILS' });
+      if (!response?.success) throw new Error(response?.error || 'No profile details found.');
+      const { location, month } = response.details;
+      if (!Object.keys(location).length && !month) throw new Error('No populated address or confirmed internship month found.');
+      const data = await chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed']);
+      if (!data.candidateProfileReviewed || !data.candidateProfile) throw new Error('Save a reviewed candidate profile first.');
+      const profile = normalizeProfile(data.candidateProfile);
+      profile.location = { ...profile.location, ...location };
+      if (Object.hasOwn(profile, 'identity')) profile.identity = { ...profile.identity, location: profile.location };
+      if (month) profile.preferences = { ...profile.preferences, confirmed_internship_start_month: month };
+      await chrome.storage.local.set({ candidateProfile: profile, candidateProfileVersion: Date.now() });
+      setProfileText(JSON.stringify(profile, null, 2));
+      setError('Saved the populated address fields and any confirmed internship month from this form.');
+    } catch (error) { setError(error.message); }
+    finally { setBusy(false); }
+  }
   async function saveAnswer(field, value, provenance = 'applicant') {
     try {
       const data = await chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed']);
@@ -280,6 +302,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       <textarea aria-label="Candidate profile JSON" rows={12} className="w-full p-2 bg-zinc-900 font-mono" value={profileText} onChange={e => { setProfileText(e.target.value); setConfirmed(false); setReport(null); chrome.storage.local.set({ candidateProfileReviewed: false }); }} />
       <label className="block"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} /> I reviewed these facts against my selected resume.</label>
       <button type="button" className="p-2 border rounded" onClick={saveProfile}>Save reviewed profile</button>
+      <button type="button" className="p-2 border rounded" disabled={!confirmed || working} onClick={saveDetailsFromForm}>Save address and start month from this form</button>
       <label className="block"><input type="checkbox" disabled={!confirmed || working}
         checked={reviewedProfile?.preferences?.default_experience_years === 0}
         onChange={event => saveExperienceDefault(event.target.checked)} /> Use 0 years for experience questions</label>

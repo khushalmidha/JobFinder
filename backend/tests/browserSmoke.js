@@ -118,6 +118,43 @@ async function main() {
           };
         };
       </script>`));
+    app.get('/internship-form', (req, res) => {
+      const seed = req.query.seed === 'yes';
+      res.type('html').send(`<!doctype html><title>Internship application</title><h1>Internship application</h1>
+        <form action="/submitted">
+          <div><label for="address">Full Address</label><input id="address" value="${seed ? '123 Synthetic Road' : ''}"></div>
+          <div><label for="town">Home Town</label><input id="town" value="${seed ? 'Test City' : ''}"></div>
+          <div><label for="home-state">Home State</label><select id="home-state">
+            <option value="">Choose</option><option value="ts" ${seed ? 'selected' : ''}>Test State</option></select></div>
+          <div><label for="postcode">Pincode</label><input id="postcode" value="${seed ? '123456' : ''}"></div>
+          <div><label for="degree-native">Degree</label><select id="degree-native">
+            <option value="">Choose</option><option value="engineering">Bachelor of Technology</option></select></div>
+          <div><label for="college-select">College/University</label><select id="college-select">
+            <option value="">Choose</option><option value="alpha">Alpha University</option><option value="other">Other</option></select></div>
+          <div id="other-wrap"></div>
+          <div><label for="stream">Specialization/ Stream</label><input id="stream"></div>
+          <div><label for="project-bullets">List key projects in bullet points</label><textarea id="project-bullets"></textarea></div>
+          <div><label for="grad">Graduation Year</label><input id="grad"></div>
+          <div><label for="gpa">CGPA</label><input id="gpa" type="number" step="any"></div>
+          <div><label for="years">Years of Experience</label><input id="years" type="number"></div>
+          <div><label for="january">If offered an internship, would you be available to start in January 2027?</label>
+            <select id="january"><option value="">Choose</option><option value="y" ${seed ? 'selected' : ''}>Yes</option><option value="n">No</option></select></div>
+          <div><label for="march">If offered an internship, would you be available to start in March 2027?</label>
+            <select id="march"><option value="">Choose</option><option value="y">Yes</option><option value="n">No</option></select></div>
+          <div><label for="intern-cv">Upload Your CV</label><input id="intern-cv" type="file" accept="application/pdf"><p id="cv-name"></p></div>
+          <button>Submit application</button>
+        </form>
+        <script>
+          const college = document.getElementById('college-select');
+          college.onchange = () => {
+            if (college.value === 'other') setTimeout(() => {
+              document.getElementById('other-wrap').innerHTML = '<label for="college-other">College/University (if other)</label><input id="college-other">';
+            }, 90);
+          };
+          const file = document.getElementById('intern-cv');
+          file.onchange = () => { document.getElementById('cv-name').textContent = file.files[0].name; };
+        </script>`);
+    });
     const web=path.resolve(__dirname,'../../web/dist');app.use(express.static(web));app.get('/{*splat}',(_req,res)=>res.sendFile('index.html',{root:web}));
     await new Promise(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});const base=`http://127.0.0.1:${server.address().port}`;
     const extensionPath=path.resolve(__dirname,'../../extension/dist');
@@ -434,6 +471,32 @@ async function main() {
     console.log('PASS: clean Binary-style form, cleared draft refill, and experiment matched to the selected direction');
     console.log('PASS: resume selected in the packaged extension, explicit attach, existing-file protection and stale-tab recovery');
     console.log('PASS: default PDF and a manually entered Scholar link reused on a fresh form; synthetic edits ignored');
+    const seedForm = await context.newPage();
+    const screenshotForm = await context.newPage();
+    const formSettings = await context.newPage();
+    await seedForm.goto(base + '/internship-form?seed=yes');
+    await formSettings.goto(popupUrl);
+    await formSettings.evaluate(async url => {
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      const [target] = await query({ url });
+      chrome.tabs.query = options => options.active ? Promise.resolve([target]) : query(options);
+    }, seedForm.url());
+    await formSettings.getByText('Edit candidate profile', { exact: true }).click();
+    await formSettings.getByRole('button', { name: 'Save address and start month from this form' }).click();
+    await formSettings.getByText('Saved the populated address fields and any confirmed internship month from this form.', { exact: true }).waitFor();
+    await screenshotForm.goto(base + '/internship-form');
+    await screenshotForm.getByRole('button', { name: 'Fill this form', exact: true }).click();
+    await screenshotForm.getByText('Resume on form: synthetic-resume.pdf', { exact: true }).waitFor();
+    for (const [id, expected] of Object.entries({ address: '123 Synthetic Road', town: 'Test City', 'home-state': 'ts',
+      postcode: '123456', 'degree-native': 'engineering', 'college-select': 'other', 'college-other': 'Synthetic University',
+      stream: 'Computer Science', grad: '2027', gpa: '8.8', years: '0', january: 'y', march: '' })) {
+      assert.equal(await screenshotForm.locator('#' + id).inputValue(), expected, id);
+    }
+    assert.equal(await screenshotForm.locator('#cv-name').textContent(), 'synthetic-resume.pdf');
+    assert.match(await screenshotForm.locator('#project-bullets').inputValue(), /^• Synthetic ranking project:/);
+    assert.equal(submissions, 0);
+    await Promise.all([seedForm.close(), screenshotForm.close(), formSettings.close()]);
+    console.log('PASS: screenshot-style address, degree alias, college Other and dependent field, exact start month, and native CV attach');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);
     page.on('pageerror',error=>console.error('Browser page error:',error.message));
     page.on('response',response=>{if(response.url().includes('/api/') && response.status()>=400)console.error('API failed:',response.status(),response.url());});

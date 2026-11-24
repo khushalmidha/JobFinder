@@ -3,6 +3,28 @@ const sentence = value => /[.!?]$/.test(value) ? value : value + '.';
 const tokens = value => new Set(clean(value).toLowerCase().match(/[a-z][a-z0-9+#.-]{2,}/g) || []);
 const generic = new Set('about yourself your tell what share describe most relevant experience project projects one two built working with have role this example where skills explain'.split(' '));
 
+export function resumeBulletDraft(context, profile) {
+  if (context.inputType !== 'textarea') return null;
+  const question = clean(context.labelText).toLowerCase();
+  const instructions = clean(context.descriptionText).toLowerCase();
+  if (!/\bbullets?\b|\bbullet points?\b/.test(question + ' ' + instructions) ||
+      /\b(?:why|references?|compensation|salary|years|authorization|failure|challenges?)\b/.test(question)) return null;
+  const projects = /\bprojects?\b/.test(question);
+  const experience = /\b(?:experience|internships?)\b/.test(question);
+  if (!projects && !experience) return null;
+  const ignored = new Set('list key briefly summarize give write points point bullets bullet three short describe please resume about and the for'.split(' '));
+  const topics = [...tokens(question)].filter(word => !generic.has(word) && !ignored.has(word) && word !== 'internship');
+  const items = [
+    ...(projects ? (profile.projects || []).map(entry => [clean(entry.name), clean(entry.one_line || entry.bullets?.[0])]) : []),
+    ...(experience ? (profile.experience || []).map(entry => [clean(entry.company), clean(entry.bullets?.[0])]) : [])
+  ].filter(([name, fact]) => name && fact && fact.length <= 500 &&
+      (!topics.length || topics.some(topic => tokens(name + ' ' + fact).has(topic)))).slice(0, 2);
+  return items.length ? {
+    answer: items.map(([name, fact]) => `• ${name}: ${sentence(fact)}`).join('\n'),
+    sources: items.map(([name]) => `${name} on reviewed resume`)
+  } : null;
+}
+
 export function resumeAnswerDraft({ labelText, descriptionText }, profile) {
   const question = clean(labelText).toLowerCase();
   if (!question || /why|motivat|goal|prefer|weakness|failure|conflict|leadership|challenge|time when/i.test(question)) return null;
