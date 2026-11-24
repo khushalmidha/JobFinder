@@ -322,6 +322,7 @@ async function main() {
         <div><div><label>Which direction would you most like to work on first? *</label></div><div><button id="radix-direction" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="directions">Choose</button></div></div>
         <div id="directions" role="menu" hidden><div role="menuitem">Perception–memory integration</div><div role="menuitem">Sensor &amp; hardware integration</div></div>
         <div><label>What would you try first in that direction, and why? *</label><textarea id="experiment"></textarea></div>
+        <div><div><label>CV / Résumé *</label></div><div><input id="resume-input" type="file" accept=".pdf" hidden><button type="button">Add file</button><p id="resume-name"></p></div></div>
         <button>Submit</button>
       </form>
       <script>
@@ -333,6 +334,13 @@ async function main() {
           direction.form.setAttribute('aria-hidden', 'true');
           setTimeout(() => direction.form.removeAttribute('aria-hidden'), 180);
         });
+        const resume = document.getElementById('resume-input');
+        window.attachments = 0;
+        resume.onchange = () => {
+          window.attachments++;
+          document.getElementById('resume-name').textContent = resume.files[0].name;
+          try { resume.form.requestSubmit(); } catch { window.resumeSubmitBlocked = true; }
+        };
       </script>` }));
     const binary = await context.newPage();
     const binaryPopup = await context.newPage();
@@ -361,9 +369,44 @@ async function main() {
     assert.equal(await binary.locator('#experiment').inputValue(), '');
     await fillBinary('inertial data');
     assert.equal(await binary.locator('#radix-direction').textContent(), 'Sensor & hardware integration');
+    await binaryPopup.evaluate(async url => {
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      const [target] = await query({ url });
+      chrome.tabs.query = options => options.active ? Promise.resolve([target]) : query(options);
+      const send = chrome.tabs.sendMessage.bind(chrome.tabs);
+      const execute = chrome.scripting.executeScript.bind(chrome.scripting);
+      let first = true;
+      window.reinjected = false;
+      chrome.tabs.sendMessage = async (tabId, request, options) => {
+        if (first && request.action === 'JF_RESUME_TARGET') {
+          first = false;
+          throw new Error('Could not establish connection. Receiving end does not exist.');
+        }
+        return send(tabId, request, options);
+      };
+      chrome.scripting.executeScript = (...args) => { window.reinjected = true; return execute(...args); };
+    }, binary.url());
+    await binaryPopup.getByText('Attach resume PDF', { exact: true }).click();
+    const choose = binaryPopup.getByLabel('Choose reviewed PDF', { exact: true });
+    const pdf = { name: 'synthetic-resume.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF\n') };
+    await choose.setInputFiles(pdf);
+    await binaryPopup.getByText('Selected synthetic-resume.pdf. Review the file before attaching.', { exact: true }).waitFor();
+    assert.equal(await binaryPopup.evaluate(() => window.reinjected), true);
+    assert.equal(await binary.evaluate(() => window.attachments), 0);
+    await binaryPopup.getByRole('button', { name: 'Attach PDF to this form', exact: true }).click();
+    await binaryPopup.getByText('The form shows synthetic-resume.pdf. Check any upload status on the page.', { exact: true }).waitFor();
+    assert.equal(await binary.locator('#resume-name').textContent(), pdf.name);
+    assert.equal(await binary.evaluate(() => window.resumeSubmitBlocked), true);
+    assert.match(await binary.locator('#experiment').inputValue(), /inertial data/);
+    await choose.setInputFiles(pdf);
+    await binaryPopup.getByText('Selected synthetic-resume.pdf. Review the file before attaching.', { exact: true }).waitFor();
+    await binaryPopup.getByRole('button', { name: 'Attach PDF to this form', exact: true }).click();
+    await binaryPopup.getByText('This form already shows a resume. Check its filename before replacing it.', { exact: true }).waitFor();
+    assert.equal(await binary.evaluate(() => window.attachments), 1);
     assert.equal(submissions, 0);
     await Promise.all([binary.close(), binaryPopup.close()]);
     console.log('PASS: clean Binary-style form, cleared draft refill, and experiment matched to the selected direction');
+    console.log('PASS: resume selected in the packaged extension, explicit attach, existing-file protection and stale-tab recovery');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);
     page.on('pageerror',error=>console.error('Browser page error:',error.message));
     page.on('response',response=>{if(response.url().includes('/api/') && response.status()>=400)console.error('API failed:',response.status(),response.url());});

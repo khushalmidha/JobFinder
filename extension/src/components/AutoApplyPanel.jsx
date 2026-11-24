@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { normalizeProfile, rememberAnswer } from '../utils/candidateProfile.js';
 import { formDraftPayload } from '../utils/formDraftPayload.js';
 import { resumeAnswerDraft } from '../utils/resumeAnswerDraft.js';
+import { sendToApplicationTab } from '../utils/applicationTab.js';
 
 const exampleProfile = { fullName: '', firstName: '', lastName: '', email: '', phoneRaw: '', college: '', degree: '', major: '', cgpa: '', graduationYear: '', location: { city: '', state: '', country: '' }, links: { github: '', linkedin: '', portfolio: '' }, provenance: {}, supportingEvidence: [], companyFacts: [] };
 
@@ -16,6 +17,8 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   const [busy, setBusy] = useState(false);
   const [runningTab, setRunningTab] = useState(null);
   const [progress, setProgress] = useState(null);
+  const [resume, setResume] = useState(null);
+  const [resumeStatus, setResumeStatus] = useState('');
   const working = busy || runningTab !== null;
   const [question, setQuestion] = useState('');
   const [company, setCompany] = useState('');
@@ -122,7 +125,8 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         throw new Error('Open an online application form first.');
       }
       if (/(^|\.)linkedin\.com$/i.test(new URL(tab.url).hostname)) throw new Error('LinkedIn is manual only.');
-      const send = name => chrome.tabs.sendMessage(tabId, { action: name, scope }, { frameId: 0 });
+      const target = tabId === tab.id ? tab : await chrome.tabs.get(tabId);
+      const send = name => sendToApplicationTab(target, { action: name, scope });
       let response = await send(action);
       if (action === 'JF_STATUS' && startIfNew && !response?.running && !response?.result) {
         response = await send('JF_START_FILL');
@@ -137,6 +141,47 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         showRun(['JF_PREVIEW', 'JF_READ_CHOICES'].includes(action) ? response : response.result);
       }
     } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+  async function chooseResume(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    setResume(null);
+    setResumeStatus('');
+    if (!file) return;
+    setBusy(true);
+    try {
+      if (!/\.pdf$/i.test(file.name) || file.size > 10 * 1024 * 1024 || await file.slice(0, 5).text() !== '%PDF-')
+        throw new Error('Choose a valid PDF under 10 MB.');
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id || !tab.url) throw new Error('Open the application form before choosing your PDF.');
+      const target = await sendToApplicationTab(tab, { action: 'JF_RESUME_TARGET' });
+      if (!target?.success) throw new Error(target?.error || 'Use the file upload on the form.');
+      setResume({ file, tabId: tab.id, ...target });
+      setResumeStatus(`Selected ${file.name}. Review the file before attaching.`);
+    } catch (error) { setResumeStatus(error.message); }
+    finally { setBusy(false); }
+  }
+  async function attachResume() {
+    if (!resume) return;
+    setBusy(true);
+    setResumeStatus('Selecting the PDF on this form…');
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id !== resume.tabId || tab.url !== resume.url) throw new Error('The active form changed. Choose the PDF again.');
+      const encoded = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = () => reject(new Error('The PDF could not be read.'));
+        reader.readAsDataURL(resume.file);
+      });
+      const result = await sendToApplicationTab(tab, { action: 'JF_ATTACH_RESUME',
+        url: resume.url, scope: resume.scope, name: resume.file.name, encoded });
+      if (!result?.success) throw new Error(result?.error || 'Could not select the PDF on this form.');
+      setResume(null);
+      setResumeStatus(result.visibleFilename ? `The form shows ${result.name}. Check any upload status on the page.`
+        : `${result.name} is selected in the file input. Check the form’s upload status.`);
+    } catch (error) { setResumeStatus(error.message); }
     finally { setBusy(false); }
   }
   function openDraft(field) {
@@ -190,7 +235,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   }
   return <section className="space-y-3 p-3 text-sm">
     <h2 className="font-bold text-lg">Application assistant</h2>
-    <p>Fill this step with facts from your reviewed profile. Review the answers, attach your resume and submit on the application page.</p>
+    <p>Fill this step with facts from your reviewed profile. Review your answers and submit on the application page.</p>
     <details><summary className="cursor-pointer">Edit candidate profile</summary>
       <label className="block">Import resume profile JSON <input type="file" accept="application/json,.json" onChange={importProfile} /></label>
       <p>Use only facts confirmed from your selected resume. Saved in this browser. Empty facts stay unanswered.</p>
@@ -220,6 +265,12 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       <p>Track this run in the bottom-right of the form tab.</p>
     </div>}
     {error && <p role="status">{error}</p>}
+    <details><summary className="cursor-pointer">Attach resume PDF</summary>
+      <label className="block">Choose reviewed PDF <input type="file" accept="application/pdf,.pdf" disabled={working} onChange={chooseResume} /></label>
+      <p>Some portals upload the file as soon as it is attached.</p>
+      <button type="button" className="p-2 border rounded" disabled={!resume || working} onClick={attachResume}>Attach PDF to this form</button>
+      {resumeStatus && <p role="status">{resumeStatus}</p>}
+    </details>
     {report && <div aria-live="polite"><p>{report.state === 'PLAN' ? 'Preview' : report.state === 'STOPPED' ? 'Stopped' : report.needsReviewCount || report.rescanRequired ? 'Fill done · Review needed' : 'Fill done'} · {report.filledCount || 0} verified fills · {report.fields?.filter(field => field.action === 'preserve' && field.outcome !== 'filled').length || 0} already entered · {report.needsReviewCount || 0} need review</p>{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
       <ul>{report.fields?.map(field => <li key={field.context.scope || field.id} className="py-2 border-b border-zinc-700">
         <strong>{field.context.labelText || 'Unlabelled field'}</strong> · {field.action === 'preserve' && !field.outcome ? 'Already entered' : (field.outcome || field.action).replaceAll('_', ' ')}

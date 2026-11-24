@@ -2,9 +2,12 @@ import { FormFillSession, collectFields, extractQuestionContext } from '../utils
 
 import { createFormNotice } from './formNotice.js';
 import { perceptionApplicationDraft } from '../utils/perceptionApplicationDraft.js';
+import { attachReviewedResume, findResumeTarget } from './resumeAttachment.js';
 
-if (!window.__JOBFINDER_INJECTED__) {
-  window.__JOBFINDER_INJECTED__ = true;
+const version = chrome.runtime.getManifest().version;
+if (window.__JOBFINDER_INJECTED__ !== version) {
+  window.__JOBFINDER_INJECTED__ = version;
+  document.querySelector('[data-jobfinder-ui]')?.remove();
   const session = new FormFillSession(document, perceptionApplicationDraft);
   let fillBusy = false;
   let stopRequested = false;
@@ -118,6 +121,36 @@ if (!window.__JOBFINDER_INJECTED__) {
         session.profileVersion = data.candidateProfileVersion;
         respond({ success: true, ...session.scan(data.candidateProfile) });
       }).catch(error => respond({ success: false, error: error.message }));
+      return true;
+    } else if (request.action === 'JF_RESUME_TARGET') {
+      const url = location.href;
+      const readTarget = async () => {
+        for (let attempt = 0; ; attempt++) {
+          if (location.href !== url) throw new Error('The form changed. Choose the PDF again.');
+          try {
+            return { success: true, scope: findResumeTarget(document).scope, url };
+          } catch (error) {
+            if (attempt === 5) throw error;
+            await new Promise(resolve => setTimeout(resolve, 120));
+          }
+        }
+      };
+      void readTarget().then(respond, error => respond({ success: false, error: error.message }));
+      return true;
+    } else if (request.action === 'JF_ATTACH_RESUME') {
+      if (fillBusy) { respond({ success: false, error: 'Wait for the current fill to finish.' }); return false; }
+      fillBusy = true;
+      const attach = async () => {
+        const guard = await chrome.runtime.sendMessage({ action: 'JF_GUARD_SUBMIT', enabled: true });
+        if (!guard?.success) throw new Error('Submission guard unavailable. Use the form’s upload control.');
+        try {
+          return await attachReviewedResume(document, request);
+        } finally {
+          await chrome.runtime.sendMessage({ action: 'JF_GUARD_SUBMIT', enabled: false });
+        }
+      };
+      const finish = result => { fillBusy = false; respond(result); };
+      void attach().then(finish, error => finish({ success: false, error: error.message }));
       return true;
     } else if (request.action === 'JF_READ_CHOICES') {
       if (fillBusy) { respond({ success: false, error: 'Fill already running.' }); return false; }
