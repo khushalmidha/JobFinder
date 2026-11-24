@@ -8,7 +8,20 @@ if (!window.__JOBFINDER_INJECTED__) {
   let fillBusy = false;
   let stopRequested = false;
   let latestRun = null;
-  const status = () => ({ success: true, running: fillBusy, result: latestRun });
+  let progress = null;
+  const status = () => ({ success: true, running: fillBusy, result: latestRun, progress });
+  function showProgress(current) {
+    progress = current;
+    const checked = current?.total ? `${current.checked} of ${current.total} fields checked` : 'Scanning this form…';
+    const label = current?.label?.trim().slice(0, 85);
+    notice.show({
+      title: 'Smart Apply · Filling',
+      phase: 'running',
+      text: label ? `${checked} · ${label}` : checked,
+      progress: current,
+      fresh: !current
+    });
+  }
   const notice = createFormNotice(
     () => startFill(true, () => {}),
     () => {
@@ -26,7 +39,7 @@ if (!window.__JOBFINDER_INJECTED__) {
     fillBusy = true;
     latestRun = null;
     stopRequested = false;
-    notice.show('Filling supported fields in this tab…', null, { fresh: true });
+    showProgress(null);
     const run = async () => {
       const data = await chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed', 'candidateProfileVersion']);
       const start = detached;
@@ -38,9 +51,9 @@ if (!window.__JOBFINDER_INJECTED__) {
         if (stopRequested) return session.report();
         if (start) {
           session.profileVersion = data.candidateProfileVersion;
-          return await session.fillStep(data.candidateProfile);
+          return await session.fillStep(data.candidateProfile, showProgress);
         }
-        return await session.fill();
+        return await session.fill(showProgress);
       } finally {
         await chrome.runtime.sendMessage({ action: 'JF_GUARD_SUBMIT', enabled: false });
       }
@@ -48,13 +61,22 @@ if (!window.__JOBFINDER_INJECTED__) {
     const finish = result => {
       latestRun = result;
       fillBusy = false;
+      progress = null;
       if (result.success) {
         const preserved = result.fields.filter(row => row.action === 'preserve' && row.outcome !== 'filled').length;
-        const text = result.state === 'STOPPED' ? 'Filling stopped.' :
-          `${result.filledCount} filled · ${preserved} already entered · ${result.needsReviewCount} to review`;
-        notice.show(text, result.needsReviewCount ? 'review' : null);
+        const counts = `${result.filledCount} filled · ${preserved} already entered · ${result.needsReviewCount} to review`;
+        if (result.state === 'STOPPED') {
+          notice.show({ title: 'Smart Apply · Stopped', phase: 'review', text: counts, nextAction: 'fill' });
+        } else if (!result.fields.length) {
+          notice.show({ title: 'Smart Apply · No fields found', phase: 'review',
+            text: 'Open the application form and try again.', nextAction: 'fill' });
+        } else {
+          notice.show({ title: result.needsReviewCount || result.rescanRequired ? 'Fill done · Review needed' : 'Fill done',
+            phase: result.needsReviewCount || result.rescanRequired ? 'review' : 'done',
+            text: counts, nextAction: result.needsReviewCount ? 'review' : null });
+        }
       } else {
-        notice.show('Open Smart Apply in the toolbar to check the profile or form.', null);
+        notice.show({ title: 'Smart Apply · Could not fill', phase: 'error', text: result.error, nextAction: 'fill' });
       }
       if (!detached) respond(result);
     };
@@ -72,7 +94,7 @@ if (!window.__JOBFINDER_INJECTED__) {
     if (location.hostname !== 'binary.so' &&
         !/application|apply|careers|intern|engineer|job/i.test(document.title + ' ' + (document.querySelector('h1')?.textContent || ''))) return false;
     if (fields.length < 3 || !/name|email|phone|resume|résumé|degree|work experience/i.test(labels)) return false;
-    notice.show('Fill supported fields from your reviewed profile?', 'fill', { fresh: true });
+    notice.show({ title: 'Smart Apply · Ready', phase: 'ready', text: 'Fill supported fields from your reviewed profile?', nextAction: 'fill', fresh: true });
     return true;
   }
   chrome.storage.local.get('candidateProfileReviewed').then(({ candidateProfileReviewed }) => {

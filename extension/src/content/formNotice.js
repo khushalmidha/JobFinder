@@ -8,6 +8,12 @@ export function createFormNotice(onFill, onReview) {
       width: min(320px, calc(100vw - 32px)); color: #fff; font: 14px system-ui, sans-serif; }
     section { position: relative; padding: 15px 40px 15px 15px; border-radius: 12px;
       border: 1px solid #3f3f46; background: #18181b; box-shadow: 0 6px 24px #0005; }
+    strong { display: block; font-size: 14px; }
+    [data-phase="running"] strong { color: #fde047; }
+    [data-phase="done"] strong { color: #86efac; }
+    [data-phase="review"] strong, [data-phase="error"] strong { color: #fde68a; }
+    progress { width: 100%; height: 7px; display: block; margin-bottom: 10px; accent-color: #facc15; }
+    [hidden] { display: none !important; }
     p { margin: 5px 0 10px; color: #e4e4e7; line-height: 1.4; }
     button { cursor: pointer; font: inherit; }
     .action { border: 0; border-radius: 6px; padding: 6px 10px; background: #facc15; color: #18181b; font-weight: 650; }
@@ -18,9 +24,12 @@ export function createFormNotice(onFill, onReview) {
   const card = document.createElement('section');
   card.setAttribute('aria-label', 'JobFinder Smart Apply');
   const title = document.createElement('strong');
-  title.textContent = 'Smart Apply';
+  title.id = 'jobfinder-notice-title';
   const message = document.createElement('p');
   message.setAttribute('role', 'status');
+  const meter = document.createElement('progress');
+  meter.setAttribute('aria-labelledby', title.id);
+  meter.hidden = true;
   const action = document.createElement('button');
   action.className = 'action';
   action.type = 'button';
@@ -30,11 +39,20 @@ export function createFormNotice(onFill, onReview) {
   close.setAttribute('aria-label', 'Dismiss Smart Apply');
   close.textContent = '×';
   close.onclick = () => host.remove();
-  card.append(title, message, action, close);
+  card.append(title, message, meter, action, close);
   root.append(card);
   return {
-    show(text, nextAction, { fresh = false } = {}) {
+    show({ title: heading, text, phase, nextAction, progress, fresh = false }) {
+      card.dataset.phase = phase;
+      title.textContent = heading;
       message.textContent = text;
+      meter.hidden = phase !== 'running';
+      if (progress?.total > 0) {
+        meter.max = progress.total;
+        meter.value = progress.checked;
+      } else {
+        meter.removeAttribute('value');
+      }
       action.hidden = !nextAction;
       action.textContent = nextAction === 'review' ? 'Go to first field' : 'Fill this form';
       action.onclick = nextAction === 'review' ? onReview : onFill;

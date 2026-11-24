@@ -221,7 +221,12 @@ async function main() {
       return chrome.tabs.sendMessage(tab.id, { action: 'JF_START_FILL' }, { frameId: 0 });
     }, url);
     await first.getByRole('button', { name: 'Fill this form', exact: true }).click();
-    await first.getByText('Filling supported fields in this tab…').waitFor();
+    await first.getByText('Smart Apply · Filling', { exact: true }).waitFor();
+    await first.getByText(/2 of 6 fields checked.*Degree/).waitFor();
+    const meter = first.getByRole('progressbar', { name: 'Smart Apply · Filling' });
+    assert.equal(await meter.getAttribute('value'), '2');
+    assert.equal(await meter.getAttribute('max'), '6');
+    assert.equal(await second.getByText('Smart Apply · Filling', { exact: true }).count(), 0);
     await firstPopup.close();
     const startedSecond = await startFill(secondPopup, second.url());
     assert.equal(startedSecond.running, true);
@@ -251,13 +256,18 @@ async function main() {
       assert.equal(await form.locator('#work-links').inputValue(), 'https://github.example/synthetic-profile');
       assert.equal(await form.locator('#years').inputValue(), '');
       assert.equal(await form.locator('#date').textContent(), 'Pick a date');
+      await form.getByText('Fill done · Review needed', { exact: true }).waitFor();
       await form.getByText('4 filled · 0 already entered · 2 to review').waitFor();
+      assert.equal(await form.getByRole('progressbar').count(), 0);
     }
+    await second.bringToFront();
+    await first.bringToFront();
+    await first.getByText('Fill done · Review needed', { exact: true }).waitFor();
     await first.getByRole('button', { name: 'Go to first field' }).click();
     assert.equal(await first.locator('#years').evaluate(el => el === document.activeElement), true);
     assert.equal(submissions, 0);
     await Promise.all([first.close(), second.close(), recoveredPopup.close()]);
-    console.log('PASS: bottom-right start and result notice, Binary-style controls, parallel tab fills and zero submits');
+    console.log('PASS: per-tab progress bar, persistent result after tab switches, Binary-style controls and zero submits');
     const approval = await context.newPage();
     await approval.goto(base + '/approval-fixture');
     const approvalPopup = await context.newPage();

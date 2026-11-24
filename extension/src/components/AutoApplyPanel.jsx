@@ -15,6 +15,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [runningTab, setRunningTab] = useState(null);
+  const [progress, setProgress] = useState(null);
   const working = busy || runningTab !== null;
   const [question, setQuestion] = useState('');
   const [company, setCompany] = useState('');
@@ -49,7 +50,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       try {
         const status = await chrome.tabs.sendMessage(runningTab, { action: 'JF_STATUS' }, { frameId: 0 });
         if (cancelled) return;
-        if (status?.running) { timer = setTimeout(poll, 350); return; }
+        if (status?.running) { setProgress(status.progress); timer = setTimeout(poll, 350); return; }
         setRunningTab(null);
         showRun(status?.result);
       } catch {
@@ -117,6 +118,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       if (!response?.success) throw new Error(response?.error || 'Reload this page after updating the extension.');
       if (response.running) {
         setReport(null);
+        setProgress(response.progress);
         setRunningTab(tabId);
       } else {
         setRunningTab(null);
@@ -197,9 +199,13 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       <button type="button" className="p-2 border rounded" disabled={working} onClick={() => command('JF_PREVIEW')}>Preview only</button>
       {runningTab !== null && <button type="button" className="p-2 border rounded" onClick={() => command('JF_STOP')}>Stop</button>}
     </div>
-    {runningTab !== null && <p role="status">You can switch tabs. Reopen Smart Apply on this tab to review.</p>}
+    {runningTab !== null && <div role="status">
+      {progress?.total > 0 ? <><progress className="w-full" aria-label="Fields checked" value={progress.checked} max={progress.total} />
+        <p>{progress.checked} of {progress.total} fields checked</p></> : <p>Scanning this form…</p>}
+      <p>Track this run in the bottom-right of the form tab.</p>
+    </div>}
     {error && <p role="status">{error}</p>}
-    {report && <div aria-live="polite"><p>{report.state === 'PLAN' ? 'Preview' : report.state === 'STOPPED' ? 'Stopped' : 'Fill result'} · {report.filledCount || 0} verified fills · {report.fields?.filter(field => field.action === 'preserve' && field.outcome !== 'filled').length || 0} already entered · {report.needsReviewCount || 0} need review</p>{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
+    {report && <div aria-live="polite"><p>{report.state === 'PLAN' ? 'Preview' : report.state === 'STOPPED' ? 'Stopped' : report.needsReviewCount || report.rescanRequired ? 'Fill done · Review needed' : 'Fill done'} · {report.filledCount || 0} verified fills · {report.fields?.filter(field => field.action === 'preserve' && field.outcome !== 'filled').length || 0} already entered · {report.needsReviewCount || 0} need review</p>{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
       <ul>{report.fields?.map(field => <li key={field.context.scope || field.id} className="py-2 border-b border-zinc-700">
         <strong>{field.context.labelText || 'Unlabelled field'}</strong> · {field.action === 'preserve' && !field.outcome ? 'Already entered' : (field.outcome || field.action).replaceAll('_', ' ')}
         {field.action === 'fill' && <span> → {field.decision.value} ({field.decision.source})</span>}

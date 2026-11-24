@@ -362,7 +362,7 @@ export class FormFillSession {
       filledCount: this.rows.filter(r => r.outcome === 'filled').length,
       needsReviewCount: this.rows.filter(r => r.action === 'needs_review' || r.outcome === 'needs_review').length };
   }
-  async fillStep(profile) {
+  async fillStep(profile, onProgress) {
     this.scan(profile);
     const guardedDocuments = new Set(this.rows.map(row => row.element.ownerDocument));
     const attempted = new Map();
@@ -387,13 +387,13 @@ export class FormFillSession {
           }
         }
       }
-      const report = await this.fill();
+      const report = await this.fill(onProgress && (progress => onProgress({ ...progress, pass: pass + 1 })));
       for (const row of this.rows) attempted.set(row.context.scope, row);
       if (this.stopped || !report.rescanRequired) return report;
     }
     return this.report();
   }
-  async fill() {
+  async fill(onProgress) {
     if (this.state !== 'PLAN') throw new Error('Preview this step before filling.');
     this.state = 'FILL';
     const docs = new Set(this.rows.map(r => r.element.ownerDocument));
@@ -409,7 +409,11 @@ export class FormFillSession {
       }
     }
     try {
-      for (const row of this.rows) {
+      for (const [index, row] of this.rows.entries()) {
+        if (this.stopped) break;
+        onProgress?.({ checked: index, total: this.rows.length, label: row.context.labelText });
+        // Give the notice a chance to render on larger forms without delaying each field.
+        if (onProgress && index > 0 && index % 12 === 0) await new Promise(resolve => setTimeout(resolve, 0));
         if (this.stopped) break;
         if (row.action !== 'fill') continue;
         const el = row.element;
