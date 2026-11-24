@@ -77,6 +77,46 @@ async function main() {
           box.hidden = false;
         };
       </script>`));
+    app.get('/approval-fixture', (_req, res) => res.type('html').send(`<!doctype html>
+      <form action="/submitted">
+        <div role="group" aria-label="Research areas">
+          <button id="vision" type="button" role="checkbox" aria-checked="false"></button><label for="vision">Computer vision</label>
+        </div>
+        <div role="radiogroup" aria-label="Availability">
+          <button id="three" type="button" role="radio" aria-checked="false">3 months</button>
+          <button id="six" type="button" role="radio" aria-checked="false">6 months</button>
+        </div>
+        <div><label>Largest training setup</label><button type="button" id="radix-setup" aria-haspopup="menu" aria-controls="setup" aria-expanded="false">Choose</button></div>
+        <div id="setup" role="menu" hidden><div role="menuitem">CPU only</div><div role="menuitem">Single GPU</div></div>
+        <div><label>Earliest start date *</label><button type="button" id="calendar" aria-haspopup="dialog" aria-controls="date-dialog">Pick a date</button></div>
+        <div id="date-dialog" role="dialog" hidden>
+          <button type="button" aria-label="Go to the Next Month" id="next-month">Next</button>
+          <div id="calendar-days"><div data-day="2027-01-14"><button type="button">14</button></div></div>
+        </div>
+        <button>Submit application</button>
+      </form>
+      <script>
+        const el = id => document.getElementById(id);
+        el('vision').onclick = () => el('vision').setAttribute('aria-checked', 'true');
+        el('six').onclick = () => el('six').setAttribute('aria-checked', 'true');
+        el('radix-setup').onpointerdown = () => {
+          el('setup').hidden = false;
+          el('radix-setup').setAttribute('aria-expanded', 'true');
+        };
+        const close = () => { el('setup').hidden = true; el('radix-setup').setAttribute('aria-expanded', 'false'); };
+        el('setup').onkeydown = event => { if (event.key === 'Escape') close(); };
+        el('setup').querySelectorAll('[role=menuitem]').forEach(choice => {
+          choice.onclick = () => { el('radix-setup').textContent = choice.textContent; close(); };
+        });
+        el('calendar').onclick = () => { el('date-dialog').hidden = false; };
+        el('next-month').onclick = () => {
+          el('calendar-days').querySelector('[data-day]').dataset.day = '2027-02-14';
+          el('calendar-days').querySelector('button').onclick = () => {
+            el('calendar').textContent = 'February 14th, 2027';
+            el('date-dialog').hidden = true;
+          };
+        };
+      </script>`));
     const web=path.resolve(__dirname,'../../web/dist');app.use(express.static(web));app.get('/{*splat}',(_req,res)=>res.sendFile('index.html',{root:web}));
     await new Promise(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});const base=`http://127.0.0.1:${server.address().port}`;
     const extensionPath=path.resolve(__dirname,'../../extension/dist');
@@ -218,6 +258,41 @@ async function main() {
     assert.equal(submissions, 0);
     await Promise.all([first.close(), second.close(), recoveredPopup.close()]);
     console.log('PASS: bottom-right start and result notice, Binary-style controls, parallel tab fills and zero submits');
+    const approval = await context.newPage();
+    await approval.goto(base + '/approval-fixture');
+    const approvalPopup = await context.newPage();
+    approvalPopup.setDefaultTimeout(8000);
+    await approvalPopup.goto(popupUrl);
+    await approvalPopup.evaluate(async url => {
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      const [target] = await query({ url });
+      chrome.tabs.query = options => options.active ? Promise.resolve([target]) : query(options);
+    }, approval.url());
+    await approvalPopup.getByRole('button', { name: 'Preview only', exact: true }).click();
+    const row = title => approvalPopup.getByRole('listitem').filter({ has: approvalPopup.getByText(title, { exact: true }) });
+    const approve = async (title, value, type) => {
+      const item = row(title);
+      const field = item.getByLabel(`Answer: ${title}`, { exact: true });
+      if (type === 'date') await field.fill(value);
+      else await field.selectOption(value);
+      await item.getByRole('button', { name: 'Approve, remember & fill' }).click();
+      await item.getByRole('button', { name: 'Approve, remember & fill' }).waitFor({ state: 'hidden' });
+      await approvalPopup.getByText(/1 verified fills/).waitFor();
+    };
+    const menu = row('Largest training setup');
+    await menu.getByRole('button', { name: 'Read choices from form' }).click();
+    assert.equal(await approval.locator('#radix-setup').textContent(), 'Choose');
+    await approve('Largest training setup', 'Single GPU');
+    assert.equal(await approval.locator('#radix-setup').textContent(), 'Single GPU');
+    await approve('Research areas — Computer vision', 'Yes');
+    assert.equal(await approval.locator('#vision').getAttribute('aria-checked'), 'true');
+    await approve('Availability', '6 months');
+    assert.equal(await approval.locator('#six').getAttribute('aria-checked'), 'true');
+    await approve('Earliest start date *', '2027-02-14', 'date');
+    assert.equal(await approval.locator('#calendar').textContent(), 'February 14th, 2027');
+    assert.equal(submissions, 0);
+    await Promise.all([approval.close(), approvalPopup.close()]);
+    console.log('PASS: real popup approves custom dropdown, checkbox, radio and calendar date after month navigation');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);
     page.on('pageerror',error=>console.error('Browser page error:',error.message));
     page.on('response',response=>{if(response.url().includes('/api/') && response.status()>=400)console.error('API failed:',response.status(),response.url());});

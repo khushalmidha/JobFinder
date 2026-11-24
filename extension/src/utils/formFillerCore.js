@@ -80,9 +80,13 @@ export function extractQuestionContext(element) {
   if (['combobox', 'listbox', 'radio', 'radiogroup', 'checkbox'].includes(role)) inputType = role;
   const fallback = ['name', 'id', 'placeholder', 'autocomplete', 'data-automation-id'].map(a => element.getAttribute(a) || '').join(' ');
   if (inputType === 'radio') labelText = questionText(legend) || groupLabel || refs('aria-labelledby') || '';
-  const popup = controlledPopup(element);
-  const options = element.tagName === 'SELECT' ? [...element.options].map(option => option.label) : inputType === 'radio' ? radioGroup(element).map(choiceLabel) :
-    [...(popup || group || element).querySelectorAll(popupOptions + ', [role="radio"]')].map(choiceLabel).filter(Boolean);
+  if (inputType === 'checkbox') {
+    const topic = groupLabel || questionText(legend);
+    if (topic && labelText && topic !== labelText) labelText = `${topic} — ${labelText}`;
+  }
+  const options = inputType === 'checkbox' ? ['Yes', 'No'] : element.tagName === 'SELECT' ? [...element.options].map(option => option.label) : inputType === 'radio' ? radioGroup(element).map(choiceLabel) :
+    ['combobox', 'listbox'].includes(inputType) ? availableChoices(element).map(choiceLabel).filter(Boolean) :
+    [...(group || element).querySelectorAll('[role="radio"]')].map(choiceLabel).filter(Boolean);
   return { labelText: labelText || fallback.trim(), descriptionText, inputType, options,
     combined: norm(`${labelText} ${descriptionText} ${text(legend)} ${groupLabel} ${fallback}`),
     isRequired: element.required || element.getAttribute('aria-required') === 'true' || labelText.includes('*') };
@@ -115,11 +119,13 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   if (/terms|privacy|agree|consent|declar|certif|attest|signature|sign here|background check|acknowledge/i.test(q))
     return review('LEGAL_CONSENT_OR_TERMS', 'Requires explicit applicant action.');
   if (/captcha|verification code|\botp\b|password|security code/i.test(q)) return review('VERIFICATION', 'Complete verification manually.');
-  if (context.inputType === 'date-picker') return review('MANUAL_DATE_PICKER', 'Choose your date in the form.');
-  const remembered = recallAnswer(profile.answers_bank, context.labelText || q, context.inputType, context.options || [], context.scope || '');
+  const remembered = recallAnswer(profile.answers_bank, context.labelText || q, context.inputType, context.options || [], context.scope || '') ||
+    (context.inputType === 'checkbox' && context.scope ? recallAnswer(profile.answers_bank, context.labelText || q, 'checkbox', [], context.scope) : null);
   // Sensitive/application-specific answers must be explicitly scoped to this form.
-  if (remembered && (context.scope || !/salary|ctc|compensation|notice|availab|relocat|sponsor|visa|authoriz|citizen|nationality/i.test(q)))
+  if (remembered && (context.scope || (!['date-picker', 'date', 'checkbox'].includes(context.inputType) && !/salary|ctc|compensation|notice|availab|relocat|sponsor|visa|authoriz|citizen|nationality/i.test(q))))
     return { type: 'REMEMBERED_ANSWER', value: remembered.answer, verified: true, confidence: null, source: `answer_bank:${remembered.provenance}` };
+  if (context.inputType === 'date-picker' || context.inputType === 'date') return review('DATE_REVIEW', 'Choose and approve the exact date.');
+  if (context.inputType === 'checkbox') return review('CHECKBOX_REVIEW', 'Confirm whether this option applies to you.');
   if (/gender|disabil|veteran|ethnic|race\b/i.test(q) && norm(profile.preferences?.eeo_default) === 'prefer not to say' && context.options?.some(option => norm(option) === 'prefer not to say'))
     return { type: 'EEO_PREFERENCE', value: context.options.find(option => norm(option) === 'prefer not to say'), verified: true, source: 'applicant_profile_eeo_preference', confidence: null };
   if (/years? of (?:hands-on |relevant |professional )?experience|can you work on.site|salary|\bctc\b|compensation|remuneration|expected pay|notice|availab|start date|relocat|sponsor|visa|authoriz|eligible to work|gender|pronoun|disabil|veteran|ethnic|race\b|citizen|nationality|passport|aadhaar|pan number|date of birth|\bdob\b/i.test(q))
@@ -178,8 +184,8 @@ export function collectFields(root, visited = new Set(), { frames = true } = {})
     const popup = popupKind(el);
     if (popup === 'menu' && !nearbyUnboundLabel(el) && !el.getAttribute('aria-labelledby') && !el.labels?.length) return false;
     const datePicker = el.matches('button[aria-haspopup="dialog"]') && extractQuestionContext(el).inputType === 'date-picker';
-    const dropdown = ['combobox', 'listbox'].includes(el.getAttribute('role')) || popup || datePicker;
-    return (!['hidden', 'submit', 'button', 'reset', 'image'].includes(type) || dropdown) && !el.disabled && !el.readOnly && rendered(el) &&
+    const widget = ['combobox', 'listbox', 'checkbox'].includes(el.getAttribute('role')) || popup || datePicker;
+    return (!['hidden', 'submit', 'button', 'reset', 'image'].includes(type) || widget) && !el.disabled && !el.readOnly && rendered(el) &&
       !(el.type==='radio' && radioGroup(el)[0]!==el) &&
       !el.closest('[hidden], [aria-hidden="true"], [data-jobfinder-ui]') &&
       !(el.getAttribute('role') !== 'radiogroup' && el.closest('[role="radiogroup"]')) &&
@@ -207,6 +213,10 @@ function emptyDropdownPrompt(el, displayed) {
 }
 function currentValue(el) {
   const role = el.getAttribute('role') || (popupKind(el) ? 'combobox' : null);
+  if (el.matches('button[aria-haspopup="dialog"]') && extractQuestionContext(el).inputType === 'date-picker') {
+    const label = text(el);
+    return /^(?:pick|select|choose)(?: a)? date$/i.test(label) ? '' : label;
+  }
   if (el.tagName === 'SELECT' && !el.multiple) {
     const option = el.selectedOptions[0];
     return !option || option.matches(':disabled') ? '' : el.value;
@@ -246,29 +256,98 @@ const exactOption = (items, value) => {
   if (matches.length !== 1) throw new Error('No unique exact option; choose manually.');
   return matches[0];
 };
-async function waitForChoice(el, value, stopped) {
+function openChoice(el) {
+  if (el.getAttribute('aria-expanded') === 'true') return;
+  if (popupKind(el) === 'menu' && el.id.startsWith('radix-')) {
+    const win = el.ownerDocument.defaultView;
+    safeClick(el, new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
+  } else {
+    safeClick(el);
+  }
+}
+function availableChoices(el) {
+  const popup = controlledPopup(el) || (popupKind(el) === 'menu' ? null : el);
+  if (!popup || !rendered(popup)) return [];
+  return [...popup.querySelectorAll(popupOptions)].filter(option =>
+    rendered(option) && !option.closest('[hidden], [aria-hidden="true"], [aria-disabled="true"]') && !option.matches(':disabled'));
+}
+async function waitForChoices(el, stopped) {
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline && !stopped() && el.isConnected) {
-    const popup = controlledPopup(el) || (popupKind(el) === 'menu' ? null : el);
-    if (popup && rendered(popup)) {
-      const options = [...popup.querySelectorAll(popupOptions)].filter(option =>
-        rendered(option) && !option.closest('[hidden], [aria-hidden="true"], [aria-disabled="true"]') &&
-        norm(option.getAttribute('aria-label') || text(option)) === norm(value));
-      if (options.length > 1) throw new Error('Ambiguous dropdown options.');
-      if (options.length === 1) return options[0];
-    }
+    const options = availableChoices(el);
+    if (options.length) return options;
     await new Promise(resolve => setTimeout(resolve, 25));
   }
-  throw new Error('Dropdown option unavailable; complete manually.');
+  throw new Error('The dropdown did not expose its options. Choose on the page.');
+}
+function dateKey(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) && !/[a-z]{3,}/i.test(value)) return '';
+  const plain = value.replace(/(\d)(?:st|nd|rd|th)\b/gi, '$1');
+  if (!/\b\d{4}\b/.test(plain)) return '';
+  const timestamp = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(plain) ? plain : plain + ' UTC');
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : '';
+}
+async function chooseCalendarDate(el, value, stopped) {
+  if (dateKey(value) !== value) throw new Error('Choose a valid calendar date.');
+  openChoice(el);
+  for (let step = 0; step <= 12 && !stopped(); step++) {
+    await new Promise(resolve => setTimeout(resolve, 70));
+    const popup = controlledPopup(el);
+    if (!popup?.matches('[role="dialog"]') || !rendered(popup)) continue;
+    const days = [...popup.querySelectorAll('[data-day]')].filter(day =>
+      !day.matches('[data-outside="true"], [data-hidden="true"]') && rendered(day));
+    const matching = days.filter(day => day.getAttribute('data-day') === value);
+    if (matching.length === 1) {
+      const day = matching[0].matches('button') ? matching[0] : matching[0].querySelector('button');
+      if (!day || day.disabled || day.getAttribute('aria-disabled') === 'true') throw new Error('The selected date is unavailable.');
+      safeClick(day);
+      await new Promise(resolve => setTimeout(resolve, 70));
+      if (dateKey(el.getAttribute('data-date') || currentValue(el)) !== value) throw new Error('The calendar selection could not be verified.');
+      return;
+    }
+    const currentMonth = days[Math.floor(days.length / 2)]?.getAttribute('data-day')?.slice(0, 7);
+    if (!currentMonth || currentMonth === value.slice(0, 7) || matching.length > 1 || step === 12) break;
+    const direction = currentMonth < value.slice(0, 7) ? 'next' : 'previous';
+    const nav = [...popup.querySelectorAll('button[aria-label]')].filter(button =>
+      !button.disabled && new RegExp(`\\b${direction}\\b.*\\bmonth\\b`, 'i').test(button.getAttribute('aria-label')));
+    if (nav.length !== 1) break;
+    safeClick(nav[0]);
+  }
+  throw new Error('Choose the date on the page. This calendar did not expose a verifiable date.');
 }
 
 export class FormFillSession {
-  constructor(root) { this.root = root; this.state = 'IDLE'; this.rows = []; this.stopped = false; }
+  constructor(root) { this.root = root; this.state = 'IDLE'; this.rows = []; this.stopped = false; this.choiceSnapshots = new WeakMap(); }
+  contextFor(element) {
+    const context = { ...extractQuestionContext(element), scope: answerScope(element) };
+    const snapshot = this.choiceSnapshots.get(element);
+    if (snapshot?.scope === context.scope) context.options = snapshot.options;
+    return context;
+  }
+  async readChoices(scope, profile) {
+    const controls = collectFields(this.root).filter(el => answerScope(el) === scope);
+    const element = controls.length === 1 ? controls[0] : null;
+    if (!element || element.ownerDocument !== this.root || !['combobox', 'listbox'].includes(extractQuestionContext(element).inputType))
+      throw new Error('The dropdown changed. Preview this form again.');
+    this.stopped = false;
+    openChoice(element);
+    try {
+      const options = (await waitForChoices(element, () => this.stopped)).map(choiceLabel).filter(Boolean);
+      if (!options.length || new Set(options.map(norm)).size !== options.length) throw new Error('The page has ambiguous choices. Select directly on the form.');
+      this.choiceSnapshots.set(element, { scope, options });
+    } finally {
+      const win = element.ownerDocument.defaultView;
+      const popup = controlledPopup(element);
+      (popup?.contains(element.ownerDocument.activeElement) ? element.ownerDocument.activeElement : popup || element)
+        .dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    }
+    return this.scan(profile);
+  }
   scan(profile) {
     if (this.state === 'FILL') throw new Error('Fill already running.');
     this.stopped = false; this.state = 'SCAN'; this.rescanRequired = false;
     this.rows = collectFields(this.root).map((element, index) => {
-      const context = { ...extractQuestionContext(element), scope: answerScope(element) };
+      const context = this.contextFor(element);
       const decision = classifyQuestion(context, profile);
       const before = currentValue(element);
       return { id: index, element, context, before, decision,
@@ -335,7 +414,7 @@ export class FormFillSession {
         if (row.action !== 'fill') continue;
         const el = row.element;
         try {
-          if (!el.isConnected || !rendered(el) || JSON.stringify({ ...extractQuestionContext(el), scope: answerScope(el) }) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
+          if (!el.isConnected || !rendered(el) || JSON.stringify(this.contextFor(el)) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
           if (currentValue(el) !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
           const { value } = row.decision;
           const type = row.context.inputType;
@@ -359,13 +438,12 @@ export class FormFillSession {
             safeClick(option);
             if (option.getAttribute('aria-checked') !== 'true') throw new Error('Radio selection was not retained.');
           } else if (type === 'combobox' || type === 'listbox') {
-            if (popupKind(el) === 'menu' && el.id.startsWith('radix-') && el.getAttribute('aria-expanded') !== 'true') {
-              const win = el.ownerDocument.defaultView;
-              safeClick(el, new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
-            } else if (el.getAttribute('aria-expanded') !== 'true') {
-              safeClick(el);
-            }
-            const option = await waitForChoice(el, value, () => this.stopped);
+            openChoice(el);
+            const choices = await waitForChoices(el, () => this.stopped);
+            const snapshot = this.choiceSnapshots.get(el);
+            if (snapshot && JSON.stringify(choices.map(choiceLabel).sort()) !== JSON.stringify([...snapshot.options].sort()))
+              throw new Error('Dropdown options changed. Read the options again.');
+            const option = exactOption(choices, value);
             if (this.stopped) break;
             const identity = answerScope(el);
             safeClick(option);
@@ -377,11 +455,13 @@ export class FormFillSession {
               (committed.tagName === 'INPUT' && !committed.getAttribute('aria-valuetext') && !committed.getAttribute('data-value') &&
                 option.getAttribute('aria-selected') !== 'true')) throw new Error('Dropdown selection was not retained.');
             row.element = committed;
+          } else if (type === 'date-picker' && row.decision.type === 'REMEMBERED_ANSWER') {
+            await chooseCalendarDate(el, value, () => this.stopped);
           } else if (['text', 'email', 'tel', 'url', 'number', 'search', 'textarea'].includes(type) || (type === 'date' && row.decision.type === 'REMEMBERED_ANSWER')) {
             setValue(el, value);
           } else throw new Error('Unsupported control; complete manually.');
           if (!row.element.isConnected) throw new Error('Field rerendered; preview the updated step.');
-          if (el.type!=='radio' && !['combobox', 'listbox', 'radiogroup', 'checkbox'].includes(type) && norm(el.value) !== norm(type === 'select' ? exactOption(el.options, value).value : value)) throw new Error('Value was not retained.');
+          if (el.type!=='radio' && !['combobox', 'listbox', 'radiogroup', 'checkbox', 'date-picker'].includes(type) && norm(el.value) !== norm(type === 'select' ? exactOption(el.options, value).value : value)) throw new Error('Value was not retained.');
           if (typeof row.element.checkValidity === 'function' && !row.element.checkValidity()) throw new Error('Site validation requires review.');
           row.outcome = 'filled';
           row.committedValue = currentValue(row.element);
@@ -391,7 +471,7 @@ export class FormFillSession {
         const known = new Set(this.rows.map(row => row.element));
         this.rescanRequired = collectFields(this.root).some(control => !known.has(control)) ||
           this.rows.some(row => row.outcome === 'needs_review' && row.element.isConnected &&
-            JSON.stringify({ ...extractQuestionContext(row.element), scope: answerScope(row.element) }) !== JSON.stringify(row.context));
+            JSON.stringify(this.contextFor(row.element)) !== JSON.stringify(row.context));
         this.state = this.rescanRequired || this.rows.some(r => r.action === 'needs_review' || r.outcome === 'needs_review') ? 'NEEDS_REVIEW' : 'IDLE';
       }
     } finally {

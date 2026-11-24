@@ -98,7 +98,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     setReport(result);
     if (!result.fields?.length && result.state !== 'STOPPED') setError('No supported fields found. Open the application form and try again.');
   }
-  async function command(action, startIfNew = false) {
+  async function command(action, startIfNew = false, scope) {
     setBusy(true);
     setError('');
     try {
@@ -109,7 +109,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         throw new Error('Open an online application form first.');
       }
       if (/(^|\.)linkedin\.com$/i.test(new URL(tab.url).hostname)) throw new Error('LinkedIn is manual only.');
-      const send = name => chrome.tabs.sendMessage(tabId, { action: name }, { frameId: 0 });
+      const send = name => chrome.tabs.sendMessage(tabId, { action: name, scope }, { frameId: 0 });
       let response = await send(action);
       if (action === 'JF_STATUS' && startIfNew && !response?.running && !response?.result) {
         response = await send('JF_START_FILL');
@@ -120,7 +120,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         setRunningTab(tabId);
       } else {
         setRunningTab(null);
-        showRun(action === 'JF_PREVIEW' ? response : response.result);
+        showRun(['JF_PREVIEW', 'JF_READ_CHOICES'].includes(action) ? response : response.result);
       }
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -206,7 +206,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         {field.action !== 'preserve' && <p>{field.reason || field.decision.reason}</p>}
         {field.action === 'needs_review' && field.decision.type === 'WRITTEN_ANSWER' &&
           <button type="button" className="underline" disabled={working} onClick={() => openDraft(field)}>Draft with AI</button>}
-        {field.action === 'needs_review' && !['LEGAL_CONSENT_OR_TERMS', 'VERIFICATION', 'MANUAL_UPLOAD', 'MANUAL_DATE_PICKER'].includes(field.decision.type) && <AnswerEditor field={field} onSave={saveAnswer} disabled={working}
+        {field.action === 'needs_review' && !['LEGAL_CONSENT_OR_TERMS', 'VERIFICATION', 'MANUAL_UPLOAD'].includes(field.decision.type) && <AnswerEditor field={field} onSave={saveAnswer} disabled={working} onReadChoices={() => command('JF_READ_CHOICES', false, field.context.scope)}
           draft={confirmed && reviewedProfile && field.decision.type === 'WRITTEN_ANSWER' ? resumeAnswerDraft(field.context, reviewedProfile) : null} />}
       </li>)}</ul>
     </div>}
@@ -229,20 +229,24 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   </section>;
 };
 
-function AnswerEditor({ field, onSave, draft, disabled }) {
+function AnswerEditor({ field, onSave, draft, disabled, onReadChoices }) {
   const [value, setValue] = useState(draft?.answer || '');
   const label = `Answer: ${field.context.labelText}`;
   const change = event => setValue(event.target.value);
+  const { inputType, options } = field.context;
+  if (['combobox', 'listbox'].includes(inputType) && !options.length)
+    return <button type="button" className="underline" disabled={disabled} onClick={onReadChoices}>Read choices from form</button>;
+  const date = ['date', 'date-picker'].includes(inputType);
   return <div>
     {draft && <p>Resume draft · {draft.sources.join(', ')}</p>}
     {field.context.inputType === 'textarea'
       ? <textarea aria-label={label} rows={4} className="w-full p-2 bg-zinc-900" value={value} onChange={change} />
-      : field.context.options?.length
+      : options?.length
         ? <select aria-label={label} className="w-full p-2 bg-zinc-900" value={value} onChange={change}>
             <option value="">Choose your answer</option>
-            {field.context.options.map((option, index) => <option key={index} value={option}>{option}</option>)}
+            {options.map((option, index) => <option key={index} value={option}>{option}</option>)}
           </select>
-        : <input aria-label={label} className="w-full p-2 bg-zinc-900" value={value} onChange={change} />}
+        : <input type={date ? "date" : inputType === "number" ? "number" : "text"} aria-label={label} className="w-full p-2 bg-zinc-900" value={value} onChange={change} />}
     <button type="button" disabled={disabled || !value.trim()} onClick={() => onSave(field, value, draft ? 'draft_approved' : 'applicant')}>Approve, remember & fill</button>
   </div>;
 }

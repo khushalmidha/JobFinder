@@ -96,6 +96,25 @@ if (!window.__JOBFINDER_INJECTED__) {
         respond({ success: true, ...session.scan(data.candidateProfile) });
       }).catch(error => respond({ success: false, error: error.message }));
       return true;
+    } else if (request.action === 'JF_READ_CHOICES') {
+      if (fillBusy) { respond({ success: false, error: 'Fill already running.' }); return false; }
+      fillBusy = true;
+      const read = async () => {
+        const data = await chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed', 'candidateProfileVersion']);
+        if (!data.candidateProfileReviewed || !data.candidateProfile) throw new Error('Review and save your candidate profile first.');
+        const guard = await chrome.runtime.sendMessage({ action: 'JF_GUARD_SUBMIT', enabled: true });
+        if (!guard?.success) throw new Error('Submission guard unavailable. Read the choices directly on the form.');
+        try {
+          const report = await session.readChoices(request.scope, data.candidateProfile);
+          session.profileVersion = data.candidateProfileVersion;
+          return { success: true, ...report };
+        } finally {
+          await chrome.runtime.sendMessage({ action: 'JF_GUARD_SUBMIT', enabled: false });
+        }
+      };
+      const finish = result => { fillBusy = false; respond(result); };
+      void read().then(finish, error => finish({ success: false, error: error.message }));
+      return true;
     } else if (request.action === 'JF_FILL' || request.action === 'JF_START_FILL') {
       return startFill(request.action === 'JF_START_FILL', respond);
     } else if (request.action === 'JF_STOP') {
