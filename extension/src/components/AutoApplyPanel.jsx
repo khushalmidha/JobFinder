@@ -3,6 +3,7 @@ import { normalizeProfile, rememberAnswer } from '../utils/candidateProfile.js';
 import { formDraftPayload } from '../utils/formDraftPayload.js';
 import { resumeAnswerDraft } from '../utils/resumeAnswerDraft.js';
 import { sendToApplicationTab } from '../utils/applicationTab.js';
+import { defaultResumeKey, forgetProfileLink, linkMemoryKeys, readSmartApplyPreferences, rememberLinkPreference } from '../utils/profileMemory.js';
 
 const exampleProfile = { fullName: '', firstName: '', lastName: '', email: '', phoneRaw: '', college: '', degree: '', major: '', cgpa: '', graduationYear: '', location: { city: '', state: '', country: '' }, links: { github: '', linkedin: '', portfolio: '' }, provenance: {}, supportingEvidence: [], companyFacts: [] };
 
@@ -19,6 +20,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   const [progress, setProgress] = useState(null);
   const [resume, setResume] = useState(null);
   const [resumeStatus, setResumeStatus] = useState('');
+  const [remembered, setRemembered] = useState({ owner: '', links: {}, defaultName: '', learning: true });
   const working = busy || runningTab !== null;
   const [question, setQuestion] = useState('');
   const [company, setCompany] = useState('');
@@ -39,6 +41,18 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       setFillOnOpen(data.smartApplyFillOnOpen === true);
       setReady(true);
     });
+  }, []);
+  useEffect(() => {
+    let closed = false;
+    const refresh = () => readSmartApplyPreferences(true).then(data => {
+      if (!closed) setRemembered({ owner: data.owner, links: data.learnedLinks, defaultName: data.defaultResume?.name || '', learning: data.rememberLinks });
+    }).catch(() => {});
+    const changed = (changes, area) => {
+      if (area === 'local' && ['candidateProfile', defaultResumeKey, rememberLinkPreference, ...linkMemoryKeys].some(key => key in changes)) void refresh();
+    };
+    void refresh();
+    chrome.storage.onChanged.addListener(changed);
+    return () => { closed = true; chrome.storage.onChanged.removeListener(changed); };
   }, []);
   useEffect(() => {
     if (!ready || autoStarted.current || !chrome.extension.getViews({ type: 'popup' }).includes(window)) return;
@@ -154,13 +168,42 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       if (!/\.pdf$/i.test(file.name) || file.size > 10 * 1024 * 1024 || await file.slice(0, 5).text() !== '%PDF-')
         throw new Error('Choose a valid PDF under 10 MB.');
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id || !tab.url) throw new Error('Open the application form before choosing your PDF.');
-      const target = await sendToApplicationTab(tab, { action: 'JF_RESUME_TARGET' });
-      if (!target?.success) throw new Error(target?.error || 'Use the file upload on the form.');
-      setResume({ file, tabId: tab.id, ...target });
+      let target;
+      if (tab?.id && /^https?:/.test(tab.url || '')) {
+        try { target = await sendToApplicationTab(tab, { action: 'JF_RESUME_TARGET' }); }
+        catch { /* A reusable PDF can be selected outside an application. */ }
+      }
+      setResume({ file, tabId: tab?.id, ...(target?.success ? target : {}) });
       setResumeStatus(`Selected ${file.name}. Review the file before attaching.`);
     } catch (error) { setResumeStatus(error.message); }
     finally { setBusy(false); }
+  }
+  function encodeResume(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = () => reject(new Error('The PDF could not be read.'));
+      reader.readAsDataURL(file);
+    });
+  }
+  async function saveDefaultResume() {
+    if (!resume) return;
+    setBusy(true);
+    try {
+      const data = await readSmartApplyPreferences();
+      if (!data.candidateProfileReviewed || !data.owner) throw new Error('Save a reviewed profile with your email before setting a default PDF.');
+      if (resume.file.size > 6 * 1024 * 1024) throw new Error('Choose a PDF under 6 MB for reuse in this browser.');
+      const encoded = await encodeResume(resume.file);
+      await chrome.storage.local.set({ [defaultResumeKey]: { owner: data.owner, name: resume.file.name, encoded } });
+      setResumeStatus(`${resume.file.name} will attach when you start Smart Apply on a compatible form.`);
+    } catch (error) { setResumeStatus(error.message); }
+    finally { setBusy(false); }
+  }
+  async function removeDefaultResume() {
+    const data = await readSmartApplyPreferences(true);
+    if (!data.defaultResume) return;
+    await chrome.storage.local.remove(defaultResumeKey);
+    setResumeStatus('Default PDF removed.');
   }
   async function attachResume() {
     if (!resume) return;
@@ -169,12 +212,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id !== resume.tabId || tab.url !== resume.url) throw new Error('The active form changed. Choose the PDF again.');
-      const encoded = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(',')[1]);
-        reader.onerror = () => reject(new Error('The PDF could not be read.'));
-        reader.readAsDataURL(resume.file);
-      });
+      const encoded = await encodeResume(resume.file);
       const result = await sendToApplicationTab(tab, { action: 'JF_ATTACH_RESUME',
         url: resume.url, scope: resume.scope, name: resume.file.name, encoded });
       if (!result?.success) throw new Error(result?.error || 'Could not select the PDF on this form.');
@@ -253,6 +291,13 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
           setFillOnOpen(enabled);
         } catch (err) { setError(err.message); }
       }} /> Start filling when I open this extension</label>
+      <label className="block"><input type="checkbox" checked={remembered.learning}
+        onChange={event => chrome.storage.local.set({ [rememberLinkPreference]: event.target.checked })} /> Remember profile links I enter after starting Smart Apply</label>
+      {!!Object.keys(remembered.links).length && <ul aria-label="Remembered profile links">
+        {Object.entries(remembered.links).map(([kind, url]) => <li key={kind} className="break-all">
+          {url} <button type="button" className="underline" aria-label={`Forget ${kind} link`} onClick={() => forgetProfileLink(kind, remembered.owner)}>Forget</button>
+        </li>)}
+      </ul>}
     </details>
     <div className="flex gap-2">
       <button type="button" className="p-2 bg-yellow-500 text-black rounded" disabled={working} onClick={() => command('JF_START_FILL')}>{runningTab !== null ? 'Filling this tab…' : 'Fill this step'}</button>
@@ -268,10 +313,12 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     <details><summary className="cursor-pointer">Attach resume PDF</summary>
       <label className="block">Choose reviewed PDF <input type="file" accept="application/pdf,.pdf" disabled={working} onChange={chooseResume} /></label>
       <p>Some portals upload the file as soon as it is attached.</p>
-      <button type="button" className="p-2 border rounded" disabled={!resume || working} onClick={attachResume}>Attach PDF to this form</button>
+      {remembered.defaultName && <p>Default PDF: {remembered.defaultName} <button type="button" className="underline" onClick={removeDefaultResume}>Remove default</button></p>}
+      <button type="button" className="p-2 border rounded" disabled={!resume || working} onClick={saveDefaultResume}>Use this PDF for future fills</button>
+      <button type="button" className="p-2 border rounded" disabled={!resume?.scope || working} onClick={attachResume}>Attach PDF to this form</button>
       {resumeStatus && <p role="status">{resumeStatus}</p>}
     </details>
-    {report && <div aria-live="polite"><p>{report.state === 'PLAN' ? 'Preview' : report.state === 'STOPPED' ? 'Stopped' : report.needsReviewCount || report.rescanRequired ? 'Fill done · Review needed' : 'Fill done'} · {report.filledCount || 0} verified fills · {report.fields?.filter(field => field.action === 'preserve' && field.outcome !== 'filled').length || 0} already entered · {report.needsReviewCount || 0} need review</p>{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
+    {report && <div aria-live="polite"><p>{report.state === 'PLAN' ? 'Preview' : report.state === 'STOPPED' ? 'Stopped' : report.needsReviewCount || report.rescanRequired ? 'Fill done · Review needed' : 'Fill done'} · {report.filledCount || 0} verified fills · {report.fields?.filter(field => field.action === 'preserve' && field.outcome !== 'filled').length || 0} already entered · {report.needsReviewCount || 0} need review</p>{report.resumeStatus && <p>{report.resumeStatus}</p>}{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
       <ul>{report.fields?.map(field => <li key={field.context.scope || field.id} className="py-2 border-b border-zinc-700">
         <strong>{field.context.labelText || 'Unlabelled field'}</strong> · {field.action === 'preserve' && !field.outcome ? 'Already entered' : (field.outcome || field.action).replaceAll('_', ' ')}
         {field.action === 'fill' && <span> → {field.decision.value} ({field.decision.source})</span>}

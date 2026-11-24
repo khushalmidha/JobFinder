@@ -27,6 +27,9 @@ export function createFormNotice(onFill, onReview) {
   title.id = 'jobfinder-notice-title';
   const message = document.createElement('p');
   message.setAttribute('role', 'status');
+  const feedback = document.createElement('p');
+  feedback.setAttribute('aria-live', 'polite');
+  feedback.hidden = true;
   const meter = document.createElement('progress');
   meter.setAttribute('aria-labelledby', title.id);
   meter.hidden = true;
@@ -39,9 +42,13 @@ export function createFormNotice(onFill, onReview) {
   close.setAttribute('aria-label', 'Dismiss Smart Apply');
   close.textContent = '×';
   close.onclick = () => host.remove();
-  card.append(title, message, meter, action, close);
+  card.append(title, message, feedback, meter, action, close);
   root.append(card);
   return {
+    feedback(text) {
+      feedback.textContent = text;
+      feedback.hidden = !text;
+    },
     show({ title: heading, text, phase, nextAction, progress, fresh = false }) {
       card.dataset.phase = phase;
       title.textContent = heading;

@@ -1,8 +1,9 @@
-import { FormFillSession, collectFields, extractQuestionContext } from '../utils/formFillerCore.js';
+import { FormFillSession, collectFields, extractQuestionContext, profileLinkField } from '../utils/formFillerCore.js';
 
 import { createFormNotice } from './formNotice.js';
 import { perceptionApplicationDraft } from '../utils/perceptionApplicationDraft.js';
 import { attachReviewedResume, findResumeTarget } from './resumeAttachment.js';
+import { readSmartApplyPreferences, rememberProfileLink } from '../utils/profileMemory.js';
 
 const version = chrome.runtime.getManifest().version;
 if (window.__JOBFINDER_INJECTED__ !== version) {
@@ -13,6 +14,23 @@ if (window.__JOBFINDER_INJECTED__ !== version) {
   let stopRequested = false;
   let latestRun = null;
   let progress = null;
+  let activeProfile = null;
+  const editedLinks = new WeakSet();
+  const learnInput = event => {
+    const input = event.target;
+    if (activeProfile?.url === location.href && event.isTrusted && input?.tagName === 'INPUT' &&
+        profileLinkField(extractQuestionContext(input))) editedLinks.add(input);
+  };
+  const learnChange = event => {
+    const input = event.target;
+    if (activeProfile?.url !== location.href || !event.isTrusted || !editedLinks.delete(input)) return;
+    const kind = profileLinkField(extractQuestionContext(input));
+    if (kind) void rememberProfileLink(kind, input.value, activeProfile.owner).then(saved => {
+      if (saved && activeProfile?.url === location.href) notice.feedback('Profile link saved for future forms.');
+    }).catch(() => {});
+  };
+  document.addEventListener('input', learnInput, true);
+  document.addEventListener('change', learnChange, true);
   const status = () => ({ success: true, running: fillBusy, result: latestRun, progress });
   function showProgress(current) {
     progress = current;
@@ -43,19 +61,33 @@ if (window.__JOBFINDER_INJECTED__ !== version) {
     fillBusy = true;
     latestRun = null;
     stopRequested = false;
+    const url = location.href;
+    notice.feedback('');
     showProgress(null);
     const run = async () => {
-      const data = await chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed', 'candidateProfileVersion']);
+      const data = await readSmartApplyPreferences(detached);
       const start = detached;
       if (!start && (!data.candidateProfileReviewed || session.profileVersion !== data.candidateProfileVersion)) throw new Error('Profile changed; save and preview again.');
       if (!data.candidateProfileReviewed || !data.candidateProfile) throw new Error('Review and save your candidate profile first.');
+      activeProfile = data.rememberLinks && data.owner ? { url, owner: data.owner } : null;
       const guard = await chrome.runtime.sendMessage({ action: 'JF_GUARD_SUBMIT', enabled: true });
       if (!guard?.success) throw new Error('Submission guard unavailable; fill manually.');
       try {
         if (stopRequested) return session.report();
         if (start) {
           session.profileVersion = data.candidateProfileVersion;
-          return await session.fillStep(data.candidateProfile, showProgress);
+          const report = await session.fillStep(data.profile, showProgress);
+          if (data.defaultResume && !stopRequested && location.href === url) {
+            let target;
+            try { target = findResumeTarget(document); } catch { /* This step may have no accessible resume control. */ }
+            if (target) {
+              try {
+                const result = await attachReviewedResume(document, { ...data.defaultResume, scope: target.scope, url });
+                report.resumeStatus = result.visibleFilename ? `Resume on form: ${result.name}` : `Resume selected: ${result.name}. Check upload status.`;
+              } catch (error) { report.resumeStatus = error.message; }
+            }
+          }
+          return report;
         }
         return await session.fill(showProgress);
       } finally {
@@ -67,6 +99,7 @@ if (window.__JOBFINDER_INJECTED__ !== version) {
       fillBusy = false;
       progress = null;
       if (result.success) {
+        if (result.resumeStatus) notice.feedback(result.resumeStatus);
         const preserved = result.fields.filter(row => row.action === 'preserve' && row.outcome !== 'filled').length;
         const counts = `${result.filledCount} filled · ${preserved} already entered · ${result.needsReviewCount} to review`;
         if (result.state === 'STOPPED') {
@@ -116,10 +149,10 @@ if (window.__JOBFINDER_INJECTED__ !== version) {
       respond(status());
     } else if (request.action === 'JF_PREVIEW') {
       if (fillBusy) { respond({ success: false, error: 'Fill already running.' }); return false; }
-      chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed', 'candidateProfileVersion']).then(data => {
+      readSmartApplyPreferences().then(data => {
         if (!data.candidateProfileReviewed || !data.candidateProfile) throw new Error('Review and save your candidate profile first.');
         session.profileVersion = data.candidateProfileVersion;
-        respond({ success: true, ...session.scan(data.candidateProfile) });
+        respond({ success: true, ...session.scan(data.profile) });
       }).catch(error => respond({ success: false, error: error.message }));
       return true;
     } else if (request.action === 'JF_RESUME_TARGET') {
@@ -156,12 +189,12 @@ if (window.__JOBFINDER_INJECTED__ !== version) {
       if (fillBusy) { respond({ success: false, error: 'Fill already running.' }); return false; }
       fillBusy = true;
       const read = async () => {
-        const data = await chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed', 'candidateProfileVersion']);
+        const data = await readSmartApplyPreferences();
         if (!data.candidateProfileReviewed || !data.candidateProfile) throw new Error('Review and save your candidate profile first.');
         const guard = await chrome.runtime.sendMessage({ action: 'JF_GUARD_SUBMIT', enabled: true });
         if (!guard?.success) throw new Error('Submission guard unavailable. Read the choices directly on the form.');
         try {
-          const report = await session.readChoices(request.scope, data.candidateProfile);
+          const report = await session.readChoices(request.scope, data.profile);
           session.profileVersion = data.candidateProfileVersion;
           return { success: true, ...report };
         } finally {

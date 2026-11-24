@@ -120,6 +120,41 @@ function experienceYearsQuestion(context) {
 function profileChoice(type, value) {
   return { type, value, verified: true, confidence: null, source: 'applicant_confirmed_preference' };
 }
+export function profileLinkField(context) {
+  if (!['text', 'url'].includes(context.inputType)) return null;
+  const label = norm(context.labelText).replace(/[\s:*?]+$/, '');
+  if (/^(?:your )?(?:google scholar(?: (?:profile|url|link|profile link|profile url))?(?: or publications link)?|scholar profile(?: link| url)?)$/.test(label)) return 'scholar';
+  if (/^(?:your )?orcid(?: (?:id|profile|link|url))?$/.test(label)) return 'orcid';
+  if (/^(?:your )?researchgate(?: (?:profile|link|url)| profile (?:link|url))?$/.test(label)) return 'researchgate';
+  if (/^(?:your )?(?:research|academic) profile(?: (?:link|url))?$/.test(label)) return 'research';
+  if (/^(?:your )?linkedin(?: (?:profile|link|url)| profile (?:link|url))?$/.test(label)) return 'linkedin';
+  if (/^(?:your )?github(?: (?:profile|link|url)| profile (?:link|url))?$/.test(label)) return 'github';
+  return null;
+}
+export function normalizeProfileLink(kind, value) {
+  if (kind === 'research') return ['scholar', 'orcid', 'researchgate'].map(provider => normalizeProfileLink(provider, value)).find(Boolean) || '';
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw || raw.length > 500) return '';
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.port) return '';
+    const host = url.hostname.replace(/^www\./, '');
+    const pathname = url.pathname.replace(/\/$/, '');
+    if (kind === 'scholar') {
+      const id = url.searchParams.get('user');
+      return /^scholar\.google\.(?:com|co\.[a-z]{2}|[a-z]{2})$/.test(host) && pathname === '/citations' && /^[\w-]{3,60}$/.test(id || '')
+        ? `https://scholar.google.com/citations?user=${id}` : '';
+    }
+    const matches = {
+      orcid: ['orcid.org', /^\/\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/i],
+      researchgate: ['researchgate.net', /^\/profile\/[\w-]+$/],
+      linkedin: ['linkedin.com', /^\/in\/[\w%-]+$/],
+      github: ['github.com', /^\/[a-z\d][a-z\d-]{0,38}$/i]
+    };
+    const match = matches[kind];
+    return match && host === match[0] && match[1].test(pathname) ? `https://${host}${pathname}` : '';
+  } catch { return ''; }
+}
 export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   profile = normalizeProfile(profile);
   const q = context.combined || '';
@@ -132,6 +167,13 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   // Sensitive/application-specific answers must be explicitly scoped to this form.
   if (remembered && (context.scope || (!['date-picker', 'date', 'checkbox'].includes(context.inputType) && !/salary|ctc|compensation|notice|availab|relocat|sponsor|visa|authoriz|citizen|nationality/i.test(q))))
     return { type: 'REMEMBERED_ANSWER', value: remembered.answer, verified: true, confidence: null, source: `answer_bank:${remembered.provenance}` };
+  const linkKind = profileLinkField(context);
+  if (linkKind) {
+    const links = profile.links || {};
+    const fallback = linkKind === 'research' ? links.scholar || links.orcid || links.researchgate : links.research;
+    const value = normalizeProfileLink(linkKind, links[linkKind]) || normalizeProfileLink(linkKind, fallback);
+    return value ? profileChoice('PROFILE_LINK', value) : review('PROFILE_LINK', 'Enter your profile URL once to reuse it on future forms.');
+  }
   if (context.inputType === 'date-picker' || context.inputType === 'date') return review('DATE_REVIEW', 'Choose and approve the exact date.');
   if (context.inputType === 'checkbox') return review('CHECKBOX_REVIEW', 'Confirm whether this option applies to you.');
   if (/gender|disabil|veteran|ethnic|race\b/i.test(q) && norm(profile.preferences?.eeo_default) === 'prefer not to say' && context.options?.some(option => norm(option) === 'prefer not to say'))

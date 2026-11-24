@@ -323,6 +323,9 @@ async function main() {
         <div id="directions" role="menu" hidden><div role="menuitem">Perception–memory integration</div><div role="menuitem">Sensor &amp; hardware integration</div></div>
         <div><label>What would you try first in that direction, and why? *</label><textarea id="experiment"></textarea></div>
         <div><div><label>CV / Résumé *</label></div><div><input id="resume-input" type="file" accept=".pdf" hidden><button type="button">Add file</button><p id="resume-name"></p></div></div>
+        <div><label for="scholar">Google Scholar or publications link</label><input id="scholar" type="url"></div>
+        <div><label for="orcid">ORCID profile</label><input id="orcid" type="url"></div>
+        <div><label for="academic">Research profile URL</label><input id="academic" type="url"></div>
         <button>Submit</button>
       </form>
       <script>
@@ -403,10 +406,34 @@ async function main() {
     await binaryPopup.getByRole('button', { name: 'Attach PDF to this form', exact: true }).click();
     await binaryPopup.getByText('This form already shows a resume. Check its filename before replacing it.', { exact: true }).waitFor();
     assert.equal(await binary.evaluate(() => window.attachments), 1);
+    await binaryPopup.getByRole('button', { name: 'Use this PDF for future fills', exact: true }).click();
+    await binaryPopup.getByText('synthetic-resume.pdf will attach when you start Smart Apply on a compatible form.', { exact: true }).waitFor();
+    const scholar = 'https://scholar.google.com/citations?user=SyntheticTest01';
+    await binary.locator('#scholar').pressSequentially(scholar + '&hl=en');
+    await binary.locator('#scholar').press('Tab');
+    await binary.getByText('Profile link saved for future forms.', { exact: true }).waitFor();
+    await binary.locator('#orcid').evaluate(el => {
+      el.value = 'https://orcid.org/0000-0002-1825-0097';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const memory = await binaryPopup.evaluate(() => chrome.storage.local.get(['smartApplyLearnedLink:scholar', 'smartApplyLearnedLink:orcid']));
+    assert.equal(memory['smartApplyLearnedLink:scholar'].url, scholar);
+    assert.equal(memory['smartApplyLearnedLink:orcid'], undefined);
+    await binary.close();
+    const nextForm = await context.newPage();
+    await nextForm.goto('https://binary.so/5vjppCB');
+    await nextForm.getByRole('button', { name: 'Fill this form', exact: true }).click();
+    await nextForm.getByText('Resume on form: synthetic-resume.pdf', { exact: true }).waitFor();
+    assert.equal(await nextForm.locator('#scholar').inputValue(), scholar);
+    assert.equal(await nextForm.locator('#academic').inputValue(), scholar);
+    assert.equal(await nextForm.locator('#orcid').inputValue(), '');
+    assert.equal(await nextForm.evaluate(() => window.attachments), 1);
     assert.equal(submissions, 0);
-    await Promise.all([binary.close(), binaryPopup.close()]);
+    await Promise.all([nextForm.close(), binaryPopup.close()]);
     console.log('PASS: clean Binary-style form, cleared draft refill, and experiment matched to the selected direction');
     console.log('PASS: resume selected in the packaged extension, explicit attach, existing-file protection and stale-tab recovery');
+    console.log('PASS: default PDF and a manually entered Scholar link reused on a fresh form; synthetic edits ignored');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);
     page.on('pageerror',error=>console.error('Browser page error:',error.message));
     page.on('response',response=>{if(response.url().includes('/api/') && response.status()>=400)console.error('API failed:',response.status(),response.url());});
