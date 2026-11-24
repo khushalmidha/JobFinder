@@ -112,6 +112,14 @@ export function answerScope(element) {
   return JSON.stringify({ documents: JSON.parse(applicationScope(element.ownerDocument) || '[]'), field: answerIdentity(element) });
 }
 
+function experienceYearsQuestion(context) {
+  const label = norm(context.labelText || context.combined);
+  return /^(?:(?:how many|total|number of)\s+)?(?:years? of (?:[a-z-]+ ){0,3}experience|experience in years)\b/.test(label) &&
+    !/\b(?:minimum|required|expected)\b/.test(label);
+}
+function profileChoice(type, value) {
+  return { type, value, verified: true, confidence: null, source: 'applicant_confirmed_preference' };
+}
 export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   profile = normalizeProfile(profile);
   const q = context.combined || '';
@@ -128,6 +136,23 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   if (context.inputType === 'checkbox') return review('CHECKBOX_REVIEW', 'Confirm whether this option applies to you.');
   if (/gender|disabil|veteran|ethnic|race\b/i.test(q) && norm(profile.preferences?.eeo_default) === 'prefer not to say' && context.options?.some(option => norm(option) === 'prefer not to say'))
     return { type: 'EEO_PREFERENCE', value: context.options.find(option => norm(option) === 'prefer not to say'), verified: true, source: 'applicant_profile_eeo_preference', confidence: null };
+  const years = profile.preferences?.default_experience_years;
+  if (experienceYearsQuestion(context) && Number.isInteger(years) && years >= 0) {
+    if (['text', 'number', 'tel'].includes(context.inputType)) return profileChoice('EXPERIENCE_YEARS', String(years));
+    if (['select', 'combobox', 'listbox', 'radio', 'radiogroup'].includes(context.inputType)) {
+      const options = (context.options || []).filter(option =>
+        [String(years), `${years} year`, `${years} years`].includes(norm(option)) || (years === 0 && norm(option) === 'no experience'));
+      if (options.length === 1) return profileChoice('EXPERIENCE_YEARS', options[0]);
+    }
+  }
+  const months = profile.preferences?.internship_duration_months;
+  if (Number.isInteger(months) && months > 0 && /^(?:availability|internship duration)\s*\*?$/.test(norm(context.labelText))) {
+    const options = (context.options || []).filter(option => !/^(?:please )?(?:choose|select)(?: an option)?[.\s]*$/.test(norm(option)));
+    if (options.length > 1 && options.every(option => /^\d+ months?$/.test(norm(option)))) {
+      const match = options.filter(option => [`${months} month`, `${months} months`].includes(norm(option)));
+      if (match.length === 1) return profileChoice('INTERNSHIP_DURATION', match[0]);
+    }
+  }
   if (/years? of (?:hands-on |relevant |professional )?experience|can you work on.site|salary|\bctc\b|compensation|remuneration|expected pay|notice|availab|start date|relocat|sponsor|visa|authoriz|eligible to work|gender|pronoun|disabil|veteran|ethnic|race\b|citizen|nationality|passport|aadhaar|pan number|date of birth|\bdob\b/i.test(q))
     return review('SENSITIVE_OR_APPLICATION_SPECIFIC', 'Confirm this answer for this application.');
   if (context.inputType === 'file') return review('MANUAL_UPLOAD', 'Select the real resume PDF manually.');
@@ -422,6 +447,8 @@ export class FormFillSession {
           if (currentValue(el) !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
           const { value } = row.decision;
           const type = row.context.inputType;
+          if (row.decision.type === 'EXPERIENCE_YEARS' && type === 'number' && el.min !== '' && Number(value) < Number(el.min))
+            throw new Error('The form does not accept your default experience value.');
           if (el.maxLength >= 0 && value.length > el.maxLength) throw new Error('Answer exceeds character limit.');
           if (el.type === 'checkbox' || type === 'checkbox') {
             if (row.decision.type !== 'REMEMBERED_ANSWER' || !/^(yes|no)$/i.test(value)) throw new Error('Review checkbox manually.');

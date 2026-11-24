@@ -79,6 +79,7 @@ async function main() {
       </script>`));
     app.get('/approval-fixture', (_req, res) => res.type('html').send(`<!doctype html>
       <form action="/submitted">
+        <label>Years of hands-on experience <input id="experience" type="number"></label>
         <div role="group" aria-label="Research areas">
           <button id="vision" type="button" role="checkbox" aria-checked="false"></button><label for="vision">Computer vision</label>
         </div>
@@ -300,6 +301,15 @@ async function main() {
     assert.equal(await approval.locator('#six').getAttribute('aria-checked'), 'true');
     await approve('Earliest start date *', '2027-02-14', 'date');
     assert.equal(await approval.locator('#calendar').textContent(), 'February 14th, 2027');
+    assert.equal(await approval.locator('#experience').inputValue(), '');
+    await approvalPopup.getByText('Edit candidate profile', { exact: true }).click();
+    const zeroExperience = approvalPopup.getByLabel('Use 0 years for experience questions', { exact: true });
+    await zeroExperience.click();
+    await approvalPopup.getByText('0 years saved for compatible experience questions.', { exact: true }).waitFor();
+    assert.equal(await zeroExperience.isChecked(), true);
+    await approvalPopup.getByRole('button', { name: 'Fill this step', exact: true }).click();
+    await approvalPopup.getByText(/1 verified fills/).waitFor();
+    assert.equal(await approval.locator('#experience').inputValue(), '0');
     assert.equal(submissions, 0);
     await Promise.all([approval.close(), approvalPopup.close()]);
     console.log('PASS: real popup approves custom dropdown, checkbox, radio and calendar date after month navigation');

@@ -71,6 +71,18 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       setReport(null); setError('Profile saved locally. Preview the current step.');
     } catch (err) { setError(err.message); }
   }
+  async function saveExperienceDefault(enabled) {
+    try {
+      const data = await chrome.storage.local.get(['candidateProfile', 'candidateProfileReviewed']);
+      if (!data.candidateProfileReviewed || !data.candidateProfile) throw new Error('Save a reviewed candidate profile first.');
+      const profile = normalizeProfile(data.candidateProfile);
+      profile.preferences = { ...profile.preferences, default_experience_years: enabled ? 0 : null };
+      await chrome.storage.local.set({ candidateProfile: profile, candidateProfileVersion: Date.now() });
+      setProfileText(JSON.stringify(profile, null, 2));
+      setReport(null);
+      setError(enabled ? '0 years saved for compatible experience questions.' : 'Experience default cleared.');
+    } catch (err) { setError(err.message); }
+  }
   async function importProfile(event) {
     try {
       const file = event.target.files?.[0];
@@ -185,6 +197,9 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       <textarea aria-label="Candidate profile JSON" rows={12} className="w-full p-2 bg-zinc-900 font-mono" value={profileText} onChange={e => { setProfileText(e.target.value); setConfirmed(false); setReport(null); chrome.storage.local.set({ candidateProfileReviewed: false }); }} />
       <label className="block"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} /> I reviewed these facts against my selected resume.</label>
       <button type="button" className="p-2 border rounded" onClick={saveProfile}>Save reviewed profile</button>
+      <label className="block"><input type="checkbox" disabled={!confirmed || working}
+        checked={reviewedProfile?.preferences?.default_experience_years === 0}
+        onChange={event => saveExperienceDefault(event.target.checked)} /> Use 0 years for experience questions</label>
       <label className="block"><input type="checkbox" checked={fillOnOpen} onChange={async event => {
         const enabled = event.target.checked;
         autoStarted.current = true;
