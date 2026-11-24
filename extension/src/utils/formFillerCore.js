@@ -33,12 +33,30 @@ function nearbyUnboundLabel(element) {
     wrapper && depth < 3 && !wrapper.matches('form, body, fieldset');
     wrapper = wrapper.parentElement, depth++) {
     const controls = [...wrapper.querySelectorAll('input:not([type="hidden"]), textarea, select, [role="combobox"]')];
-    if (controls.some(control => control !== element)) return '';
+    if (controls.some(control => control !== element && !element.contains(control))) return '';
     const labels = [...wrapper.querySelectorAll('label:not([for])')].filter(label => !label.querySelector('input, textarea, select, button'));
     if (labels.length === 1) return questionText(labels[0]);
     if (labels.length > 1) return '';
   }
   return '';
+}
+const popupOptions = '[role="option"], [role="menuitem"], [role="menuitemradio"]';
+function popupKind(element) {
+  const kind = element.getAttribute('aria-haspopup');
+  return kind === 'listbox' || kind === 'menu' ? kind : '';
+}
+function controlledPopup(element) {
+  const id = element.getAttribute('aria-controls') || element.getAttribute('aria-owns');
+  if (id && !/\s/.test(id)) return element.getRootNode().getElementById?.(id) || element.ownerDocument.getElementById(id);
+  if (popupKind(element) !== 'menu' || !element.id || element.getAttribute('aria-expanded') !== 'true') return null;
+  const menus = [...element.getRootNode().querySelectorAll('[role="menu"][aria-labelledby]')]
+    .filter(menu => menu.getAttribute('aria-labelledby') === element.id && rendered(menu));
+  return menus.length === 1 ? menus[0] : null;
+}
+function choiceLabel(option) {
+  if (option.tagName === 'OPTION') return option.label;
+  return option.getAttribute('aria-label') || [...(option.labels || [])].map(text).join(' ') ||
+    text(option) || option.getAttribute('data-value') || option.value || '';
 }
 export function extractQuestionContext(element) {
   if (!element) return { combined: '', labelText: '', isRequired: false, inputType: 'text' };
@@ -55,16 +73,16 @@ export function extractQuestionContext(element) {
     questionText(container?.querySelector('[role="heading"], .M7eMe, label')) || questionText(legend) || groupLabel || nearbyUnboundLabel(element);
   const descriptionText = refs('aria-describedby') || text(container?.querySelector('.zHQkBf, [data-automation-id="helpText"]'));
   let inputType = norm(element.getAttribute('type') || 'text');
-  const role = element.getAttribute('role') || (element.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
+  const role = element.getAttribute('role') || (popupKind(element) ? 'combobox' : null);
+  if (element.matches('button[aria-haspopup="dialog"]') && /date/i.test(labelText)) inputType = 'date-picker';
   if (element.tagName === 'TEXTAREA') inputType = 'textarea';
   if (element.tagName === 'SELECT') inputType = 'select';
   if (['combobox', 'listbox', 'radio', 'radiogroup', 'checkbox'].includes(role)) inputType = role;
   const fallback = ['name', 'id', 'placeholder', 'autocomplete', 'data-automation-id'].map(a => element.getAttribute(a) || '').join(' ');
   if (inputType === 'radio') labelText = questionText(legend) || groupLabel || refs('aria-labelledby') || '';
-  const popupId = element.getAttribute('aria-controls') || element.getAttribute('aria-owns');
-  const popup = popupId && !popupId.includes(' ') ? get(popupId) : null;
-  const options = element.tagName === 'SELECT' ? [...element.options].map(option => option.label) : inputType === 'radio' ? radioGroup(element).map(r => r.getAttribute('aria-label') || [...(r.labels || [])].map(text).join(' ') || r.value) :
-    [...(popup || group || element).querySelectorAll('[role="option"], [role="radio"]')].map(text);
+  const popup = controlledPopup(element);
+  const options = element.tagName === 'SELECT' ? [...element.options].map(option => option.label) : inputType === 'radio' ? radioGroup(element).map(choiceLabel) :
+    [...(popup || group || element).querySelectorAll(popupOptions + ', [role="radio"]')].map(choiceLabel).filter(Boolean);
   return { labelText: labelText || fallback.trim(), descriptionText, inputType, options,
     combined: norm(`${labelText} ${descriptionText} ${text(legend)} ${groupLabel} ${fallback}`),
     isRequired: element.required || element.getAttribute('aria-required') === 'true' || labelText.includes('*') };
@@ -97,15 +115,20 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   if (/terms|privacy|agree|consent|declar|certif|attest|signature|sign here|background check|acknowledge/i.test(q))
     return review('LEGAL_CONSENT_OR_TERMS', 'Requires explicit applicant action.');
   if (/captcha|verification code|\botp\b|password|security code/i.test(q)) return review('VERIFICATION', 'Complete verification manually.');
+  if (context.inputType === 'date-picker') return review('MANUAL_DATE_PICKER', 'Choose your date in the form.');
   const remembered = recallAnswer(profile.answers_bank, context.labelText || q, context.inputType, context.options || [], context.scope || '');
   // Sensitive/application-specific answers must be explicitly scoped to this form.
   if (remembered && (context.scope || !/salary|ctc|compensation|notice|availab|relocat|sponsor|visa|authoriz|citizen|nationality/i.test(q)))
     return { type: 'REMEMBERED_ANSWER', value: remembered.answer, verified: true, confidence: null, source: `answer_bank:${remembered.provenance}` };
   if (/gender|disabil|veteran|ethnic|race\b/i.test(q) && norm(profile.preferences?.eeo_default) === 'prefer not to say' && context.options?.some(option => norm(option) === 'prefer not to say'))
     return { type: 'EEO_PREFERENCE', value: context.options.find(option => norm(option) === 'prefer not to say'), verified: true, source: 'applicant_profile_eeo_preference', confidence: null };
-  if (/salary|\bctc\b|compensation|remuneration|expected pay|notice|availab|start date|relocat|sponsor|visa|authoriz|eligible to work|gender|pronoun|disabil|veteran|ethnic|race\b|citizen|nationality|passport|aadhaar|pan number|date of birth|\bdob\b/i.test(q))
+  if (/years? of (?:hands-on |relevant |professional )?experience|can you work on.site|salary|\bctc\b|compensation|remuneration|expected pay|notice|availab|start date|relocat|sponsor|visa|authoriz|eligible to work|gender|pronoun|disabil|veteran|ethnic|race\b|citizen|nationality|passport|aadhaar|pan number|date of birth|\bdob\b/i.test(q))
     return review('SENSITIVE_OR_APPLICATION_SPECIFIC', 'Confirm this answer for this application.');
   if (context.inputType === 'file') return review('MANUAL_UPLOAD', 'Select the real resume PDF manually.');
+  if (/^links? to (?:your )?(?:strongest|best) work\b/i.test(context.labelText || '') && context.inputType === 'textarea') {
+    const links = [profile.links?.github, profile.links?.portfolio].filter(link => /^https?:\/\//i.test(link || ''));
+    if (links.length) return { type: 'WORK_LINKS', value: [...new Set(links)].join('\n'), verified: true, source: 'applicant_reviewed_profile' };
+  }
   if (/why|describe|explain|challenge|tell us|about yourself|summary|motivation/i.test(q) || context.inputType === 'textarea')
     return review('WRITTEN_ANSWER', 'Draft and review using selected resume facts and the actual question.');
   if (/company name|employer|emergency contact|next of kin|recruiter|reference|referee|manager|parent|guardian|spouse/i.test(q)) return review('OTHER_PERSON_OR_EMPLOYER', 'Not an applicant profile field.');
@@ -136,7 +159,7 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   return review(context.isRequired ? 'UNKNOWN_REQUIRED' : 'UNMATCHED_OPTIONAL', 'No supported profile evidence for this question.');
 }
 
-const selector = 'input, textarea, select, [role="combobox"], [aria-haspopup="listbox"], [role="listbox"], [role="radiogroup"], [role="checkbox"]';
+const selector = 'input, textarea, select, [role="combobox"], [aria-haspopup="listbox"], button[aria-haspopup="menu"], button[aria-haspopup="dialog"], [role="listbox"], [role="radiogroup"], [role="checkbox"]';
 function rendered(el) {
   for (let node=el;node?.nodeType===1;node=node.parentElement || node.getRootNode()?.host) {
     const style=node.ownerDocument.defaultView.getComputedStyle(node);
@@ -152,7 +175,10 @@ export function collectFields(root, visited = new Set(), { frames = true } = {})
   visited.add(root);
   const fields = [...root.querySelectorAll(selector)].filter(el => {
     const type = norm(el.getAttribute('type'));
-    const dropdown = ['combobox', 'listbox'].includes(el.getAttribute('role')) || el.getAttribute('aria-haspopup') === 'listbox';
+    const popup = popupKind(el);
+    if (popup === 'menu' && !nearbyUnboundLabel(el) && !el.getAttribute('aria-labelledby') && !el.labels?.length) return false;
+    const datePicker = el.matches('button[aria-haspopup="dialog"]') && extractQuestionContext(el).inputType === 'date-picker';
+    const dropdown = ['combobox', 'listbox'].includes(el.getAttribute('role')) || popup || datePicker;
     return (!['hidden', 'submit', 'button', 'reset', 'image'].includes(type) || dropdown) && !el.disabled && !el.readOnly && rendered(el) &&
       !(el.type==='radio' && radioGroup(el)[0]!==el) &&
       !el.closest('[hidden], [aria-hidden="true"], [data-jobfinder-ui]') &&
@@ -169,10 +195,9 @@ export function collectFields(root, visited = new Set(), { frames = true } = {})
 }
 function emptyDropdownPrompt(el, displayed) {
   const value = norm(displayed).replace(/[.\s\u2026]+$/g, '');
-  const popupId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-  const popup = popupId && !popupId.includes(' ') ? el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId) : null;
+  const popup = controlledPopup(el);
   // An actual enabled choice wins over wording that resembles a prompt.
-  if (popup && [...popup.querySelectorAll('[role="option"], option')].some(option => !option.disabled && option.getAttribute('aria-disabled') !== 'true' && norm(option.getAttribute('aria-label') || option.label || text(option)) === norm(displayed))) return false;
+  if (popup && [...popup.querySelectorAll(popupOptions + ', option')].some(option => !option.disabled && option.getAttribute('aria-disabled') !== 'true' && norm(option.getAttribute('aria-label') || option.label || text(option)) === norm(displayed))) return false;
   const placeholder = el.getAttribute('data-placeholder') || el.getAttribute('placeholder');
   if (placeholder && norm(placeholder) === norm(displayed)) return true;
   const label = norm(extractQuestionContext(el).labelText).replace(/[.*:\s]+$/g, '');
@@ -181,13 +206,16 @@ function emptyDropdownPrompt(el, displayed) {
   return ['select', 'choose', 'please select', 'please choose'].some(prefix => endings.some(ending => value === `${prefix}${ending ? ' ' + ending : ''}`));
 }
 function currentValue(el) {
-  const role = el.getAttribute('role') || (el.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
+  const role = el.getAttribute('role') || (popupKind(el) ? 'combobox' : null);
   if (el.tagName === 'SELECT' && !el.multiple) {
     const option = el.selectedOptions[0];
     return !option || option.matches(':disabled') ? '' : el.value;
   }
   if(el.type==='radio')return radioGroup(el).some(r=>r.checked)?'selected':'';
-  if (role === 'radiogroup') return el.querySelector('[aria-checked="true"]')?.getAttribute('data-value') || text(el.querySelector('[aria-checked="true"]'));
+  if (role === 'radiogroup') {
+    const checked = el.querySelector('[role="radio"][aria-checked="true"]');
+    return checked ? choiceLabel(checked) || 'selected' : '';
+  }
   if (['checkbox', 'radio'].includes(el.type) || role === 'checkbox') return (el.checked || el.getAttribute('aria-checked') === 'true') ? 'checked' : '';
   if (role === 'combobox' || role === 'listbox') {
     const explicit = el.getAttribute('aria-valuetext') || el.value || el.getAttribute('data-value');
@@ -205,15 +233,15 @@ function setValue(el, value) {
   el.dispatchEvent(new win.Event('input', { bubbles: true, composed: true }));
   el.dispatchEvent(new win.Event('change', { bubbles: true, composed: true }));
 }
-function safeClick(el) {
+function safeClick(el, event) {
   if (el.closest('a, [formaction], button:not([type="button"]), input[type="submit"], input[type="image"]'))
     throw new Error('Control can submit or navigate; use it manually.');
-  el.click();
+  if (event) el.dispatchEvent(event);
+  else el.click();
 }
 const exactOption = (items, value) => {
   const matches = [...items].filter(el => {
-    const label = el.tagName === 'OPTION' ? el.label : el.getAttribute('aria-label') || [...(el.labels || [])].map(text).join(' ') || text(el);
-    return !el.matches(':disabled') && el.getAttribute('aria-disabled') !== 'true' && norm(label || el.getAttribute('data-value') || el.value) === norm(value);
+    return !el.matches(':disabled') && el.getAttribute('aria-disabled') !== 'true' && norm(choiceLabel(el)) === norm(value);
   });
   if (matches.length !== 1) throw new Error('No unique exact option; choose manually.');
   return matches[0];
@@ -221,12 +249,9 @@ const exactOption = (items, value) => {
 async function waitForChoice(el, value, stopped) {
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline && !stopped() && el.isConnected) {
-    const popupId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-    const popup = popupId && !/\s/.test(popupId)
-      ? el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId)
-      : !popupId ? el : null;
+    const popup = controlledPopup(el) || (popupKind(el) === 'menu' ? null : el);
     if (popup && rendered(popup)) {
-      const options = [...popup.querySelectorAll('[role="option"]')].filter(option =>
+      const options = [...popup.querySelectorAll(popupOptions)].filter(option =>
         rendered(option) && !option.closest('[hidden], [aria-hidden="true"], [aria-disabled="true"]') &&
         norm(option.getAttribute('aria-label') || text(option)) === norm(value));
       if (options.length > 1) throw new Error('Ambiguous dropdown options.');
@@ -334,7 +359,12 @@ export class FormFillSession {
             safeClick(option);
             if (option.getAttribute('aria-checked') !== 'true') throw new Error('Radio selection was not retained.');
           } else if (type === 'combobox' || type === 'listbox') {
-            safeClick(el);
+            if (popupKind(el) === 'menu' && el.id.startsWith('radix-') && el.getAttribute('aria-expanded') !== 'true') {
+              const win = el.ownerDocument.defaultView;
+              safeClick(el, new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
+            } else if (el.getAttribute('aria-expanded') !== 'true') {
+              safeClick(el);
+            }
             const option = await waitForChoice(el, value, () => this.stopped);
             if (this.stopped) break;
             const identity = answerScope(el);

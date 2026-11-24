@@ -48,23 +48,28 @@ async function main() {
         };
       </script>`));
     app.get('/background-fixture', (_req, res) => res.type('html').send(`<!doctype html>
+      <h1>Job application</h1>
       <form action="/submitted">
         <div><div><label>Name *</label></div><div><input id="full"></div></div>
         <div><div><label>Phone *</label></div><div><input id="phone" type="tel"></div></div>
-        <button type="button" role="combobox" aria-label="Degree" aria-controls="degrees">Choose degree</button>
-        <div id="degrees" role="listbox" hidden></div>
+        <div><div><label>Degree *</label></div><div><button type="button" id="radix-degree" aria-haspopup="menu" aria-expanded="false">Choose degree</button></div></div>
+        <div id="degrees" role="menu" aria-labelledby="radix-degree" hidden></div>
+        <div><div><label>Links to your strongest work *</label></div><div><textarea id="work-links"></textarea></div></div>
+        <div><div><label>Years of hands-on experience *</label></div><div><input id="years"></div></div>
+        <div><div><label>Earliest start date *</label></div><div><button id="date" type="button" aria-haspopup="dialog">Pick a date</button></div></div>
         <button>Submit application</button>
       </form>
       <script>
-        const trigger = document.querySelector('[role=combobox]');
-        trigger.onclick = () => { window.waiting = true; };
+        const trigger = document.querySelector('#radix-degree');
+        trigger.onpointerdown = () => { trigger.setAttribute('aria-expanded', 'true'); window.waiting = true; };
         window.showChoices = () => {
           const box = document.querySelector('#degrees');
           const choice = document.createElement('div');
-          choice.setAttribute('role', 'option');
+          choice.setAttribute('role', 'menuitem');
           choice.textContent = 'B.Tech';
           choice.onclick = () => {
             trigger.textContent = 'B.Tech';
+            trigger.setAttribute('aria-expanded', 'false');
             box.hidden = true;
             try { trigger.form.requestSubmit(); } catch { window.submitBlocked = true; }
           };
@@ -100,7 +105,7 @@ async function main() {
     console.log('PASS: packaged MV3 preview/fill, prefilled preservation, sensitive fields, main-world submit/requestSubmit guards; submissions=0');
     // Exercise actual built React import/review controls, not just normalization helpers.
     await popup.getByText('Edit candidate profile', { exact:true }).click();
-    const canonical={identity:{name:'Reviewed Synthetic Applicant',email:'reviewed@example.org',phone:'+919000000001'},education:[{institute:'Synthetic University',degree:'B.Tech',branch:'Computer Science',cgpa:8.8,end:'2027-07'}],preferences:{work_authorization:'TODO'},projects:[{name:'Synthetic Ranking',one_line:'Built a ranking fixture using Python'}]};
+    const canonical={identity:{name:'Reviewed Synthetic Applicant',email:'reviewed@example.org',phone:'+919000000001'},education:[{institute:'Synthetic University',degree:'B.Tech',branch:'Computer Science',cgpa:8.8,end:'2027-07'}],preferences:{work_authorization:'TODO'},links:{github:'https://github.example/synthetic-profile'},projects:[{name:'Synthetic Ranking',one_line:'Built a ranking fixture using Python'}]};
     await popup.getByLabel('Import resume profile JSON').setInputFiles({name:'synthetic-profile.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(canonical))});
     await popup.getByText('Imported locally. Review the facts and save before filling.',{exact:true}).waitFor();
     assert.equal((await popup.evaluate(()=>chrome.storage.local.get('candidateProfileReviewed'))).candidateProfileReviewed,false);
@@ -165,18 +170,18 @@ async function main() {
     console.log('PASS: actual MV3 JSON file import, mandatory fact review, canonical save and edit invalidation; submissions=0');
     const first = await context.newPage();
     const second = await context.newPage();
+    await popup.evaluate(() => chrome.storage.local.set({ candidateProfileReviewed:true }));
     await Promise.all([first.goto(base + '/background-fixture?first'), second.goto(base + '/background-fixture?second')]);
     const popupUrl = `chrome-extension://${extensionId}/index.html`;
     const firstPopup = await context.newPage();
     const secondPopup = await context.newPage();
     await Promise.all([firstPopup.goto(popupUrl), secondPopup.goto(popupUrl)]);
-    await firstPopup.evaluate(() => chrome.storage.local.set({ candidateProfileReviewed:true }));
     const startFill = (ui, url) => ui.evaluate(async url => {
       const [tab] = await chrome.tabs.query({ url });
       return chrome.tabs.sendMessage(tab.id, { action: 'JF_START_FILL' }, { frameId: 0 });
     }, url);
-    const startedFirst = await startFill(firstPopup, first.url());
-    assert.equal(startedFirst.running, true);
+    await first.getByRole('button', { name: 'Fill this form', exact: true }).click();
+    await first.getByText('Filling supported fields in this tab…').waitFor();
     await firstPopup.close();
     const startedSecond = await startFill(secondPopup, second.url());
     assert.equal(startedSecond.running, true);
@@ -190,7 +195,7 @@ async function main() {
     const recoveredPopup = await context.newPage();
     await recoveredPopup.goto(popupUrl);
     for (const form of [first, second]) {
-      await form.waitForFunction(() => document.querySelector('[role=combobox]').textContent === 'B.Tech');
+      await form.waitForFunction(() => document.querySelector('#radix-degree').textContent === 'B.Tech');
       await form.waitForFunction(() => window.submitBlocked);
       const status = await recoveredPopup.evaluate(async url => {
         const [tab] = await chrome.tabs.query({ url });
@@ -201,11 +206,18 @@ async function main() {
         }
         throw new Error('Background fill never completed');
       }, form.url());
-      assert.equal(status.result.filledCount, 3);
+      assert.equal(status.result.filledCount, 4);
+      assert.equal(status.result.needsReviewCount, 2);
+      assert.equal(await form.locator('#work-links').inputValue(), 'https://github.example/synthetic-profile');
+      assert.equal(await form.locator('#years').inputValue(), '');
+      assert.equal(await form.locator('#date').textContent(), 'Pick a date');
+      await form.getByText('4 filled · 0 already entered · 2 to review').waitFor();
     }
+    await first.getByRole('button', { name: 'Go to first field' }).click();
+    assert.equal(await first.locator('#years').evaluate(el => el === document.activeElement), true);
     assert.equal(submissions, 0);
     await Promise.all([first.close(), second.close(), recoveredPopup.close()]);
-    console.log('PASS: two tab fills survive popup closure, reports recover and submits stay blocked');
+    console.log('PASS: bottom-right start and result notice, Binary-style controls, parallel tab fills and zero submits');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);
     page.on('pageerror',error=>console.error('Browser page error:',error.message));
     page.on('response',response=>{if(response.url().includes('/api/') && response.status()>=400)console.error('API failed:',response.status(),response.url());});

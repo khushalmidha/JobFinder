@@ -199,14 +199,14 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     </div>
     {runningTab !== null && <p role="status">You can switch tabs. Reopen Smart Apply on this tab to review.</p>}
     {error && <p role="status">{error}</p>}
-    {report && <div aria-live="polite"><p>{report.state} · {report.filledCount || 0} verified fills · {report.needsReviewCount || 0} need review</p>{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
+    {report && <div aria-live="polite"><p>{report.state === 'PLAN' ? 'Preview' : report.state === 'STOPPED' ? 'Stopped' : 'Fill result'} · {report.filledCount || 0} verified fills · {report.fields?.filter(field => field.action === 'preserve' && field.outcome !== 'filled').length || 0} already entered · {report.needsReviewCount || 0} need review</p>{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
       <ul>{report.fields?.map(field => <li key={field.context.scope || field.id} className="py-2 border-b border-zinc-700">
-        <strong>{field.context.labelText}</strong>: {field.outcome || field.action}
+        <strong>{field.context.labelText || 'Unlabelled field'}</strong> · {field.action === 'preserve' && !field.outcome ? 'Already entered' : (field.outcome || field.action).replaceAll('_', ' ')}
         {field.action === 'fill' && <span> → {field.decision.value} ({field.decision.source})</span>}
-        <p>{field.reason || field.decision.reason}</p>
+        {field.action !== 'preserve' && <p>{field.reason || field.decision.reason}</p>}
         {field.action === 'needs_review' && field.decision.type === 'WRITTEN_ANSWER' &&
           <button type="button" className="underline" disabled={working} onClick={() => openDraft(field)}>Draft with AI</button>}
-        {field.action === 'needs_review' && !['LEGAL_CONSENT_OR_TERMS', 'VERIFICATION', 'MANUAL_UPLOAD'].includes(field.decision.type) && <AnswerEditor field={field} onSave={saveAnswer} disabled={working}
+        {field.action === 'needs_review' && !['LEGAL_CONSENT_OR_TERMS', 'VERIFICATION', 'MANUAL_UPLOAD', 'MANUAL_DATE_PICKER'].includes(field.decision.type) && <AnswerEditor field={field} onSave={saveAnswer} disabled={working}
           draft={confirmed && reviewedProfile && field.decision.type === 'WRITTEN_ANSWER' ? resumeAnswerDraft(field.context, reviewedProfile) : null} />}
       </li>)}</ul>
     </div>}

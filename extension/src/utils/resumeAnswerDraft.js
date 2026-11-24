@@ -1,7 +1,7 @@
 const clean = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 const sentence = value => /[.!?]$/.test(value) ? value : value + '.';
 const tokens = value => new Set(clean(value).toLowerCase().match(/[a-z][a-z0-9+#.-]{2,}/g) || []);
-const generic = new Set('about yourself your tell what share describe most relevant experience project built working with have role this example where skills explain'.split(' '));
+const generic = new Set('about yourself your tell what share describe most relevant experience project projects one two built working with have role this example where skills explain'.split(' '));
 
 export function resumeAnswerDraft({ labelText, descriptionText }, profile) {
   const question = clean(labelText).toLowerCase();
@@ -10,7 +10,8 @@ export function resumeAnswerDraft({ labelText, descriptionText }, profile) {
   const experience = /experience|internship/.test(question);
   const project = /project|something you (?:built|developed)/.test(question);
   if (!introduction && !experience && !project) return null;
-  const topics = [...tokens(question + ' ' + clean(descriptionText))].filter(word => !generic.has(word));
+  const guidance = clean(descriptionText).split(/(?:what you built|your contribution|how you evaluated|what you learned)/i)[0];
+  const topics = [...tokens(question + ' ' + guidance)].filter(word => !generic.has(word));
   const examples = [
     ...(project && !experience ? [] : (profile.experience || []).flatMap(entry => {
       const title = clean(entry.title), company = clean(entry.company);
