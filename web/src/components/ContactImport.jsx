@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 
-export default function ContactImport({ onSaved, initiallyOpen = false }) {
+export default function ContactImport() {
   const [file, setFile] = useState(null);
   const [text, setText] = useState('');
   const [company, setCompany] = useState('');
@@ -58,15 +59,17 @@ export default function ContactImport({ onSaved, initiallyOpen = false }) {
     } finally {
       setRows(rows.slice(processed));
       setBusy(false);
-      if (processed) void onSaved();
     }
   }
 
-  return <details open={initiallyOpen || undefined} className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-    <summary className="cursor-pointer font-semibold text-zinc-100">Import contacts</summary>
-    <div className="mt-3 space-y-3 text-sm text-zinc-300">
+  return <section className="mx-auto max-w-4xl space-y-5 p-4 md:p-8" aria-labelledby="import-heading">
+    <header className="flex flex-wrap items-center justify-between gap-3">
+      <h1 id="import-heading" className="text-2xl font-bold text-zinc-100">Import contacts</h1>
+      <Link to="/" className="text-sm text-yellow-400 hover:underline">Back to Mails</Link>
+    </header>
+    <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 text-sm text-zinc-300">
       <label className="block">Company override (optional)
-        <input className="ml-2 rounded border border-zinc-700 bg-zinc-950 px-2 py-1" value={company} onChange={event => { setCompany(event.target.value); setRows([]); }} disabled={busy} />
+        <input className="mt-1 block w-full max-w-sm rounded border border-zinc-700 bg-zinc-950 px-2 py-1" value={company} onChange={event => { setCompany(event.target.value); setRows([]); }} disabled={busy} />
       </label>
       <div className="grid gap-3 md:grid-cols-2">
         <form onSubmit={event => preview(event, 'file')} className="space-y-2">
@@ -90,5 +93,5 @@ export default function ContactImport({ onSaved, initiallyOpen = false }) {
         <button type="button" disabled={busy} onClick={save} className="rounded bg-yellow-500 px-3 py-2 font-semibold text-zinc-950 disabled:opacity-50">Import {rows.length} contacts</button>
       </div>}
     </div>
-  </details>;
+  </section>;
 }

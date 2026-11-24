@@ -153,9 +153,8 @@ const Popup = () => {
           </div>
           <div>
             <div className="font-extrabold text-sm tracking-tight text-zinc-100 flex items-center gap-1.5">
-              JobFinder <span className="text-[10px] bg-yellow-500/20 text-yellow-400 font-bold px-1.5 py-0.2 rounded border border-yellow-500/30">AI PILOT</span>
+              JobFinder
             </div>
-            <div className="text-[10px] text-zinc-400 font-medium">Khushal Midha Profile Active</div>
           </div>
         </div>
 
@@ -187,7 +186,7 @@ const Popup = () => {
               : 'text-zinc-400 hover:text-zinc-200'
           }`}
         >
-          <Sparkles className="w-3.5 h-3.5 text-yellow-400" /> Auto-Apply & CTC
+          <Sparkles className="w-3.5 h-3.5 text-yellow-400" /> Smart Apply
         </button>
         <button
           onClick={() => setActiveTab('cold-outreach')}

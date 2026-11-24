@@ -3,7 +3,6 @@ import { useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp, Download, Play, Pause, RefreshCw, Trash2, Sparkles, CheckCircle2, ShieldCheck, XCircle, AlertTriangle, RotateCcw, ArrowRightLeft, X, FileText, Copy } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
-import ContactImport from '../components/ContactImport';
 import ContactDiscoveryStatus from '../components/ContactDiscoveryStatus';
 
 function contactRole(contact) {
@@ -16,7 +15,7 @@ function contactRole(contact) {
   return 'unknown';
 }
 const Dashboard = () => {
-  const { state: linkedJob, search: routeSearch } = useLocation();
+  const { state: linkedJob } = useLocation();
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(() => linkedJob?.employer || '');
@@ -493,7 +492,6 @@ const Dashboard = () => {
             )}
           </div>
           <div className="mt-3 space-y-2">
-            <ContactImport initiallyOpen={new URLSearchParams(routeSearch).get('import') === '1'} onSaved={() => fetchContacts(true)} />
             <ContactDiscoveryStatus />
           </div>
         </div>

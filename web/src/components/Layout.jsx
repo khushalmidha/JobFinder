@@ -1,7 +1,7 @@
 import React, {Suspense,useEffect,useState} from 'react';
 import api from '../services/api';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
-import { Mail, Settings, LogOut, Send, Briefcase } from 'lucide-react';
+import { Mail, Settings, LogOut, Send, Briefcase, Upload } from 'lucide-react';
 
 const Layout = ({ onLogout }) => {
   const location = useLocation();
@@ -18,6 +18,7 @@ const Layout = ({ onLogout }) => {
   const navItems = [
     { path: '/jobs', label: 'Jobs', icon: Briefcase },
     { path: '/', label: 'Mails', icon: Mail },
+    { path: '/import', label: 'Import contacts', icon: Upload },
   ];
 
   return (
@@ -40,6 +41,7 @@ const Layout = ({ onLogout }) => {
                 key={item.path} 
                 to={item.path}
                 aria-label={item.label}
+                aria-current={isActive ? 'page' : undefined}
                 title={item.label}
                 className={`flex items-center px-3 md:px-4 py-3 rounded-lg transition-all duration-200 ${
                   isActive 

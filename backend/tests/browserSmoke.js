@@ -34,6 +34,128 @@ async function main() {
     await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime'].map(m=>require(`../models/${m}`).init()));
     app.all('/submitted',(_req,res)=>{submissions++;res.send('Unexpected submission');});
     app.get('/fixture',(_req,res)=>res.type('html').send(`<!doctype html><title>Synthetic form QA</title><h1>Local Workday / Google-style fixture</h1><p>No real employer or applicant data.</p><form action="/submitted"><label>First name <input id="first" data-automation-id="legalNameSection_firstName"></label><label>Expected salary <input id="salary"></label><button type="button" role="combobox" aria-label="Country" aria-controls="countries">Select</button><div id="countries" role="listbox" hidden><div role="option">India</div></div><div role="combobox" aria-label="State" aria-controls="states">Canada</div><div id="states" hidden><div role="option">Karnataka</div></div><label><input id="consent" type="checkbox">I consent to use my email</label><button>Submit application</button></form><script>window.blocked=0;const trigger=document.querySelector('button[role=combobox]');trigger.onclick=()=>{document.querySelector('#countries').hidden=false};document.querySelector('[role=option]').onclick=()=>{trigger.setAttribute('data-value','India');trigger.textContent='India';for(const method of ['submit','requestSubmit']){try{document.querySelector('form')[method]()}catch{window.blocked++}}};</script>`));
+    app.get('/one-click-fixture', (_req, res) => res.type('html').send(`<!doctype html>
+      <form action="/submitted">
+        <label>Degree <select required id="degree"><option value="placeholder" disabled selected>Choose degree</option><option value="btech">B.Tech</option></select></label>
+        <div id="dependent"></div>
+        <label>Tell us about yourself <textarea id="intro" required></textarea></label>
+        <label>Describe a project <textarea id="project"></textarea></label>
+        <label>Expected salary <input id="salary"></label>
+        <button>Submit application</button>
+      </form>
+      <script>
+        document.querySelector('#degree').onchange = () => {
+          document.querySelector('#dependent').innerHTML = '<label>College <input id="college"></label>';
+        };
+      </script>`));
+    app.get('/background-fixture', (_req, res) => res.type('html').send(`<!doctype html>
+      <h1>Job application</h1>
+      <form action="/submitted">
+        <div><div><label>Name *</label></div><div><input id="full"></div></div>
+        <div><div><label>Phone *</label></div><div><input id="phone" type="tel"></div></div>
+        <div><div><label>Degree *</label></div><div><button type="button" id="radix-degree" aria-haspopup="menu" aria-expanded="false">Choose degree</button></div></div>
+        <div id="degrees" role="menu" aria-labelledby="radix-degree" hidden></div>
+        <div><div><label>Links to your strongest work *</label></div><div><textarea id="work-links"></textarea></div></div>
+        <div><div><label>Years of hands-on experience *</label></div><div><input id="years"></div></div>
+        <div><div><label>Earliest start date *</label></div><div><button id="date" type="button" aria-haspopup="dialog">Pick a date</button></div></div>
+        <button>Submit application</button>
+      </form>
+      <script>
+        const trigger = document.querySelector('#radix-degree');
+        trigger.onpointerdown = () => { trigger.setAttribute('aria-expanded', 'true'); window.waiting = true; };
+        window.showChoices = () => {
+          const box = document.querySelector('#degrees');
+          const choice = document.createElement('div');
+          choice.setAttribute('role', 'menuitem');
+          choice.textContent = 'B.Tech';
+          choice.onclick = () => {
+            trigger.textContent = 'B.Tech';
+            trigger.setAttribute('aria-expanded', 'false');
+            box.hidden = true;
+            try { trigger.form.requestSubmit(); } catch { window.submitBlocked = true; }
+          };
+          box.append(choice);
+          box.hidden = false;
+        };
+      </script>`));
+    app.get('/approval-fixture', (_req, res) => res.type('html').send(`<!doctype html>
+      <form action="/submitted">
+        <label>Years of hands-on experience <input id="experience" type="number"></label>
+        <div role="group" aria-label="Research areas">
+          <button id="vision" type="button" role="checkbox" aria-checked="false"></button><label for="vision">Computer vision</label>
+        </div>
+        <div role="radiogroup" aria-label="Availability">
+          <button id="three" type="button" role="radio" aria-checked="false">3 months</button>
+          <button id="six" type="button" role="radio" aria-checked="false">6 months</button>
+        </div>
+        <div><label>Largest training setup</label><button type="button" id="radix-setup" aria-haspopup="menu" aria-controls="setup" aria-expanded="false">Choose</button></div>
+        <div id="setup" role="menu" hidden><div role="menuitem">CPU only</div><div role="menuitem">Single GPU</div></div>
+        <div><label>Earliest start date *</label><button type="button" id="calendar" aria-haspopup="dialog" aria-controls="date-dialog">Pick a date</button></div>
+        <div id="date-dialog" role="dialog" hidden>
+          <button type="button" aria-label="Go to the Next Month" id="next-month">Next</button>
+          <div id="calendar-days"><div data-day="2027-01-14"><button type="button">14</button></div></div>
+        </div>
+        <button>Submit application</button>
+      </form>
+      <script>
+        const el = id => document.getElementById(id);
+        el('vision').onclick = () => el('vision').setAttribute('aria-checked', 'true');
+        el('six').onclick = () => el('six').setAttribute('aria-checked', 'true');
+        el('radix-setup').onpointerdown = () => {
+          el('setup').hidden = false;
+          el('radix-setup').setAttribute('aria-expanded', 'true');
+        };
+        const close = () => { el('setup').hidden = true; el('radix-setup').setAttribute('aria-expanded', 'false'); };
+        el('setup').onkeydown = event => { if (event.key === 'Escape') close(); };
+        el('setup').querySelectorAll('[role=menuitem]').forEach(choice => {
+          choice.onclick = () => { el('radix-setup').textContent = choice.textContent; close(); };
+        });
+        el('calendar').onclick = () => { el('date-dialog').hidden = false; };
+        el('next-month').onclick = () => {
+          el('calendar-days').querySelector('[data-day]').dataset.day = '2027-02-14';
+          el('calendar-days').querySelector('button').onclick = () => {
+            el('calendar').textContent = 'February 14th, 2027';
+            el('date-dialog').hidden = true;
+          };
+        };
+      </script>`));
+    app.get('/internship-form', (req, res) => {
+      const seed = req.query.seed === 'yes';
+      res.type('html').send(`<!doctype html><title>Internship application</title><h1>Internship application</h1>
+        <form action="/submitted">
+          <div><label for="address">Full Address</label><input id="address" value="${seed ? '123 Synthetic Road' : ''}"></div>
+          <div><label for="town">Home Town</label><input id="town" value="${seed ? 'Test City' : ''}"></div>
+          <div><label for="home-state">Home State</label><select id="home-state">
+            <option value="">Choose</option><option value="ts" ${seed ? 'selected' : ''}>Test State</option></select></div>
+          <div><label for="postcode">Pincode</label><input id="postcode" value="${seed ? '123456' : ''}"></div>
+          <div><label for="degree-native">Degree</label><select id="degree-native">
+            <option value="">Choose</option><option value="engineering">Bachelor of Technology</option></select></div>
+          <div><label for="college-select">College/University</label><select id="college-select">
+            <option value="">Choose</option><option value="alpha">Alpha University</option><option value="other">Other</option></select></div>
+          <div id="other-wrap"></div>
+          <div><label for="stream">Specialization/ Stream</label><input id="stream"></div>
+          <div><label for="project-bullets">List key projects in bullet points</label><textarea id="project-bullets"></textarea></div>
+          <div><label for="grad">Graduation Year</label><input id="grad"></div>
+          <div><label for="gpa">CGPA</label><input id="gpa" type="number" step="any"></div>
+          <div><label for="years">Years of Experience</label><input id="years" type="number"></div>
+          <div><label for="january">If offered an internship, would you be available to start in January 2027?</label>
+            <select id="january"><option value="">Choose</option><option value="y" ${seed ? 'selected' : ''}>Yes</option><option value="n">No</option></select></div>
+          <div><label for="march">If offered an internship, would you be available to start in March 2027?</label>
+            <select id="march"><option value="">Choose</option><option value="y">Yes</option><option value="n">No</option></select></div>
+          <div><label for="intern-cv">Upload Your CV</label><input id="intern-cv" type="file" accept="application/pdf"><p id="cv-name"></p></div>
+          <button>Submit application</button>
+        </form>
+        <script>
+          const college = document.getElementById('college-select');
+          college.onchange = () => {
+            if (college.value === 'other') setTimeout(() => {
+              document.getElementById('other-wrap').innerHTML = '<label for="college-other">College/University (if other)</label><input id="college-other">';
+            }, 90);
+          };
+          const file = document.getElementById('intern-cv');
+          file.onchange = () => { document.getElementById('cv-name').textContent = file.files[0].name; };
+        </script>`);
+    });
     const web=path.resolve(__dirname,'../../web/dist');app.use(express.static(web));app.get('/{*splat}',(_req,res)=>res.sendFile('index.html',{root:web}));
     await new Promise(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});const base=`http://127.0.0.1:${server.address().port}`;
     const extensionPath=path.resolve(__dirname,'../../extension/dist');
@@ -62,7 +184,7 @@ async function main() {
     console.log('PASS: packaged MV3 preview/fill, prefilled preservation, sensitive fields, main-world submit/requestSubmit guards; submissions=0');
     // Exercise actual built React import/review controls, not just normalization helpers.
     await popup.getByText('Edit candidate profile', { exact:true }).click();
-    const canonical={identity:{name:'Reviewed Synthetic Applicant',email:'reviewed@example.org',phone:'+919000000001'},education:[{institute:'Synthetic University',degree:'B.Tech',branch:'Computer Science',cgpa:8.8,end:'2027-07'}],preferences:{work_authorization:'TODO'}};
+    const canonical={identity:{name:'Reviewed Synthetic Applicant',email:'reviewed@example.org',phone:'+919000000001'},education:[{institute:'Synthetic University',degree:'B.Tech',branch:'Computer Science',cgpa:8.8,end:'2027-07'}],preferences:{work_authorization:'TODO'},links:{github:'https://github.example/synthetic-profile'},projects:[{name:'Synthetic Ranking',one_line:'Built a ranking fixture using Python'}]};
     await popup.getByLabel('Import resume profile JSON').setInputFiles({name:'synthetic-profile.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(canonical))});
     await popup.getByText('Imported locally. Review the facts and save before filling.',{exact:true}).waitFor();
     assert.equal((await popup.evaluate(()=>chrome.storage.local.get('candidateProfileReviewed'))).candidateProfileReviewed,false);
@@ -73,12 +195,309 @@ async function main() {
     await popup.getByText('Profile saved locally. Preview the current step.',{exact:true}).waitFor();
     const reviewed=await popup.evaluate(()=>chrome.storage.local.get(['candidateProfile','candidateProfileReviewed','candidateProfileVersion']));
     assert.equal(reviewed.candidateProfile.firstName,'Reviewed');assert.equal(reviewed.candidateProfile.preferences.work_authorization,null);assert.equal(reviewed.candidateProfileReviewed,true);
-    await popup.evaluate(async({base})=>{const [tab]=await chrome.tabs.query({url:base+'/fixture'});await chrome.tabs.sendMessage(tab.id,{action:'JF_PREVIEW'},{frameId:0});},{base});
+    // The popup is a regular extension tab in headless Chromium. Point its active-tab
+    // lookup at the local fixture so the real button and message path can be exercised.
+    await fixture.goto(base + '/one-click-fixture');
+    await popup.evaluate(async ({ base }) => {
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      const [target] = await query({ url: base + '/one-click-fixture' });
+      chrome.tabs.query = options => options.active ? Promise.resolve([target]) : query(options);
+    }, { base });
+    await popup.getByRole('button', { name: 'Fill this step', exact: true }).click();
+    await popup.getByText(/2 verified fills/).waitFor();
+    assert.equal(await fixture.locator('#degree').inputValue(), 'btech');
+    assert.equal(await fixture.locator('#college').inputValue(), 'Synthetic University');
+    assert.equal(await fixture.locator('#salary').inputValue(), '');
+    assert.equal(await fixture.locator('#intro').inputValue(), '');
+    const draft = popup.getByLabel('Answer: Tell us about yourself', { exact: true });
+    assert.match(await draft.inputValue(), /Synthetic University/);
+    await draft.locator('..').getByRole('button', { name: 'Approve, remember & fill' }).click();
+    await popup.getByText(/1 verified fills/).waitFor();
+    assert.match(await fixture.locator('#intro').inputValue(), /Synthetic University/);
+    await popup.evaluate(() => {
+      Object.defineProperty(globalThis, 'LanguageModel', { configurable: true, value: {
+        async create() {
+          return {
+            async prompt(payload) {
+              const input = JSON.parse(payload);
+              if (input.question !== 'Describe a project' || payload.includes('reviewed@example.org') ||
+                  input.resumeDetails.supportingEvidence[0]?.text !== 'Built a ranking fixture using Python') {
+                throw new Error('Incorrect AI draft evidence');
+              }
+              return 'I built a ranking fixture using Python.';
+            },
+            destroy() {}
+          };
+        }
+      } });
+    });
+    await popup.getByLabel('Answer: Describe a project', { exact: true }).locator('../..')
+      .getByRole('button', { name: 'Draft with AI', exact: true }).click();
+    await popup.getByLabel('Built a ranking fixture using Python', { exact: true }).check();
+    await popup.getByRole('button', { name: 'Draft with Chrome AI', exact: true }).click();
+    assert.equal(await popup.getByLabel('Review written answer').inputValue(), 'I built a ranking fixture using Python.');
+    assert.equal(await fixture.locator('#project').inputValue(), '');
+    await popup.getByRole('button', { name: 'Approve & fill this question', exact: true }).click();
+    await fixture.waitForFunction(() => document.querySelector('#project').value === 'I built a ranking fixture using Python.');
+    assert.equal(submissions, 0);
+    console.log('PASS: one-click popup, dependent field re-scan and reviewed resume draft; submissions=0');
+    await popup.evaluate(async()=>{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});await chrome.tabs.sendMessage(tab.id,{action:'JF_PREVIEW'},{frameId:0});});
     await popup.getByLabel('Candidate profile JSON').fill(JSON.stringify({...canonical,identity:{...canonical.identity,name:'Edited Synthetic Applicant'}},null,2));
     assert.equal((await popup.evaluate(()=>chrome.storage.local.get('candidateProfileReviewed'))).candidateProfileReviewed,false);
-    const changed=await popup.evaluate(async({base})=>{const [tab]=await chrome.tabs.query({url:base+'/fixture'});return chrome.tabs.sendMessage(tab.id,{action:'JF_FILL'},{frameId:0});},{base});
+    const changed=await popup.evaluate(async()=>{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});return chrome.tabs.sendMessage(tab.id,{action:'JF_FILL'},{frameId:0});});
     assert.equal(changed.success,false);assert.match(changed.error,/Profile changed/);assert.equal(submissions,0);
     console.log('PASS: actual MV3 JSON file import, mandatory fact review, canonical save and edit invalidation; submissions=0');
+    const first = await context.newPage();
+    const second = await context.newPage();
+    await popup.evaluate(() => chrome.storage.local.set({ candidateProfileReviewed:true }));
+    await Promise.all([first.goto(base + '/background-fixture?first'), second.goto(base + '/background-fixture?second')]);
+    const popupUrl = `chrome-extension://${extensionId}/index.html`;
+    const firstPopup = await context.newPage();
+    const secondPopup = await context.newPage();
+    await Promise.all([firstPopup.goto(popupUrl), secondPopup.goto(popupUrl)]);
+    const startFill = (ui, url) => ui.evaluate(async url => {
+      const [tab] = await chrome.tabs.query({ url });
+      return chrome.tabs.sendMessage(tab.id, { action: 'JF_START_FILL' }, { frameId: 0 });
+    }, url);
+    await first.getByRole('button', { name: 'Fill this form', exact: true }).click();
+    await first.getByText('Smart Apply · Filling', { exact: true }).waitFor();
+    await first.getByText(/2 of 6 fields checked.*Degree/).waitFor();
+    const meter = first.getByRole('progressbar', { name: 'Smart Apply · Filling' });
+    assert.equal(await meter.getAttribute('value'), '2');
+    assert.equal(await meter.getAttribute('max'), '6');
+    assert.equal(await second.getByText('Smart Apply · Filling', { exact: true }).count(), 0);
+    await firstPopup.close();
+    const startedSecond = await startFill(secondPopup, second.url());
+    assert.equal(startedSecond.running, true);
+    await secondPopup.close();
+    for (const form of [first, second]) {
+      await form.waitForFunction(() => window.waiting);
+      assert.equal(await form.locator('#full').inputValue(), 'Reviewed Synthetic Applicant');
+      assert.notEqual(await form.locator('#phone').inputValue(), '');
+      await form.evaluate(() => window.showChoices());
+    }
+    const recoveredPopup = await context.newPage();
+    await recoveredPopup.goto(popupUrl);
+    for (const form of [first, second]) {
+      await form.waitForFunction(() => document.querySelector('#radix-degree').textContent === 'B.Tech');
+      await form.waitForFunction(() => window.submitBlocked);
+      const status = await recoveredPopup.evaluate(async url => {
+        const [tab] = await chrome.tabs.query({ url });
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const result = await chrome.tabs.sendMessage(tab.id, { action: 'JF_STATUS' }, { frameId: 0 });
+          if (!result.running) return result;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error('Background fill never completed');
+      }, form.url());
+      assert.equal(status.result.filledCount, 4);
+      assert.equal(status.result.needsReviewCount, 2);
+      assert.equal(await form.locator('#work-links').inputValue(), 'https://github.example/synthetic-profile');
+      assert.equal(await form.locator('#years').inputValue(), '');
+      assert.equal(await form.locator('#date').textContent(), 'Pick a date');
+      await form.getByText('Fill done · Review needed', { exact: true }).waitFor();
+      await form.getByText('4 filled · 0 already entered · 2 to review').waitFor();
+      assert.equal(await form.getByRole('progressbar').count(), 0);
+    }
+    await second.bringToFront();
+    await first.bringToFront();
+    await first.getByText('Fill done · Review needed', { exact: true }).waitFor();
+    await first.getByRole('button', { name: 'Go to first field' }).click();
+    assert.equal(await first.locator('#years').evaluate(el => el === document.activeElement), true);
+    assert.equal(submissions, 0);
+    await Promise.all([first.close(), second.close(), recoveredPopup.close()]);
+    console.log('PASS: per-tab progress bar, persistent result after tab switches, Binary-style controls and zero submits');
+    const approval = await context.newPage();
+    await approval.goto(base + '/approval-fixture');
+    const approvalPopup = await context.newPage();
+    approvalPopup.setDefaultTimeout(8000);
+    await approvalPopup.goto(popupUrl);
+    await approvalPopup.evaluate(async url => {
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      const [target] = await query({ url });
+      chrome.tabs.query = options => options.active ? Promise.resolve([target]) : query(options);
+    }, approval.url());
+    await approvalPopup.getByRole('button', { name: 'Preview only', exact: true }).click();
+    const row = title => approvalPopup.getByRole('listitem').filter({ has: approvalPopup.getByText(title, { exact: true }) });
+    const approve = async (title, value, type) => {
+      const item = row(title);
+      const field = item.getByLabel(`Answer: ${title}`, { exact: true });
+      if (type === 'date') await field.fill(value);
+      else await field.selectOption(value);
+      await item.getByRole('button', { name: 'Approve, remember & fill' }).click();
+      await item.getByRole('button', { name: 'Approve, remember & fill' }).waitFor({ state: 'hidden' });
+      await approvalPopup.getByText(/1 verified fills/).waitFor();
+    };
+    const menu = row('Largest training setup');
+    await menu.getByRole('button', { name: 'Read choices from form' }).click();
+    assert.equal(await approval.locator('#radix-setup').textContent(), 'Choose');
+    await approve('Largest training setup', 'Single GPU');
+    assert.equal(await approval.locator('#radix-setup').textContent(), 'Single GPU');
+    await approve('Research areas — Computer vision', 'Yes');
+    assert.equal(await approval.locator('#vision').getAttribute('aria-checked'), 'true');
+    await approve('Availability', '6 months');
+    assert.equal(await approval.locator('#six').getAttribute('aria-checked'), 'true');
+    await approve('Earliest start date *', '2027-02-14', 'date');
+    assert.equal(await approval.locator('#calendar').textContent(), 'February 14th, 2027');
+    assert.equal(await approval.locator('#experience').inputValue(), '');
+    await approvalPopup.getByText('Edit candidate profile', { exact: true }).click();
+    const zeroExperience = approvalPopup.getByLabel('Use 0 years for experience questions', { exact: true });
+    await zeroExperience.click();
+    await approvalPopup.getByText('0 years saved for compatible experience questions.', { exact: true }).waitFor();
+    assert.equal(await zeroExperience.isChecked(), true);
+    await approvalPopup.getByRole('button', { name: 'Fill this step', exact: true }).click();
+    await approvalPopup.getByText(/1 verified fills/).waitFor();
+    assert.equal(await approval.locator('#experience').inputValue(), '0');
+    assert.equal(submissions, 0);
+    await Promise.all([approval.close(), approvalPopup.close()]);
+    console.log('PASS: real popup approves custom dropdown, checkbox, radio and calendar date after month navigation');
+    await context.route('https://binary.so/5vjppCB', route => route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html>
+      <title>Research Engineering Intern — Perception &amp; Embodied AI</title>
+      <h1>MetaCognition application</h1>
+      <form action="/submitted">
+        <div><label>Name *</label><input id="name"></div>
+        <div><label>Why MetaCognition, and what draws you to connecting perception with memory? *</label><textarea id="motivation"></textarea></div>
+        <div><div><label>Which direction would you most like to work on first? *</label></div><div><button id="radix-direction" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="directions">Choose</button></div></div>
+        <div id="directions" role="menu" hidden><div role="menuitem">Perception–memory integration</div><div role="menuitem">Sensor &amp; hardware integration</div></div>
+        <div><label>What would you try first in that direction, and why? *</label><textarea id="experiment"></textarea></div>
+        <div><div><label>CV / Résumé *</label></div><div><input id="resume-input" type="file" accept=".pdf" hidden><button type="button">Add file</button><p id="resume-name"></p></div></div>
+        <div><label for="scholar">Google Scholar or publications link</label><input id="scholar" type="url"></div>
+        <div><label for="orcid">ORCID profile</label><input id="orcid" type="url"></div>
+        <div><label for="academic">Research profile URL</label><input id="academic" type="url"></div>
+        <button>Submit</button>
+      </form>
+      <script>
+        const direction = document.getElementById('radix-direction');
+        const choices = document.getElementById('directions');
+        direction.onpointerdown = () => { direction.setAttribute('aria-expanded', 'true'); choices.hidden = false; };
+        choices.querySelectorAll('[role=menuitem]').forEach(choice => choice.onclick = () => {
+          direction.textContent = choice.textContent; direction.setAttribute('aria-expanded', 'false'); choices.hidden = true;
+          direction.form.setAttribute('aria-hidden', 'true');
+          setTimeout(() => direction.form.removeAttribute('aria-hidden'), 180);
+        });
+        const resume = document.getElementById('resume-input');
+        window.attachments = 0;
+        resume.onchange = () => {
+          window.attachments++;
+          document.getElementById('resume-name').textContent = resume.files[0].name;
+          try { resume.form.requestSubmit(); } catch { window.resumeSubmitBlocked = true; }
+        };
+      </script>` }));
+    const binary = await context.newPage();
+    const binaryPopup = await context.newPage();
+    await binaryPopup.goto(popupUrl);
+    await binaryPopup.evaluate(async () => {
+      const { candidateProfile } = await chrome.storage.local.get('candidateProfile');
+      candidateProfile.projects = [{ name: 'Synthetic ranking project', one_line: 'Built retrieval and ranking for a test news feed.' }];
+      await chrome.storage.local.set({ candidateProfile });
+    });
+    await binary.goto('https://binary.so/5vjppCB');
+    const fillBinary = async expected => {
+      await binary.waitForFunction(() => !!document.querySelector('[data-jobfinder-ui]'));
+      const result = await startFill(binaryPopup, binary.url());
+      assert.equal(result.running, true);
+      await binary.waitForFunction(expected => document.querySelector('#experiment').value.includes(expected), expected);
+      await binary.getByText('Fill done · Review needed', { exact: true }).waitFor();
+      assert.match(await binary.locator('#motivation').inputValue(), /Synthetic ranking project/);
+    };
+    assert.equal(await binary.locator('#motivation').inputValue(), '');
+    await fillBinary('occluder');
+    assert.equal(await binary.locator('#radix-direction').textContent(), 'Perception–memory integration');
+    await binary.evaluate(() => {
+      document.querySelector('form').reset();
+      document.querySelector('#radix-direction').textContent = 'Sensor & hardware integration';
+    });
+    assert.equal(await binary.locator('#experiment').inputValue(), '');
+    await fillBinary('inertial data');
+    assert.equal(await binary.locator('#radix-direction').textContent(), 'Sensor & hardware integration');
+    await binaryPopup.evaluate(async url => {
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      const [target] = await query({ url });
+      chrome.tabs.query = options => options.active ? Promise.resolve([target]) : query(options);
+      const send = chrome.tabs.sendMessage.bind(chrome.tabs);
+      const execute = chrome.scripting.executeScript.bind(chrome.scripting);
+      let first = true;
+      window.reinjected = false;
+      chrome.tabs.sendMessage = async (tabId, request, options) => {
+        if (first && request.action === 'JF_RESUME_TARGET') {
+          first = false;
+          throw new Error('Could not establish connection. Receiving end does not exist.');
+        }
+        return send(tabId, request, options);
+      };
+      chrome.scripting.executeScript = (...args) => { window.reinjected = true; return execute(...args); };
+    }, binary.url());
+    await binaryPopup.getByText('Attach resume PDF', { exact: true }).click();
+    const choose = binaryPopup.getByLabel('Choose reviewed PDF', { exact: true });
+    const pdf = { name: 'synthetic-resume.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF\n') };
+    await choose.setInputFiles(pdf);
+    await binaryPopup.getByText('Selected synthetic-resume.pdf. Review the file before attaching.', { exact: true }).waitFor();
+    assert.equal(await binaryPopup.evaluate(() => window.reinjected), true);
+    assert.equal(await binary.evaluate(() => window.attachments), 0);
+    await binaryPopup.getByRole('button', { name: 'Attach PDF to this form', exact: true }).click();
+    await binaryPopup.getByText('The form shows synthetic-resume.pdf. Check any upload status on the page.', { exact: true }).waitFor();
+    assert.equal(await binary.locator('#resume-name').textContent(), pdf.name);
+    assert.equal(await binary.evaluate(() => window.resumeSubmitBlocked), true);
+    assert.match(await binary.locator('#experiment').inputValue(), /inertial data/);
+    await choose.setInputFiles(pdf);
+    await binaryPopup.getByText('Selected synthetic-resume.pdf. Review the file before attaching.', { exact: true }).waitFor();
+    await binaryPopup.getByRole('button', { name: 'Attach PDF to this form', exact: true }).click();
+    await binaryPopup.getByText('This form already shows a resume. Check its filename before replacing it.', { exact: true }).waitFor();
+    assert.equal(await binary.evaluate(() => window.attachments), 1);
+    await binaryPopup.getByRole('button', { name: 'Use this PDF for future fills', exact: true }).click();
+    await binaryPopup.getByText('synthetic-resume.pdf will attach when you start Smart Apply on a compatible form.', { exact: true }).waitFor();
+    const scholar = 'https://scholar.google.com/citations?user=SyntheticTest01';
+    await binary.locator('#scholar').pressSequentially(scholar + '&hl=en');
+    await binary.locator('#scholar').press('Tab');
+    await binary.getByText('Profile link saved for future forms.', { exact: true }).waitFor();
+    await binary.locator('#orcid').evaluate(el => {
+      el.value = 'https://orcid.org/0000-0002-1825-0097';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const memory = await binaryPopup.evaluate(() => chrome.storage.local.get(['smartApplyLearnedLink:scholar', 'smartApplyLearnedLink:orcid']));
+    assert.equal(memory['smartApplyLearnedLink:scholar'].url, scholar);
+    assert.equal(memory['smartApplyLearnedLink:orcid'], undefined);
+    await binary.close();
+    const nextForm = await context.newPage();
+    await nextForm.goto('https://binary.so/5vjppCB');
+    await nextForm.getByRole('button', { name: 'Fill this form', exact: true }).click();
+    await nextForm.getByText('Resume on form: synthetic-resume.pdf', { exact: true }).waitFor();
+    assert.equal(await nextForm.locator('#scholar').inputValue(), scholar);
+    assert.equal(await nextForm.locator('#academic').inputValue(), scholar);
+    assert.equal(await nextForm.locator('#orcid').inputValue(), '');
+    assert.equal(await nextForm.evaluate(() => window.attachments), 1);
+    assert.equal(submissions, 0);
+    await Promise.all([nextForm.close(), binaryPopup.close()]);
+    console.log('PASS: clean Binary-style form, cleared draft refill, and experiment matched to the selected direction');
+    console.log('PASS: resume selected in the packaged extension, explicit attach, existing-file protection and stale-tab recovery');
+    console.log('PASS: default PDF and a manually entered Scholar link reused on a fresh form; synthetic edits ignored');
+    const seedForm = await context.newPage();
+    const screenshotForm = await context.newPage();
+    const formSettings = await context.newPage();
+    await seedForm.goto(base + '/internship-form?seed=yes');
+    await formSettings.goto(popupUrl);
+    await formSettings.evaluate(async url => {
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      const [target] = await query({ url });
+      chrome.tabs.query = options => options.active ? Promise.resolve([target]) : query(options);
+    }, seedForm.url());
+    await formSettings.getByText('Edit candidate profile', { exact: true }).click();
+    await formSettings.getByRole('button', { name: 'Save address and start month from this form' }).click();
+    await formSettings.getByText('Saved the populated address fields and any confirmed internship month from this form.', { exact: true }).waitFor();
+    await screenshotForm.goto(base + '/internship-form');
+    await screenshotForm.getByRole('button', { name: 'Fill this form', exact: true }).click();
+    await screenshotForm.getByText('Resume on form: synthetic-resume.pdf', { exact: true }).waitFor();
+    for (const [id, expected] of Object.entries({ address: '123 Synthetic Road', town: 'Test City', 'home-state': 'ts',
+      postcode: '123456', 'degree-native': 'engineering', 'college-select': 'other', 'college-other': 'Synthetic University',
+      stream: 'Computer Science', grad: '2027', gpa: '8.8', years: '0', january: 'y', march: '' })) {
+      assert.equal(await screenshotForm.locator('#' + id).inputValue(), expected, id);
+    }
+    assert.equal(await screenshotForm.locator('#cv-name').textContent(), 'synthetic-resume.pdf');
+    assert.match(await screenshotForm.locator('#project-bullets').inputValue(), /^• Synthetic ranking project:/);
+    assert.equal(submissions, 0);
+    await Promise.all([seedForm.close(), screenshotForm.close(), formSettings.close()]);
+    console.log('PASS: screenshot-style address, degree alias, college Other and dependent field, exact start month, and native CV attach');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);
     page.on('pageerror',error=>console.error('Browser page error:',error.message));
     page.on('response',response=>{if(response.url().includes('/api/') && response.status()>=400)console.error('API failed:',response.status(),response.url());});
@@ -160,7 +579,7 @@ async function main() {
     await page.getByRole('row').filter({hasText:'jobs@expired.example'}).getByText('Personally checked',{exact:true}).waitFor();
     assert.equal(await Proof.countDocuments({userId:owner,email:'jobs@expired.example',expiresAt:{$gt:new Date()}}),0);
 
-    assert.deepEqual(await page.locator('nav a').evaluateAll(links=>links.map(a=>a.getAttribute('href'))),['/jobs','/']);
+    assert.deepEqual(await page.locator('nav a').evaluateAll(links=>links.map(a=>a.getAttribute('href'))),['/jobs','/','/import']);
     await page.goto(base+'/companies?q=retained');await page.getByRole('heading',{name:'Contacts by Company',exact:true}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('q'),'retained');
     assert.equal(await page.getByRole('combobox',{name:'Mail tools'}).count(),0);
@@ -170,8 +589,14 @@ async function main() {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     assert.equal(await require('../models/MailLog').countDocuments(),0);
     console.log('PASS: three mailbox sections and legacy URL redirects; real mail=0');
-    await page.goto(base+'/import');
     await page.getByText(/Background discovery off/).waitFor();
+    await page.getByRole('navigation').getByRole('link',{name:'Import contacts',exact:true}).click();
+    await page.getByRole('heading',{name:'Import contacts',exact:true}).waitFor();
+    assert.equal(new URL(page.url()).pathname,'/import');
+    assert.equal(await page.getByRole('navigation').getByRole('link',{name:'Import contacts',exact:true}).getAttribute('aria-current'),'page');
+    await page.reload();
+    await page.getByRole('heading',{name:'Import contacts',exact:true}).waitFor();
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     await page.getByLabel('Contact file (XLSX, CSV, PDF or TXT)').setInputFiles({
       name:'contacts.csv',mimeType:'text/csv',buffer:Buffer.from('Company,Email\nSynthetic Demo Employer,talent@fixture.example\nSynthetic Demo Employer,TALENT@fixture.example\n')
     });
@@ -187,7 +612,7 @@ async function main() {
     await page.getByLabel('Paste contact text').fill('careers@fixture.example');
     await page.getByRole('button',{name:'Preview pasted contacts'}).click();
     await page.getByRole('row').filter({hasText:'careers@fixture.example'}).waitFor();
-    console.log('PASS: inline file and pasted-text preview, no write before approval, and unverified staging');
+    console.log('PASS: dedicated sidebar import, file and pasted-text preview, no write before approval, and unverified staging');
   } catch(error) {
     if(page){await page.screenshot({path:path.join(screenshots,'browser-failure.png'),fullPage:true}).catch(()=>{});console.error('Synthetic failing page:',await page.locator('body').innerText().catch(()=>''));}
     throw error;

@@ -27,6 +27,38 @@ export function isFinalSubmitButton(label, automationId = '', buttonType = '') {
 export function isSafeNavigationButton(label, automationId = '', buttonType = '') {
   return !isFinalSubmitButton(label, automationId, buttonType) && /^(next( step)?|continue|save (and|&) continue)$/i.test(norm(label));
 }
+// Some portals render a heading-like label beside a single input without linking it.
+function nearbyUnboundLabel(element) {
+  for (let wrapper = element.parentElement, depth = 0;
+    wrapper && depth < 3 && !wrapper.matches('form, body, fieldset');
+    wrapper = wrapper.parentElement, depth++) {
+    const controls = [...wrapper.querySelectorAll('input:not([type="hidden"]), textarea, select, [role="combobox"]')];
+    if (controls.some(control => control !== element && !element.contains(control))) return '';
+    const labels = [...wrapper.querySelectorAll('label:not([for])')].filter(label => !label.querySelector('input, textarea, select, button'));
+    if (labels.length === 1) return questionText(labels[0]);
+    if (labels.length > 1) return '';
+  }
+  return '';
+}
+const popupOptions = '[role="option"], [role="menuitem"], [role="menuitemradio"]';
+function popupKind(element) {
+  const kind = element.getAttribute('aria-haspopup');
+  return kind === 'listbox' || kind === 'menu' ? kind : '';
+}
+function controlledPopup(element) {
+  const id = element.getAttribute('aria-controls') || element.getAttribute('aria-owns');
+  if (id && !/\s/.test(id)) return element.getRootNode().getElementById?.(id) || element.ownerDocument.getElementById(id);
+  if (popupKind(element) !== 'menu' || !element.id || element.getAttribute('aria-expanded') !== 'true') return null;
+  const menus = [...element.getRootNode().querySelectorAll('[role="menu"][aria-labelledby]')]
+    .filter(menu => menu.getAttribute('aria-labelledby') === element.id && rendered(menu));
+  return menus.length === 1 ? menus[0] : null;
+}
+function choiceLabel(option) {
+  if (!option) return '';
+  if (option.tagName === 'OPTION') return option.label;
+  return option.getAttribute('aria-label') || [...(option.labels || [])].map(text).join(' ') ||
+    text(option) || option.getAttribute('data-value') || option.value || '';
+}
 export function extractQuestionContext(element) {
   if (!element) return { combined: '', labelText: '', isRequired: false, inputType: 'text' };
   const root = element.getRootNode();
@@ -39,19 +71,23 @@ export function extractQuestionContext(element) {
   const groupLabel = group?.getAttribute('aria-label') || (group?.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => questionText(get(id))).join(' ');
   let labelText = refs('aria-labelledby') || element.getAttribute('aria-label') ||
     [...(element.labels || [])].map(questionText).join(' ') || questionText(element.closest('label')) ||
-    questionText(container?.querySelector('[role="heading"], .M7eMe, label')) || questionText(legend) || groupLabel || '';
+    questionText(container?.querySelector('[role="heading"], .M7eMe, label')) || questionText(legend) || groupLabel || nearbyUnboundLabel(element);
   const descriptionText = refs('aria-describedby') || text(container?.querySelector('.zHQkBf, [data-automation-id="helpText"]'));
   let inputType = norm(element.getAttribute('type') || 'text');
-  const role = element.getAttribute('role') || (element.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
-  if (element.tagName === 'TEXTAREA') inputType = 'textarea';
+  const role = element.getAttribute('role') || (popupKind(element) ? 'combobox' : null);
+  if (element.matches('button[aria-haspopup="dialog"]') && /date/i.test(labelText)) inputType = 'date-picker';
+  if (element.tagName === 'TEXTAREA' || element.matches('[role="textbox"][contenteditable="true"], [role="textbox"][contenteditable="plaintext-only"]')) inputType = 'textarea';
   if (element.tagName === 'SELECT') inputType = 'select';
   if (['combobox', 'listbox', 'radio', 'radiogroup', 'checkbox'].includes(role)) inputType = role;
   const fallback = ['name', 'id', 'placeholder', 'autocomplete', 'data-automation-id'].map(a => element.getAttribute(a) || '').join(' ');
   if (inputType === 'radio') labelText = questionText(legend) || groupLabel || refs('aria-labelledby') || '';
-  const popupId = element.getAttribute('aria-controls') || element.getAttribute('aria-owns');
-  const popup = popupId && !popupId.includes(' ') ? get(popupId) : null;
-  const options = element.tagName === 'SELECT' ? [...element.options].map(option => option.label) : inputType === 'radio' ? radioGroup(element).map(r => r.getAttribute('aria-label') || [...(r.labels || [])].map(text).join(' ') || r.value) :
-    [...(popup || group || element).querySelectorAll('[role="option"], [role="radio"]')].map(text);
+  if (inputType === 'checkbox') {
+    const topic = groupLabel || questionText(legend);
+    if (topic && labelText && topic !== labelText) labelText = `${topic} — ${labelText}`;
+  }
+  const options = inputType === 'checkbox' ? ['Yes', 'No'] : element.tagName === 'SELECT' ? [...element.options].map(option => option.label) : inputType === 'radio' ? radioGroup(element).map(choiceLabel) :
+    ['combobox', 'listbox'].includes(inputType) ? availableChoices(element).map(choiceLabel).filter(Boolean) :
+    [...(group || element).querySelectorAll('[role="radio"]')].map(choiceLabel).filter(Boolean);
   return { labelText: labelText || fallback.trim(), descriptionText, inputType, options,
     combined: norm(`${labelText} ${descriptionText} ${text(legend)} ${groupLabel} ${fallback}`),
     isRequired: element.required || element.getAttribute('aria-required') === 'true' || labelText.includes('*') };
@@ -77,6 +113,68 @@ export function answerScope(element) {
   return JSON.stringify({ documents: JSON.parse(applicationScope(element.ownerDocument) || '[]'), field: answerIdentity(element) });
 }
 
+function experienceYearsQuestion(context) {
+  const label = norm(context.labelText || context.combined);
+  return /^(?:(?:how many|total|number of)\s+)?(?:years? of (?:[a-z-]+ ){0,3}experience|experience in years)\b/.test(label) &&
+    !/\b(?:minimum|required|expected)\b/.test(label);
+}
+function profileChoice(type, value) {
+  return { type, value, verified: true, confidence: null, source: 'applicant_confirmed_preference' };
+}
+const collegeOtherLabel = /^(?:college|university|college\s*\/\s*university)\s*\((?:if )?other\)\s*\*?$/i;
+const collegeSelectLabel = /^(?:your )?(?:college|university|college\s*\/\s*university)(?: name)?\s*\*?$/i;
+export function applicantAddressField(context) {
+  if (!['text', 'textarea', 'number', 'select', 'combobox'].includes(context.inputType)) return null;
+  const label = norm(context.labelText).replace(/[\s:*]+$/, '');
+  if (/^(?:full address|home address|street address|permanent address|address line 1)$/.test(label)) return 'address';
+  if (/^(?:home town|hometown|home city|city|town)$/.test(label)) return 'city';
+  if (/^(?:home state|state|state\/province|province|state of residence)$/.test(label)) return 'state';
+  if (/^(?:pin\s?code|postal code|zip code|zip)$/.test(label)) return 'postalCode';
+  return null;
+}
+export function internshipStartMonth(label) {
+  const question = norm(label);
+  if (!/\binternship\b/.test(question) || !/\b(?:would you be|are you|will you be|can you be) available to start in\b/.test(question)) return '';
+  const match = question.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(20\d{2})\b/);
+  if (!match) return '';
+  const month = ['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(match[1]) + 1;
+  return `${match[2]}-${String(month).padStart(2, '0')}`;
+}
+export function profileLinkField(context) {
+  if (!['text', 'url'].includes(context.inputType)) return null;
+  const label = norm(context.labelText).replace(/[\s:*?]+$/, '');
+  if (/^(?:your )?(?:google scholar(?: (?:profile|url|link|profile link|profile url))?(?: or publications link)?|scholar profile(?: link| url)?)$/.test(label)) return 'scholar';
+  if (/^(?:your )?orcid(?: (?:id|profile|link|url))?$/.test(label)) return 'orcid';
+  if (/^(?:your )?researchgate(?: (?:profile|link|url)| profile (?:link|url))?$/.test(label)) return 'researchgate';
+  if (/^(?:your )?(?:research|academic) profile(?: (?:link|url))?$/.test(label)) return 'research';
+  if (/^(?:your )?linkedin(?: (?:profile|link|url)| profile (?:link|url))?$/.test(label)) return 'linkedin';
+  if (/^(?:your )?github(?: (?:profile|link|url)| profile (?:link|url))?$/.test(label)) return 'github';
+  return null;
+}
+export function normalizeProfileLink(kind, value) {
+  if (kind === 'research') return ['scholar', 'orcid', 'researchgate'].map(provider => normalizeProfileLink(provider, value)).find(Boolean) || '';
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw || raw.length > 500) return '';
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.port) return '';
+    const host = url.hostname.replace(/^www\./, '');
+    const pathname = url.pathname.replace(/\/$/, '');
+    if (kind === 'scholar') {
+      const id = url.searchParams.get('user');
+      return /^scholar\.google\.(?:com|co\.[a-z]{2}|[a-z]{2})$/.test(host) && pathname === '/citations' && /^[\w-]{3,60}$/.test(id || '')
+        ? `https://scholar.google.com/citations?user=${id}` : '';
+    }
+    const matches = {
+      orcid: ['orcid.org', /^\/\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/i],
+      researchgate: ['researchgate.net', /^\/profile\/[\w-]+$/],
+      linkedin: ['linkedin.com', /^\/in\/[\w%-]+$/],
+      github: ['github.com', /^\/[a-z\d][a-z\d-]{0,38}$/i]
+    };
+    const match = matches[kind];
+    return match && host === match[0] && match[1].test(pathname) ? `https://${host}${pathname}` : '';
+  } catch { return ''; }
+}
 export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   profile = normalizeProfile(profile);
   const q = context.combined || '';
@@ -84,15 +182,68 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   if (/terms|privacy|agree|consent|declar|certif|attest|signature|sign here|background check|acknowledge/i.test(q))
     return review('LEGAL_CONSENT_OR_TERMS', 'Requires explicit applicant action.');
   if (/captcha|verification code|\botp\b|password|security code/i.test(q)) return review('VERIFICATION', 'Complete verification manually.');
-  const remembered = recallAnswer(profile.answers_bank, context.labelText || q, context.inputType, context.options || [], context.scope || '');
+  const remembered = recallAnswer(profile.answers_bank, context.labelText || q, context.inputType, context.options || [], context.scope || '') ||
+    (context.inputType === 'checkbox' && context.scope ? recallAnswer(profile.answers_bank, context.labelText || q, 'checkbox', [], context.scope) : null);
   // Sensitive/application-specific answers must be explicitly scoped to this form.
-  if (remembered && (context.scope || !/salary|ctc|compensation|notice|availab|relocat|sponsor|visa|authoriz|citizen|nationality/i.test(q)))
+  if (remembered && (context.scope || (!['date-picker', 'date', 'checkbox'].includes(context.inputType) && !/salary|ctc|compensation|notice|availab|relocat|sponsor|visa|authoriz|citizen|nationality/i.test(q))))
     return { type: 'REMEMBERED_ANSWER', value: remembered.answer, verified: true, confidence: null, source: `answer_bank:${remembered.provenance}` };
+  const linkKind = profileLinkField(context);
+  if (linkKind) {
+    const links = profile.links || {};
+    const fallback = linkKind === 'research' ? links.scholar || links.orcid || links.researchgate : links.research;
+    const value = normalizeProfileLink(linkKind, links[linkKind]) || normalizeProfileLink(linkKind, fallback);
+    return value ? profileChoice('PROFILE_LINK', value) : review('PROFILE_LINK', 'Enter your profile URL once to reuse it on future forms.');
+  }
+  if (context.inputType === 'date-picker' || context.inputType === 'date') return review('DATE_REVIEW', 'Choose and approve the exact date.');
+  if (context.inputType === 'checkbox') {
+    const [group, option] = String(context.labelText).split(' — ');
+    const skills = Object.values(profile.skills || {}).flat().filter(skill => typeof skill === 'string');
+    if (option && /^(?:technical skills|skills|technologies|programming languages|tools)(?: you (?:know|use|have used))?\s*\*?$/i.test(group.trim()) &&
+        skills.some(skill => norm(skill) === norm(option))) return profileChoice('PROFILE_SKILL_CHECKBOX', 'Yes');
+    return review('CHECKBOX_REVIEW', 'Confirm whether this option applies to you.');
+  }
+  if (profile.preferences?.confirmed_internship_start_month &&
+      internshipStartMonth(context.labelText) === profile.preferences.confirmed_internship_start_month) {
+    const yes = (context.options || []).filter(option => norm(option) === 'yes');
+    if (yes.length === 1 && context.options.some(option => norm(option) === 'no')) return profileChoice('INTERNSHIP_START_MONTH', yes[0]);
+  }
+  const addressField = applicantAddressField(context);
+  if (addressField) {
+    const value = profile.location?.[addressField];
+    return value ? profileChoice('PROFILE_ADDRESS', String(value)) : review('PROFILE_ADDRESS', 'Save your confirmed address to use this field.');
+  }
+  if (collegeOtherLabel.test(context.labelText || ''))
+    return review('COLLEGE_OTHER', 'Used when the paired college list says Other.');
   if (/gender|disabil|veteran|ethnic|race\b/i.test(q) && norm(profile.preferences?.eeo_default) === 'prefer not to say' && context.options?.some(option => norm(option) === 'prefer not to say'))
     return { type: 'EEO_PREFERENCE', value: context.options.find(option => norm(option) === 'prefer not to say'), verified: true, source: 'applicant_profile_eeo_preference', confidence: null };
-  if (/salary|\bctc\b|compensation|remuneration|expected pay|notice|availab|start date|relocat|sponsor|visa|authoriz|eligible to work|gender|pronoun|disabil|veteran|ethnic|race\b|citizen|nationality|passport|aadhaar|pan number|date of birth|\bdob\b/i.test(q))
+  const years = profile.preferences?.default_experience_years;
+  if (experienceYearsQuestion(context) && Number.isInteger(years) && years >= 0) {
+    if (['text', 'number', 'tel'].includes(context.inputType)) return profileChoice('EXPERIENCE_YEARS', String(years));
+    if (['select', 'combobox', 'listbox', 'radio', 'radiogroup'].includes(context.inputType)) {
+      const options = (context.options || []).filter(option =>
+        [String(years), `${years} year`, `${years} years`].includes(norm(option)) || (years === 0 && norm(option) === 'no experience'));
+      if (options.length === 1) return profileChoice('EXPERIENCE_YEARS', options[0]);
+      if (!context.options?.length && ['combobox', 'listbox'].includes(context.inputType))
+        return profileChoice('EXPERIENCE_YEARS', String(years));
+    }
+  }
+  const months = profile.preferences?.internship_duration_months;
+  if (Number.isInteger(months) && months > 0 && /^(?:availability|internship duration)\s*\*?$/.test(norm(context.labelText))) {
+    const options = (context.options || []).filter(option => !/^(?:please )?(?:choose|select)(?: an option)?[.\s]*$/.test(norm(option)));
+    if (!options.length && ['combobox', 'listbox'].includes(context.inputType))
+      return profileChoice('INTERNSHIP_DURATION', String(months) + ' months');
+    if (options.length > 1 && options.every(option => /^\d+ months?$/.test(norm(option)))) {
+      const match = options.filter(option => [`${months} month`, `${months} months`].includes(norm(option)));
+      if (match.length === 1) return profileChoice('INTERNSHIP_DURATION', match[0]);
+    }
+  }
+  if (/years? of (?:hands-on |relevant |professional )?experience|can you work on.site|salary|\bctc\b|compensation|remuneration|expected pay|notice|availab|start date|relocat|sponsor|visa|authoriz|eligible to work|gender|pronoun|disabil|veteran|ethnic|race\b|citizen|nationality|passport|aadhaar|pan number|date of birth|\bdob\b/i.test(q))
     return review('SENSITIVE_OR_APPLICATION_SPECIFIC', 'Confirm this answer for this application.');
   if (context.inputType === 'file') return review('MANUAL_UPLOAD', 'Select the real resume PDF manually.');
+  if (/^links? to (?:your )?(?:strongest|best) work\b/i.test(context.labelText || '') && context.inputType === 'textarea') {
+    const links = [profile.links?.github, profile.links?.portfolio].filter(link => /^https?:\/\//i.test(link || ''));
+    if (links.length) return { type: 'WORK_LINKS', value: [...new Set(links)].join('\n'), verified: true, source: 'applicant_reviewed_profile' };
+  }
   if (/why|describe|explain|challenge|tell us|about yourself|summary|motivation/i.test(q) || context.inputType === 'textarea')
     return review('WRITTEN_ANSWER', 'Draft and review using selected resume facts and the actual question.');
   if (/company name|employer|emergency contact|next of kin|recruiter|reference|referee|manager|parent|guardian|spouse/i.test(q)) return review('OTHER_PERSON_OR_EMPLOYER', 'Not an applicant profile field.');
@@ -100,7 +251,7 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   const mappings = [
     [/first.?name|given.?name|fname/i, 'FIRST_NAME', profile.firstName],
     [/last.?name|family.?name|surname|lname/i, 'LAST_NAME', profile.lastName],
-    [/full.?name|your name|candidate name|^name\s*$/i, 'FULL_NAME', profile.fullName],
+    [/full.?name|your name|candidate name|^name(?:\s*\*)?$/i, 'FULL_NAME', profile.fullName],
     [/e.?mail/i, 'EMAIL', profile.email],
     [/phone|mobile|contact number/i, 'PHONE', profile.phoneRaw || profile.phone],
     [/linkedin/i, 'LINK_LINKEDIN', profile.links?.linkedin],
@@ -109,21 +260,21 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
     [/cgpa|\bgpa\b|grade point/i, 'CGPA', profile.cgpa],
     [/graduat|passout|end year/i, 'GRADUATION_YEAR', profile.graduationYear],
     [/degree|qualification/i, 'DEGREE', profile.degree],
-    [/major|discipline|field of study|branch/i, 'MAJOR', profile.major],
+    [/major|discipline|field of study|branch|speciali[sz]ation|\bstream\b/i, 'MAJOR', profile.major],
     [/university|college|institution|school/i, 'COLLEGE', profile.college],
     [/country(?!.*code)/i, 'COUNTRY', profile.location?.country],
     [/state|province/i, 'STATE', profile.location?.state],
     [/city|town/i, 'CITY', profile.location?.city]
   ];
   for (const [pattern, type, value] of mappings) {
-    if (!pattern.test(q)) continue;
+    if (!pattern.test(q) && !(type === 'FULL_NAME' && /^name\s*\*?$/.test(norm(context.labelText)))) continue;
     if (value === undefined || value === null || String(value).trim() === '') return review(type, 'Missing applicant-reviewed profile fact.');
     return { type, value: String(value), verified: true, confidence: null, source: profile.provenance?.[type] || 'applicant_reviewed_profile' };
   }
   return review(context.isRequired ? 'UNKNOWN_REQUIRED' : 'UNMATCHED_OPTIONAL', 'No supported profile evidence for this question.');
 }
 
-const selector = 'input, textarea, select, [role="combobox"], [aria-haspopup="listbox"], [role="listbox"], [role="radiogroup"], [role="checkbox"]';
+const selector = 'input, textarea, select, [role="textbox"][contenteditable="true"], [role="textbox"][contenteditable="plaintext-only"], [role="combobox"], [aria-haspopup="listbox"], button[aria-haspopup="menu"], button[aria-haspopup="dialog"], [role="listbox"], [role="radiogroup"], [role="checkbox"]';
 function rendered(el) {
   for (let node=el;node?.nodeType===1;node=node.parentElement || node.getRootNode()?.host) {
     const style=node.ownerDocument.defaultView.getComputedStyle(node);
@@ -139,8 +290,11 @@ export function collectFields(root, visited = new Set(), { frames = true } = {})
   visited.add(root);
   const fields = [...root.querySelectorAll(selector)].filter(el => {
     const type = norm(el.getAttribute('type'));
-    const dropdown = ['combobox', 'listbox'].includes(el.getAttribute('role')) || el.getAttribute('aria-haspopup') === 'listbox';
-    return (!['hidden', 'submit', 'button', 'reset', 'image'].includes(type) || dropdown) && !el.disabled && !el.readOnly && rendered(el) &&
+    const popup = popupKind(el);
+    if (popup === 'menu' && !nearbyUnboundLabel(el) && !el.getAttribute('aria-labelledby') && !el.labels?.length) return false;
+    const datePicker = el.matches('button[aria-haspopup="dialog"]') && extractQuestionContext(el).inputType === 'date-picker';
+    const widget = ['combobox', 'listbox', 'checkbox'].includes(el.getAttribute('role')) || popup || datePicker;
+    return (!['hidden', 'submit', 'button', 'reset', 'image'].includes(type) || widget) && !el.disabled && !el.readOnly && rendered(el) &&
       !(el.type==='radio' && radioGroup(el)[0]!==el) &&
       !el.closest('[hidden], [aria-hidden="true"], [data-jobfinder-ui]') &&
       !(el.getAttribute('role') !== 'radiogroup' && el.closest('[role="radiogroup"]')) &&
@@ -156,10 +310,9 @@ export function collectFields(root, visited = new Set(), { frames = true } = {})
 }
 function emptyDropdownPrompt(el, displayed) {
   const value = norm(displayed).replace(/[.\s\u2026]+$/g, '');
-  const popupId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-  const popup = popupId && !popupId.includes(' ') ? el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId) : null;
+  const popup = controlledPopup(el);
   // An actual enabled choice wins over wording that resembles a prompt.
-  if (popup && [...popup.querySelectorAll('[role="option"], option')].some(option => !option.disabled && option.getAttribute('aria-disabled') !== 'true' && norm(option.getAttribute('aria-label') || option.label || text(option)) === norm(displayed))) return false;
+  if (popup && [...popup.querySelectorAll(popupOptions + ', option')].some(option => !option.disabled && option.getAttribute('aria-disabled') !== 'true' && norm(option.getAttribute('aria-label') || option.label || text(option)) === norm(displayed))) return false;
   const placeholder = el.getAttribute('data-placeholder') || el.getAttribute('placeholder');
   if (placeholder && norm(placeholder) === norm(displayed)) return true;
   const label = norm(extractQuestionContext(el).labelText).replace(/[.*:\s]+$/g, '');
@@ -168,67 +321,209 @@ function emptyDropdownPrompt(el, displayed) {
   return ['select', 'choose', 'please select', 'please choose'].some(prefix => endings.some(ending => value === `${prefix}${ending ? ' ' + ending : ''}`));
 }
 function currentValue(el) {
-  const role = el.getAttribute('role') || (el.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
+  const role = el.getAttribute('role') || (popupKind(el) ? 'combobox' : null);
+  if (el.matches('button[aria-haspopup="dialog"]') && extractQuestionContext(el).inputType === 'date-picker') {
+    const label = text(el);
+    return /^(?:pick|select|choose)(?: a)? date$/i.test(label) ? '' : label;
+  }
+  if (el.tagName === 'SELECT' && !el.multiple) {
+    const option = el.selectedOptions[0];
+    return !option || option.matches(':disabled') ? '' : el.value;
+  }
   if(el.type==='radio')return radioGroup(el).some(r=>r.checked)?'selected':'';
-  if (role === 'radiogroup') return el.querySelector('[aria-checked="true"]')?.getAttribute('data-value') || text(el.querySelector('[aria-checked="true"]'));
+  if (role === 'radiogroup') {
+    const checked = el.querySelector('[role="radio"][aria-checked="true"]');
+    return checked ? choiceLabel(checked) || 'selected' : '';
+  }
   if (['checkbox', 'radio'].includes(el.type) || role === 'checkbox') return (el.checked || el.getAttribute('aria-checked') === 'true') ? 'checked' : '';
   if (role === 'combobox' || role === 'listbox') {
     const explicit = el.getAttribute('aria-valuetext') || el.value || el.getAttribute('data-value');
     if (explicit) return explicit;
-    const displayed = text(el);
+    const displayed = questionText(el);
     // Match a known prompt or this field's label, never arbitrary Select-prefixed text.
     return emptyDropdownPrompt(el, displayed) ? '' : displayed;
   }
-  return el.value || '';
+  return el.isContentEditable ? el.textContent : el.value || '';
+}
+export function submittedFieldValue(el) {
+  const { inputType } = extractQuestionContext(el);
+  if (inputType === 'radio') return choiceLabel(radioGroup(el).find(option => option.checked));
+  if (inputType === 'checkbox') return currentValue(el) ? 'Yes' : 'No';
+  if (inputType === 'select') return el.multiple ? '' : el.selectedOptions[0]?.label || '';
+  return currentValue(el);
 }
 function setValue(el, value) {
   const win = el.ownerDocument.defaultView;
   const proto = el.tagName === 'TEXTAREA' ? win.HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? win.HTMLSelectElement.prototype : win.HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
+  if (el.isContentEditable) el.textContent = value;
+  else Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
   el.dispatchEvent(new win.Event('input', { bubbles: true, composed: true }));
   el.dispatchEvent(new win.Event('change', { bubbles: true, composed: true }));
 }
-function safeClick(el) {
+function collegeControls(element) {
+  const container = element.form || element.closest('[role="form"]');
+  if (!container) return null;
+  const controls = [...(container.elements || container.querySelectorAll('input, textarea, select'))];
+  const primary = controls.filter(control => control.tagName === 'SELECT' && collegeSelectLabel.test(extractQuestionContext(control).labelText));
+  const secondary = controls.filter(control => control.matches('input:not([type]), input[type="text"], textarea') &&
+    collegeOtherLabel.test(extractQuestionContext(control).labelText));
+  return primary.length === 1 && secondary.length <= 1 ? { primary: primary[0], secondary: secondary[0] || null } : null;
+}
+function selectedCollegeOther(select) {
+  return /^other(?:\s*\(.*\))?$/i.test(select?.selectedOptions[0]?.label.trim() || '');
+}
+function choiceKey(value, type) {
+  const key = norm(value).replace(/[^\p{L}\p{N}]/gu, '');
+  if (type === 'DEGREE' && key === 'bacheloroftechnology') return 'btech';
+  return type === 'COLLEGE' ? key.replace(/^indianinstituteofinformationtechnology/, 'iiit') : key;
+}
+function safeClick(el, event) {
   if (el.closest('a, [formaction], button:not([type="button"]), input[type="submit"], input[type="image"]'))
     throw new Error('Control can submit or navigate; use it manually.');
-  el.click();
+  if (event) el.dispatchEvent(event);
+  else el.click();
 }
 const exactOption = (items, value) => {
   const matches = [...items].filter(el => {
-    const label = el.tagName === 'OPTION' ? el.label : el.getAttribute('aria-label') || [...(el.labels || [])].map(text).join(' ') || text(el);
-    return !el.disabled && norm(label || el.getAttribute('data-value') || el.value) === norm(value);
+    return !el.matches(':disabled') && el.getAttribute('aria-disabled') !== 'true' && norm(choiceLabel(el)) === norm(value);
   });
   if (matches.length !== 1) throw new Error('No unique exact option; choose manually.');
   return matches[0];
 };
-async function waitForChoice(el, value, stopped) {
+function openChoice(el) {
+  if (el.getAttribute('aria-expanded') === 'true') return;
+  if (popupKind(el) === 'menu' && el.id.startsWith('radix-')) {
+    const win = el.ownerDocument.defaultView;
+    safeClick(el, new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
+  } else {
+    safeClick(el);
+  }
+}
+function availableChoices(el) {
+  const popup = controlledPopup(el) || (popupKind(el) === 'menu' ? null : el);
+  if (!popup || !rendered(popup)) return [];
+  return [...popup.querySelectorAll(popupOptions)].filter(option =>
+    rendered(option) && !option.closest('[hidden], [aria-hidden="true"], [aria-disabled="true"]') && !option.matches(':disabled'));
+}
+async function waitForChoices(el, stopped) {
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline && !stopped() && el.isConnected) {
-    const popupId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-    if (popupId && !/\s/.test(popupId)) {
-      const popup = el.getRootNode().getElementById?.(popupId) || el.ownerDocument.getElementById(popupId);
-      if (popup && rendered(popup)) {
-        const options = [...popup.querySelectorAll('[role="option"]')].filter(option =>
-          rendered(option) && option.getAttribute('aria-disabled') !== 'true' &&
-          norm(option.getAttribute('aria-label') || text(option)) === norm(value));
-        if (options.length > 1) throw new Error('Ambiguous dropdown options.');
-        if (options.length === 1) return options[0];
-      }
-    }
+    const options = availableChoices(el);
+    if (options.length) return options;
     await new Promise(resolve => setTimeout(resolve, 25));
   }
-  throw new Error('Dropdown option unavailable; complete manually.');
+  throw new Error('The dropdown did not expose its options. Choose on the page.');
+}
+function dateKey(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) && !/[a-z]{3,}/i.test(value)) return '';
+  const plain = value.replace(/(\d)(?:st|nd|rd|th)\b/gi, '$1');
+  if (!/\b\d{4}\b/.test(plain)) return '';
+  const timestamp = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(plain) ? plain : plain + ' UTC');
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : '';
+}
+async function chooseCalendarDate(el, value, stopped) {
+  if (dateKey(value) !== value) throw new Error('Choose a valid calendar date.');
+  openChoice(el);
+  for (let step = 0; step <= 12 && !stopped(); step++) {
+    await new Promise(resolve => setTimeout(resolve, 70));
+    const popup = controlledPopup(el);
+    if (!popup?.matches('[role="dialog"]') || !rendered(popup)) continue;
+    const days = [...popup.querySelectorAll('[data-day]')].filter(day =>
+      !day.matches('[data-outside="true"], [data-hidden="true"]') && rendered(day));
+    const matching = days.filter(day => day.getAttribute('data-day') === value);
+    if (matching.length === 1) {
+      const day = matching[0].matches('button') ? matching[0] : matching[0].querySelector('button');
+      if (!day || day.disabled || day.getAttribute('aria-disabled') === 'true') throw new Error('The selected date is unavailable.');
+      safeClick(day);
+      await new Promise(resolve => setTimeout(resolve, 70));
+      if (dateKey(el.getAttribute('data-date') || currentValue(el)) !== value) throw new Error('The calendar selection could not be verified.');
+      return;
+    }
+    const currentMonth = days[Math.floor(days.length / 2)]?.getAttribute('data-day')?.slice(0, 7);
+    if (!currentMonth || currentMonth === value.slice(0, 7) || matching.length > 1 || step === 12) break;
+    const direction = currentMonth < value.slice(0, 7) ? 'next' : 'previous';
+    const nav = [...popup.querySelectorAll('button[aria-label]')].filter(button =>
+      !button.disabled && new RegExp(`\\b${direction}\\b.*\\bmonth\\b`, 'i').test(button.getAttribute('aria-label')));
+    if (nav.length !== 1) break;
+    safeClick(nav[0]);
+  }
+  throw new Error('Choose the date on the page. This calendar did not expose a verifiable date.');
 }
 
 export class FormFillSession {
-  constructor(root) { this.root = root; this.state = 'IDLE'; this.rows = []; this.stopped = false; }
+  constructor(root, proposeDraft) {
+    this.root = root; this.state = 'IDLE'; this.rows = []; this.stopped = false;
+    this.choiceSnapshots = new WeakMap(); this.proposeDraft = proposeDraft;
+  }
+  contextFor(element) {
+    const context = { ...extractQuestionContext(element), scope: answerScope(element) };
+    const snapshot = this.choiceSnapshots.get(element);
+    if (snapshot?.scope === context.scope) context.options = snapshot.options;
+    return context;
+  }
+  async readChoices(scope, profile) {
+    const controls = collectFields(this.root).filter(el => answerScope(el) === scope);
+    const element = controls.length === 1 ? controls[0] : null;
+    if (!element || element.ownerDocument !== this.root || !['combobox', 'listbox'].includes(extractQuestionContext(element).inputType))
+      throw new Error('The dropdown changed. Preview this form again.');
+    this.stopped = false;
+    openChoice(element);
+    try {
+      const options = (await waitForChoices(element, () => this.stopped)).map(choiceLabel).filter(Boolean);
+      if (!options.length || new Set(options.map(norm)).size !== options.length) throw new Error('The page has ambiguous choices. Select directly on the form.');
+      this.choiceSnapshots.set(element, { scope, options });
+    } finally {
+      const win = element.ownerDocument.defaultView;
+      const popup = controlledPopup(element);
+      (popup?.contains(element.ownerDocument.activeElement) ? element.ownerDocument.activeElement : popup || element)
+        .dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    }
+    return this.scan(profile);
+  }
   scan(profile) {
     if (this.state === 'FILL') throw new Error('Fill already running.');
+    this.profile = normalizeProfile(profile);
     this.stopped = false; this.state = 'SCAN'; this.rescanRequired = false;
-    this.rows = collectFields(this.root).map((element, index) => {
-      const context = { ...extractQuestionContext(element), scope: answerScope(element) };
-      const decision = classifyQuestion(context, profile);
+    const controls = collectFields(this.root);
+    const questionCounts = new Map();
+    for (const element of controls) {
+      const key = this.memoryIdentity?.(extractQuestionContext(element));
+      if (key) questionCounts.set(key, (questionCounts.get(key) || 0) + 1);
+    }
+    this.rows = controls.map((element, index) => {
+      const context = this.contextFor(element);
       const before = currentValue(element);
+      let decision = classifyQuestion(context, profile);
+      const memoryKey = this.memoryIdentity?.(context);
+      const submitted = questionCounts.get(memoryKey) === 1 && this.submitted?.get(memoryKey);
+      if (submitted && !['LEGAL_CONSENT_OR_TERMS', 'VERIFICATION', 'MANUAL_UPLOAD'].includes(decision.type)) {
+        const choice = ['select', 'radio', 'radiogroup'].includes(context.inputType);
+        if (!choice || context.options.filter(option => norm(option) === norm(submitted)).length === 1)
+          decision = { ...profileChoice('REMEMBERED_ANSWER', submitted), source: 'previous_manual_submit' };
+      }
+      if (element.tagName === 'SELECT' && ['COLLEGE', 'DEGREE', 'MAJOR', 'PROFILE_ADDRESS'].includes(decision.type) && !decision.requiresManualReview) {
+        const candidates = [...element.options].filter(option => !option.matches(':disabled') &&
+          choiceKey(option.label, decision.type) === choiceKey(decision.value, decision.type));
+        const exact = candidates.filter(option => norm(option.label) === norm(decision.value));
+        if (!exact.length && candidates.length === 1) decision = { ...decision, value: candidates[0].label };
+      }
+      if (element.tagName === 'SELECT' && collegeSelectLabel.test(context.labelText) && decision.type === 'COLLEGE' && !decision.requiresManualReview) {
+        const exact = [...element.options].some(option => !option.matches(':disabled') && norm(option.label) === norm(decision.value));
+        const other = [...element.options].filter(option => !option.matches(':disabled') && /^other(?:\s*\(.*\))?$/i.test(option.label.trim()));
+        const paired = collegeControls(element);
+        if (!exact && other.length === 1 && paired?.primary === element &&
+            (!paired.secondary || (!paired.secondary.disabled && !paired.secondary.readOnly)))
+          decision = profileChoice('COLLEGE_OTHER_OPTION', other[0].label);
+      }
+      if (decision.type === 'COLLEGE_OTHER' && this.profile.college) {
+        const paired = collegeControls(element);
+        if (paired?.secondary === element && selectedCollegeOther(paired.primary))
+          decision = profileChoice('COLLEGE_OTHER', String(this.profile.college));
+      }
+      const draft = this.proposeDraft && !before && decision.requiresManualReview &&
+        ['WRITTEN_ANSWER', 'UNKNOWN_REQUIRED', 'UNMATCHED_OPTIONAL'].includes(decision.type) &&
+        (this.proposeDraft(context, profile, element) || this.generated?.get(context.scope));
+      if (draft) decision = { type: 'REVIEW_DRAFT', value: draft.value, source: draft.source, reason: 'Review this draft before submitting.' };
       return { id: index, element, context, before, decision,
         action: before ? 'preserve' : decision.requiresManualReview ? 'needs_review' : 'fill' };
     });
@@ -237,11 +532,42 @@ export class FormFillSession {
   }
   stop() { this.stopped = true; this.state = 'STOPPED'; }
   report() {
-    return { state: this.state, rescanRequired: !!this.rescanRequired, fields: this.rows.map(({ element: _element, ...row }) => row),
+    return { state: this.state, rescanRequired: !!this.rescanRequired, fields: this.rows.map(({ element: _element, committedValue: _committedValue, ...row }) => row),
       filledCount: this.rows.filter(r => r.outcome === 'filled').length,
-      needsReviewCount: this.rows.filter(r => r.action === 'needs_review' || r.outcome === 'needs_review').length };
+      needsReviewCount: this.rows.filter(r => r.action === 'needs_review' || r.outcome === 'needs_review' || r.decision.type === 'REVIEW_DRAFT').length };
   }
-  async fill() {
+  async fillStep(profile, onProgress, attempted = new Map()) {
+    this.scan(profile);
+    const guardedDocuments = new Set(this.rows.map(row => row.element.ownerDocument));
+    for (let pass = 0; pass < 3; pass++) {
+      if (pass || attempted.size) {
+        if (pass) this.scan(profile);
+        for (const row of this.rows) {
+          const previous = attempted.get(row.context.scope);
+          if (previous?.outcome === 'filled' && row.before === previous.committedValue) {
+            row.outcome = 'filled';
+            row.committedValue = previous.committedValue;
+            if (previous.decision.type === 'REVIEW_DRAFT') row.decision = previous.decision;
+          }
+          if (previous?.element === row.element && previous.outcome === 'needs_review' &&
+              JSON.stringify(previous.context) === JSON.stringify(row.context)) {
+            row.action = 'needs_review';
+            row.outcome = previous.outcome;
+            row.reason = previous.reason;
+          }
+          if (!guardedDocuments.has(row.element.ownerDocument)) {
+            row.action = 'needs_review';
+            row.reason = 'New application frame. Start fill again to review it.';
+          }
+        }
+      }
+      const report = await this.fill(onProgress && (progress => onProgress({ ...progress, pass: pass + 1 })));
+      for (const row of this.rows) attempted.set(row.context.scope, row);
+      if (this.stopped || !report.rescanRequired) return report;
+    }
+    return this.report();
+  }
+  async fill(onProgress) {
     if (this.state !== 'PLAN') throw new Error('Preview this step before filling.');
     this.state = 'FILL';
     const docs = new Set(this.rows.map(r => r.element.ownerDocument));
@@ -257,18 +583,27 @@ export class FormFillSession {
       }
     }
     try {
-      for (const row of this.rows) {
+      for (const [index, row] of this.rows.entries()) {
+        if (this.stopped) break;
+        onProgress?.({ checked: index, total: this.rows.length, label: row.context.labelText });
+        // Give the notice a chance to render on larger forms without delaying each field.
+        if (onProgress && index > 0 && index % 12 === 0) await new Promise(resolve => setTimeout(resolve, 0));
         if (this.stopped) break;
         if (row.action !== 'fill') continue;
         const el = row.element;
         try {
-          if (!el.isConnected || !rendered(el) || JSON.stringify({ ...extractQuestionContext(el), scope: answerScope(el) }) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
+          if (!el.isConnected || !rendered(el) || JSON.stringify(this.contextFor(el)) !== JSON.stringify(row.context)) throw new Error('Field changed; preview again.');
           if (currentValue(el) !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
           const { value } = row.decision;
+          if (row.decision.type === 'REVIEW_DRAFT' &&
+              (this.proposeDraft?.(row.context, this.profile, el, true) || this.generated?.get(row.context.scope))?.value !== value)
+            throw new Error('The selected direction changed. Fill again to propose a matching draft.');
           const type = row.context.inputType;
+          if (row.decision.type === 'EXPERIENCE_YEARS' && type === 'number' && el.min !== '' && Number(value) < Number(el.min))
+            throw new Error('The form does not accept your default experience value.');
           if (el.maxLength >= 0 && value.length > el.maxLength) throw new Error('Answer exceeds character limit.');
           if (el.type === 'checkbox' || type === 'checkbox') {
-            if (row.decision.type !== 'REMEMBERED_ANSWER' || !/^(yes|no)$/i.test(value)) throw new Error('Review checkbox manually.');
+            if (!['REMEMBERED_ANSWER', 'PROFILE_SKILL_CHECKBOX'].includes(row.decision.type) || !/^(yes|no)$/i.test(value)) throw new Error('Review checkbox manually.');
             const checked = () => el.checked || el.getAttribute('aria-checked') === 'true';
             const desired = norm(value) === 'yes';
             if (checked() !== desired) safeClick(el);
@@ -277,39 +612,78 @@ export class FormFillSession {
             const option=exactOption(radioGroup(el),value);safeClick(option);
             if(!option.checked)throw new Error('Radio selection was not retained.');
           } else if (type === 'select') {
+            if (el.multiple) throw new Error('Review multiple selections manually.');
             const choice = exactOption(el.options, value);
             if ([...el.options].filter(option => option.value === choice.value).length !== 1) throw new Error('Duplicate option values require manual selection.');
             setValue(el, choice.value);
+            if (row.decision.type === 'COLLEGE_OTHER_OPTION') {
+              const deadline = Date.now() + 700;
+              while (!this.stopped && Date.now() < deadline) {
+                const alternate = collegeControls(el)?.secondary;
+                if (alternate && rendered(alternate)) break;
+                await new Promise(resolve => setTimeout(resolve, 35));
+              }
+            }
           } else if (type === 'radiogroup') {
             const option = exactOption(el.querySelectorAll('[role="radio"]'), value);
             safeClick(option);
             if (option.getAttribute('aria-checked') !== 'true') throw new Error('Radio selection was not retained.');
           } else if (type === 'combobox' || type === 'listbox') {
-            safeClick(el);
-            const option = await waitForChoice(el, value, () => this.stopped);
+            openChoice(el);
+            const choices = await waitForChoices(el, () => this.stopped);
+            const snapshot = this.choiceSnapshots.get(el);
+            if (snapshot && JSON.stringify(choices.map(choiceLabel).sort()) !== JSON.stringify([...snapshot.options].sort()))
+              throw new Error('Dropdown options changed. Read the options again.');
+            const dynamic = classifyQuestion({ ...row.context, options: choices.map(choiceLabel) }, this.profile);
+            const aliases = ['COLLEGE', 'DEGREE', 'MAJOR', 'PROFILE_ADDRESS'].includes(row.decision.type) ?
+              choices.filter(option => choiceKey(choiceLabel(option), row.decision.type) === choiceKey(value, row.decision.type)) : [];
+            const targetValue = aliases.length === 1 ? choiceLabel(aliases[0]) :
+              (['EXPERIENCE_YEARS', 'INTERNSHIP_DURATION', 'INTERNSHIP_START_MONTH'].includes(dynamic.type) && !dynamic.requiresManualReview &&
+                row.decision.type !== 'REMEMBERED_ANSWER' ? dynamic.value : value);
+            if (row.decision.type === 'INTERNSHIP_DURATION' && dynamic.requiresManualReview)
+              throw new Error('These options do not specify an internship duration.');
+            const option = exactOption(choices, targetValue);
             if (this.stopped) break;
-            const identity = answerScope(el);
+            const identity = row.context.scope;
             safeClick(option);
             el.blur();
-            await new Promise(resolve => setTimeout(resolve, 40));
-            const controls = collectFields(this.root).filter(candidate => answerScope(candidate) === identity);
-            const committed = controls.length === 1 ? controls[0] : null;
-            if (!committed || norm(currentValue(committed)) !== norm(value) ||
+            let committed = null;
+            const until = Date.now() + 1500;
+            while (!this.stopped && Date.now() < until) {
+              await new Promise(resolve => setTimeout(resolve, 45));
+              // Portaled menus can temporarily hide the form from accessibility during their exit animation.
+              const controls = el.isConnected
+                ? (rendered(el) && !el.closest('[aria-hidden="true"], [inert]') && answerScope(el) === identity ? [el] : [])
+                : collectFields(this.root).filter(candidate => answerScope(candidate) === identity);
+              if (controls.length === 1 && norm(currentValue(controls[0])) === norm(targetValue)) {
+                committed = controls[0];
+                break;
+              }
+            }
+            if (this.stopped) break;
+            if (!committed || norm(currentValue(committed)) !== norm(targetValue) ||
               (committed.tagName === 'INPUT' && !committed.getAttribute('aria-valuetext') && !committed.getAttribute('data-value') &&
                 option.getAttribute('aria-selected') !== 'true')) throw new Error('Dropdown selection was not retained.');
             row.element = committed;
+          } else if (type === 'date-picker' && row.decision.type === 'REMEMBERED_ANSWER') {
+            await chooseCalendarDate(el, value, () => this.stopped);
           } else if (['text', 'email', 'tel', 'url', 'number', 'search', 'textarea'].includes(type) || (type === 'date' && row.decision.type === 'REMEMBERED_ANSWER')) {
             setValue(el, value);
           } else throw new Error('Unsupported control; complete manually.');
           if (!row.element.isConnected) throw new Error('Field rerendered; preview the updated step.');
-          if (el.type!=='radio' && !['combobox', 'listbox', 'radiogroup', 'checkbox'].includes(type) && norm(el.value) !== norm(type === 'select' ? exactOption(el.options, value).value : value)) throw new Error('Value was not retained.');
+          if (el.type!=='radio' && !['combobox', 'listbox', 'radiogroup', 'checkbox', 'date-picker'].includes(type) && norm(currentValue(el)) !== norm(type === 'select' ? exactOption(el.options, value).value : value)) throw new Error('Value was not retained.');
           if (typeof row.element.checkValidity === 'function' && !row.element.checkValidity()) throw new Error('Site validation requires review.');
           row.outcome = 'filled';
+          row.committedValue = currentValue(row.element);
         } catch (error) { row.outcome = 'needs_review'; row.reason = error.message; }
       }
       if (!this.stopped) {
         const known = new Set(this.rows.map(row => row.element));
-        this.rescanRequired = collectFields(this.root).some(control => !known.has(control));
+        this.rescanRequired = collectFields(this.root).some(control => !known.has(control)) ||
+          this.rows.some(row => row.action === 'needs_review' && row.decision.type === 'COLLEGE_OTHER' &&
+            this.profile.college && selectedCollegeOther(collegeControls(row.element)?.primary)) ||
+          this.rows.some(row => row.outcome === 'needs_review' && row.element.isConnected &&
+            JSON.stringify(this.contextFor(row.element)) !== JSON.stringify(row.context));
         this.state = this.rescanRequired || this.rows.some(r => r.action === 'needs_review' || r.outcome === 'needs_review') ? 'NEEDS_REVIEW' : 'IDLE';
       }
     } finally {
