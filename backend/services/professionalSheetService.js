@@ -35,6 +35,10 @@ async function importLeads({userId,leadIds,allowPublicUnverified=false,domainChe
   if(!companies.has(lead.company))companies.set(lead.company,require('../models/Company').findOne({name:require('./companyIdentityService').canonicalCompany(lead.company)}).select('_id').lean().exec());
   const company=await companies.get(lead.company);
   const payload={companyId:company?._id,company:lead.company,hrName:lead.name||lead.title||'Recruiting inbox',email,role:lead.title,contactKind:lead.kind,source:'career_crawler',inferenceFlag:lead.inferenceFlag===true,provenance:[{url:lead.sourceUrl,provider:lead.inferenceFlag?'observed_pattern':lead.sourceType||'official_public_page',observedAt:lead.observedAt},...(lead.patternEvidence||[]).map(p=>({url:p.url,provider:'pattern_example',observedAt:lead.observedAt}))]};
+  for (const evidence of lead.provenance || []) {
+    if (evidence.url && !payload.provenance.some(entry => entry.url === evidence.url))
+      payload.provenance.push({ url:evidence.url, provider:'employer_board_link', observedAt:evidence.observedAt });
+  }
   const autoSourced = allowPublicUnverified && lead.sourceType==='official_public_page' &&
     ['recruiter','role_inbox','hiring_manager','engineer'].includes(lead.kind) && proof?.outcome!=='valid';
   if(require('./contactAdmissionService').enabled()&&!autoSourced){const intake=await require('./contactAdmissionService').intake(userId,[payload]);report.staged+=intake.staged;report.added+=intake.added;report.excluded+=intake.rejected;return;}

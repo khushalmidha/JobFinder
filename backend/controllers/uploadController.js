@@ -175,7 +175,7 @@ exports.parseFile = async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded.' });
     }
 
-    const user = await User.findById(req.user._id);
+    const localOnly = req.body?.localOnly === 'true' || req.body?.localOnly === true;
     let contactsData = [];
     const ext = req.file.originalname.split('.').pop().toLowerCase();
 
@@ -275,8 +275,9 @@ exports.parseFile = async (req, res) => {
       const pdfData = await pdfParse(dataBuffer);
       fs.unlinkSync(req.file.path);
 
-      if (!user || !user.geminiApiKey) {
-        const local = extractContactsLocally(pdfData.text);
+      const user = localOnly ? null : await User.findById(req.user._id);
+      if (!user?.geminiApiKey) {
+        const local = extractContactsLocally(pdfData.text, req.body?.companyOverride);
         return res.json({ contacts: local });
       }
 
@@ -291,9 +292,11 @@ exports.parseFile = async (req, res) => {
         }
         throw pdfErr;
       }
+    } else if (ext === 'txt') {
+      contactsData = extractContactsLocally(fs.readFileSync(req.file.path, 'utf8'), req.body?.companyOverride);
     } else {
       fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: 'Unsupported file type. Please upload Excel, CSV, or PDF.' });
+      return res.status(400).json({ error: 'Upload an XLSX, CSV, PDF or TXT file.' });
     }
 
     if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -314,12 +317,13 @@ exports.parseFile = async (req, res) => {
 
 exports.parseText = async (req, res) => {
   try {
-    const { text, companyOverride } = req.body;
-    if (!text || text.trim() === '') {
+    const { text, companyOverride, localOnly } = req.body;
+    if (typeof text !== 'string' || !text.trim()) {
       return res.status(400).json({ error: 'No text provided.' });
     }
 
     const localContacts = extractContactsLocally(text, companyOverride);
+    if (localOnly === true) return res.json({ contacts: localContacts });
 
     const user = await User.findById(req.user._id);
     if (!user || !user.geminiApiKey) {

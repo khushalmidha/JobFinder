@@ -20,6 +20,27 @@ test('blocks private, link-local and loopback IP ranges',()=>{
   assert.equal(isPublicIP('8.8.8.8'),true);
 });
 
+test('checks employer-linked public job boards and filters unrelated or support addresses', async () => {
+  const {fetchCompanyEmails}=require('../services/publicEmailDiscovery');
+  const seen=[];
+  const fetchPage=async url=>{
+    seen.push(url);
+    if(url.endsWith('/robots.txt'))return {status:200,contentType:'text/plain',text:'User-agent: *\nAllow: /'};
+    if(url==='https://acme.com/')return {status:200,contentType:'text/html',text:'<a href="https://careers.acme.com/">Careers</a>'};
+    if(url==='https://careers.acme.com/')return {status:200,contentType:'text/html',text:'<a href="https://job-boards.greenhouse.io/acme">Open roles</a>'};
+    if(url==='https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true')return {status:200,contentType:'application/json',text:JSON.stringify({jobs:[
+      {absolute_url:'https://job-boards.greenhouse.io/acme/jobs/1',content:'<p>For application questions contact recruiting@acme.com.</p><p>For accessibility accommodations email jobs@acme.com.</p>'},
+      {absolute_url:'https://job-boards.greenhouse.io/other/jobs/2',content:'<p>Apply through hiring@acme.com.</p>'}
+    ]})};
+    return {status:404,contentType:'text/plain'};
+  };
+  const result=await fetchCompanyEmails('acme.com',{fetchPage,maxRequests:8});
+  assert.deepEqual(result.emails.map(row=>row.email),['recruiting@acme.com']);
+  assert.equal(result.emails[0].atsEvidence.employerPage,'https://careers.acme.com/');
+  assert.equal(result.emails[0].sourceUrl,'https://job-boards.greenhouse.io/acme/jobs/1');
+  assert.equal(result.requestsUsed,seen.length);
+});
+
 
 test('robots uses matching user-agent groups, longest path, literal query and wildcard end markers',()=>{
   const {robotsAllows:r}=require('../services/safePublicFetch');

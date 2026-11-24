@@ -6,6 +6,24 @@ const { JSDOM } = require('jsdom');
 const { FormFillSession, classifyQuestion, extractQuestionContext, collectFields } = require('../../extension/src/utils/formFillerCore.js');
 const profile = { firstName: 'Example', lastName: 'Applicant', fullName: 'Example Applicant', email: 'applicant@example.org', graduationYear: '2027', location: { country: 'India', state: 'Karnataka' } };
 
+test('confirmed experience and internship duration fill compatible controls only', async () => {
+  const { document } = new JSDOM(`<form>
+    <label>Years of hands-on experience <input></label>
+    <label>Total years of professional experience <input type="number"></label>
+    <label>Years of experience <select><option value="">Choose</option><option value="entry">No experience</option><option value="senior">3 years</option></select></label>
+    <label>Years of experience <input type="number" min="1"></label>
+    <label>Years of experience <input value="2"></label>
+    <label>Availability <select><option value="">Choose</option><option value="3">3 months</option><option value="6">6 months</option></select></label>
+    <label>Earliest start date <input type="date"></label>
+  </form>`, { url: 'https://jobs.example/apply' }).window;
+  const controls = [...document.querySelectorAll('input, select')];
+  const settings = { ...profile, preferences: { default_experience_years: 0, internship_duration_months: 6 } };
+  const session = new FormFillSession(document);
+  const result = await session.fillStep(settings);
+  assert.deepEqual(controls.map(el => el.value), ['0', '0', 'entry', '', '2', '6', '']);
+  assert.equal(result.filledCount, 4);
+});
+
 test('preview does not mutate Workday; explicit fill verifies native fields and preserves prefilled values', async () => {
   const html = fs.readFileSync(path.join(__dirname,'fixtures/workdayFixture.html'),'utf8');
   const { document } = new JSDOM(html).window;

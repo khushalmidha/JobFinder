@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp, Download, Play, Pause, RefreshCw, Trash2, Sparkles, CheckCircle2, ShieldCheck, XCircle, AlertTriangle, RotateCcw, ArrowRightLeft, X, FileText, Copy } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
+import ContactDiscoveryStatus from '../components/ContactDiscoveryStatus';
 
 function contactRole(contact) {
   if (contact.contactKind && contact.contactKind !== 'unknown') return contact.contactKind;
@@ -489,6 +490,9 @@ const Dashboard = () => {
                 {filteredContacts.length} {filteredContacts.length !== contacts.length ? `of ${contacts.length} ` : ''}Contacts
               </span>
             )}
+          </div>
+          <div className="mt-3 space-y-2">
+            <ContactDiscoveryStatus />
           </div>
         </div>
         <div className="flex max-w-full flex-wrap items-center gap-2">

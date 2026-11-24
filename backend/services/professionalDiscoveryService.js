@@ -2,6 +2,7 @@ const mongoose=require('mongoose');
 const Lead=require('../models/ProfessionalLead'),Suppression=require('../models/RecipientSuppression'),Contact=require('../models/Contact'),Company=require('../models/Company');
 const {fetchCompanyEmails,normalizeDomain,allowedDiscoveryDomain}=require('./publicEmailDiscovery');
 const {reserveResearch,policyFor,releaseUnusedRequests}=require('./researchBudgetService');
+const {verifyAtsEvidence,isEmployerPage}=require('./publishedAtsContacts');
 async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyContext=null,saveToContacts=false,allowPublicUnverified=false,discover=fetchCompanyEmails,reserve=reserveResearch}={}){
   if(!mongoose.isValidObjectId(userId))throw Error('Owned discovery login required');
   if(!Array.isArray(domains)||!domains.length||domains.length>100||domains.some(d=>typeof d!=='string'||!allowedDiscoveryDomain(normalizeDomain(d))))throw Error('Provide 1 to 100 employer domains');
@@ -41,16 +42,19 @@ async function runDiscovery({userId,domains,dryRun=true,maxRequests=25,companyCo
       const email=String(row.email||'').trim().toLowerCase(),host=email.split('@')[1];
       const corporate=row._repoVerified===true&&repoSource?.domains.includes(host)&&row.sourceUrl?.startsWith('https://github.com/'+repoSource.repository+'/commit/');
       if(!email||(!corporate&&!(host===domain||host?.endsWith('.'+domain)))||!row.sourceUrl)continue;
-      const source=new URL(row.sourceUrl);if(source.protocol!=='https:'||(!corporate&&!(source.hostname===domain||source.hostname==='www.'+domain)))continue;
+      const source=new URL(row.sourceUrl), ats=verifyAtsEvidence(row,domain);
+      if(source.protocol!=='https:'||(!corporate&&!ats&&!isEmployerPage(source.hostname,domain)))continue;
       const [suppressed,duplicates]=await Promise.all([Suppression.exists({userId,email}),Contact.find({userId,email:{$regex:'^'+email.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$',$options:'i'}}).lean()]);
       if(suppressed||duplicates.some(c=>c.suppressedAt||c.optOutAt||c.deliverabilityStatus==='invalid'||c.verificationStatus==='invalid'||['bounced','removed','replied','reply_received','positive_response','negative_response'].includes(c.status))){report.suppressed++;continue;}
       const lead={userId,email,domain,company:companyContext?.company||names.get(domain)||domain,companyRegion:companyContext?.region||regions.get(domain)||'Unknown',regionPriority:(companyContext?.region||regions.get(domain))==='India'?1:0,name:row.name||'',title:row.title||'Public recruiting inbox',kind:['recruiter','hiring_manager','role_inbox','engineer'].includes(row.kind)?row.kind:'role_inbox',sourceUrl:row.sourceUrl,observedAt:new Date(),publishedAt:row.publishedAt,inferenceFlag:row.inferenceFlag===true,pattern:row.pattern,patternEvidence:row.patternEvidence||[],verificationStatus:row.inferenceFlag===true?'inferred_unverified':'publicly_listed_not_mailbox_verified',confidence:row.confidence||'published',sourceType:corporate?'official_corporate_repository':row.inferenceFlag===true?'pattern_inference':'official_public_page'};
       const existing=await Lead.exists({userId,email});if(existing)report.existingLeads++;else report.newLeads++;
       if(!dryRun){
+        const provenance=[{url:lead.sourceUrl,observedAt:lead.observedAt}];
+        if(ats)provenance.push({url:row.atsEvidence.employerPage,observedAt:lead.observedAt});
         if(existing && lead.sourceType==='official_public_page') {
-          await Lead.updateOne({userId,email},{$set:{...lead,provenance:[{url:lead.sourceUrl,observedAt:lead.observedAt}]}},{runValidators:true});
+          await Lead.updateOne({userId,email},{$set:{...lead,provenance}},{runValidators:true});
         } else {
-          await Lead.updateOne({userId,email},{$setOnInsert:{...lead,provenance:[{url:lead.sourceUrl,observedAt:lead.observedAt}]}},{upsert:true,runValidators:true});
+          await Lead.updateOne({userId,email},{$setOnInsert:{...lead,provenance}},{upsert:true,runValidators:true});
         }
       }
       report.leads.push(lead);count++;report.sourceTypes[lead.sourceType]++;

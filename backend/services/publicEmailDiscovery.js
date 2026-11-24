@@ -1,4 +1,5 @@
 const { fetchPublicPage, robotsAllows, isPublicIP: publicAddress } = require('./safePublicFetch');
+const { linkedBoards, extractPostingContacts, isEmployerPage } = require('./publishedAtsContacts');
 
 const emailRe = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const ignored = /^(no-?reply|donotreply|postmaster|abuse|security|privacy|support|unsubscribe|billing|info)@/i;
@@ -55,11 +56,11 @@ function extractProfessionalEmails(html,url,domain){
 function linkedPages(html,base,domain,{fallback=false}={}){
   const links=[];
   for(const match of String(html||'').matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
-    try{const target=new URL(match[1],base);if(target.protocol!=='https:'||!(target.hostname===domain||target.hostname==='www.'+domain)||target.port||target.username||target.password||target.search)continue;
+    try{const target=new URL(match[1],base);if(target.protocol!=='https:'||!isEmployerPage(target.hostname,domain)||target.port||target.username||target.password||target.search)continue;
       target.hash='';if((fallback?/career|jobs?|contact|vacanc|work.with.us|join.us/i:/career|jobs?|contact|talent|recruit|hiring|vacanc|team|people|about|engineering/i).test(target.pathname+' '+match[2]))links.push(target.href);
     }catch{}
   }
-  const priority=value=>/career|jobs?|vacanc/i.test(new URL(value).pathname)?0:/recruit|talent|hiring|team/i.test(new URL(value).pathname)?1:2;
+  const priority=value=>/career|jobs?|vacanc/i.test(new URL(value).host+new URL(value).pathname)?0:/recruit|talent|hiring|team/i.test(new URL(value).pathname)?1:2;
   return [...new Set(links)].sort((a,b)=>priority(a)-priority(b));
 }
 const cache=new Map();
@@ -70,16 +71,16 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
   maxRequests=Math.max(1,Math.min(20,Number(maxRequests)||5));
   const cacheKey=domain+':'+maxRequests,previous=cache.get(cacheKey);
   if(fetchPage===fetchPublicPage&&previous?.expires>Date.now())return {...previous.result,cached:true,requestsUsed:0};
-  let requestsUsed=0;const errors=[],found=new Map(),people=new Map(),visited=new Set(),started=Date.now(),permissions=new Map();
+  let requestsUsed=0;const errors=[],found=new Map(),people=new Map(),visited=new Set(),started=Date.now(),permissions=new Map(),boardsChecked=new Set();
   const approvedUrl=value=>{
     const url=new URL(value);
-    if(url.protocol!=='https:'||url.username||url.password||(url.port&&url.port!=='443')||![domain,'www.'+domain].includes(url.hostname)||/\/(?:login|signin|auth|captcha)(?:\/|$)/i.test(url.pathname))throw Error('Unsupported redirect destination');
+    if(url.protocol!=='https:'||url.username||url.password||(url.port&&url.port!=='443')||!isEmployerPage(url.hostname,domain)||/\/(?:login|signin|auth|captcha)(?:\/|$)/i.test(url.pathname))throw Error('Unsupported redirect destination');
     url.hash='';return url;
   };
-  async function raw(url){
+  async function raw(url,accept){
     if(await shouldStop()||requestsUsed>=maxRequests)throw Error('Run request limit or stop reached');
     const remaining=Math.min(120,Number(maxRuntimeSeconds)||30)*1000-(Date.now()-started);if(remaining<=0)throw Error('Runtime limit reached');
-    requestsUsed++;return fetchPage(url.href,{timeout:Math.min(timeout,remaining),maxBytes});
+    requestsUsed++;return fetchPage(url.href,{timeout:Math.min(timeout,remaining),maxBytes,accept});
   }
   async function permission(host){
     if(permissions.has(host))return permissions.get(host);
@@ -118,6 +119,17 @@ async function fetchCompanyEmails(domain,{timeout=5000,fetchPage=fetchPublicPage
         pagesRead++;
         for(const row of extractProfessionalEmails(response.text,response.url,domain))found.set(row.email,row);
         for(const person of require('./professionalPatternService').extractPeople(response.text,response.url,domain)){people.set(person.name,person);if(person.email)found.set(person.email,{...person,confidence:'published_context',verification:'publicly_listed_not_mailbox_verified'});}
+        for (const board of linkedBoards(response.text, response.url)) {
+          if (boardsChecked.size >= 2 || requestsUsed >= maxRequests) break;
+          if (boardsChecked.has(board.endpoint.url)) continue;
+          boardsChecked.add(board.endpoint.url);
+          try {
+            const feed = await raw(new URL(board.endpoint.url), 'application/json');
+            if (feed.status === 200) for (const contact of extractPostingContacts(feed, board, domain, extractProfessionalEmails)) {
+              if (!found.has(contact.email)) found.set(contact.email, contact);
+            }
+          } catch (error) { errors.push(error.message); }
+        }
         const links=linkedPages(response.text,response.url,domain,{fallback:limited});
         if(limited){if(visited.size===1&&!linkedFallback&&links.length){queue.push(links[0]);linkedFallback=true;}}
         else queue.push(...links);

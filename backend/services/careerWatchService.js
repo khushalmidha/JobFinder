@@ -339,22 +339,28 @@ async function runCareerWatchOnce({userId,dryRun=true,maxCompanies=1,maxRequests
  if(!dryRun)await Config.updateOne({userId},{$set:{lastRunAt:new Date(),lastError:result.status==='complete'?'':result.status}});
  return result;
 }
-async function scanDueContacts(config, { discover = require('./professionalDiscoveryService').runDiscovery, clock = () => new Date() } = {}) {
+async function scanDueContacts(config, {
+ discover = require('./professionalDiscoveryService').runDiscovery,
+ budgetFor = require('./researchBudgetService').researchRequestBudget,
+ clock = () => new Date()
+} = {}) {
  if (config.discoverContacts===false || process.env.RESEARCH_STOP==='true') return;
  const now=clock(), token=crypto.randomUUID();
+ const budget=await budgetFor(config.userId,now);
+ if(budget.stopped||budget.remaining<2)return {status:budget.stopped?'stopped':'budget_exhausted'};
  const task=await Task.findOneAndUpdate({
   userId:config.userId,employerDomain:{$exists:true,$nin:[null,'']},
   $and:[
    {$or:[{nextContactScanAt:{$lte:now}},{nextContactScanAt:null,lastContactScanAt:{$lte:new Date(+now-7*86400000)}},{nextContactScanAt:null,lastContactScanAt:null}]},
    {$or:[{contactLeaseUntil:null},{contactLeaseUntil:{$lte:now}}]}
   ]
- },{$set:{contactLeaseToken:token,contactLeaseUntil:new Date(+now+120000)}},
+ },{$set:{contactLeaseToken:token,contactLeaseUntil:new Date(+now+120000),lastContactAttemptAt:now}},
  {sort:{regionPriority:-1,nextContactScanAt:1,lastContactScanAt:1},returnDocument:'after'}).lean();
  if (!task) return;
  let error='';
  try {
   const result=await discover({userId:config.userId,domains:[task.employerDomain],companyContext:{company:task.company,region:task.region},
-   saveToContacts:config.autoImportContacts===true,allowPublicUnverified:true,dryRun:false,maxRequests:8});
+   saveToContacts:config.autoImportContacts===true,allowPublicUnverified:true,dryRun:false,maxRequests:Math.min(8,budget.remaining)});
   const scan=result.companies?.[0];
   if(scan?.status!=='complete') error=scan?.status || 'Discovery did not finish';
  } catch (failure) { error=String(failure.message).slice(0,500); }
@@ -365,18 +371,30 @@ async function scanDueContacts(config, { discover = require('./professionalDisco
 }
 function initCareerWatchScheduler(){
  if(process.env.CAREER_WATCH_ENABLED!=='true')return;
- let busy=false;
+ let busy=false, contactBusy=false;
  const tick=async()=>{
   if(busy||process.env.RESEARCH_STOP==='true')return;
   busy=true;
   try {
    for(const config of await Config.find({enabled:true}).lean()) {
     await runCareerWatchOnce({userId:config.userId,dryRun:false,maxCompanies:5,maxRequests:30,maxRuntimeSeconds:45});
-    if(process.env.PROFESSIONAL_DISCOVERY_BACKGROUND_ENABLED==='true') await scanDueContacts(config);
    }
   } catch(error){ console.error('Career watch:',error.message); }
   finally { busy=false; }
  };
- tick();const timer=setInterval(tick,10000);timer.unref?.();return {stop:()=>clearInterval(timer)};
+ const contactTick=async()=>{
+  if(contactBusy||process.env.RESEARCH_STOP==='true')return;
+  contactBusy=true;
+  try {
+   for(const config of await Config.find({enabled:true,discoverContacts:{$ne:false}}).lean()) await scanDueContacts(config);
+  } catch(error){console.error('Professional discovery worker:',error.message);}
+  finally {contactBusy=false;}
+ };
+ tick();const timer=setInterval(tick,10000);timer.unref?.();
+ let contactTimer;
+ if(process.env.PROFESSIONAL_DISCOVERY_BACKGROUND_ENABLED==='true'){
+  contactTick();contactTimer=setInterval(contactTick,10000);contactTimer.unref?.();
+ }
+ return {stop:()=>{clearInterval(timer);if(contactTimer)clearInterval(contactTimer);}};
 }
 module.exports={matchesJuly2027Profile,scanDueContacts,INTERVAL_MS,INDIA_LOCATION,publicUrl,classifyRole,locationRegion,atsEndpoint,parseJobs,collectCompanyJobs,enqueueWatchCompanies,runCareerWatchOnce,initCareerWatchScheduler};
