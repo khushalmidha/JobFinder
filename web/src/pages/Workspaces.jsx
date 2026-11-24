@@ -7,9 +7,10 @@ export function Workspace({ area }) {
   return area === 'hiring' ? <JobHunter /> : <Dashboard />;
 }
 
-export function LegacyWorkspaceLink({ path }) {
+export function LegacyWorkspaceLink({ path, importContacts = false }) {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
   params.delete('section');
+  if (importContacts) params.set('import', '1');
   return <Navigate replace to={{ pathname:path, search:params.toString(), hash:location.hash }} />;
 }

@@ -25,3 +25,11 @@ Rollback: disable only the affected owner's autoImportContacts flag; revert this
 ## Public corporate open-source contacts
 
 A bounded free [GitHub public commits API](https://docs.github.com/en/rest/commits/commits#list-commits) adapter uses reviewed employer-owned repository mappings (Juspay/Hyperswitch, Supabase, Grafana, Razorpay SDK). It checks at most30 recent commits per company, keeps corporate-domain author addresses within90days and excludes personal/noreply/bot addresses. Published corporate authors are labelled engineering contributors with **employment unverified**; contributing is not proof of an SDE job title, current employment, India location or mailbox validity. No private token, authenticated scraping or LinkedIn is involved. Website robots rules are unchanged; documented public API requests count toward the same free HTTP reservation and stop on API failure/rate limits. Current reviewed mappings and employer evidence URLs are in corporateRepositoryDiscovery.js. Mappings are not generated from company names.
+
+## Mails import and background discovery
+
+Open **Mails → Import contacts** to preview XLSX, CSV, TXT, text-based PDF, or pasted contact text. Parsing in this panel uses local extractors. Review the rows and confirm import before the existing admission checks run. The result shows added, pending verification, rejected and skipped rows. The historical /import URL opens the same panel.
+
+The contact worker runs independently of the job scans and shares the account's existing free HTTP budget. It checks employer pages and employer-linked public Greenhouse, Lever and Ashby job listings for published application addresses. An ATS-derived contact keeps both the posting and the employer page that linked to the board. Discovery status on Mails shows today's new contacts, published leads and company attempts using India dates. The HTTP budget resets at midnight UTC. The 200-per-day goal is a reporting target. Actual additions depend on new published addresses and admission checks.
+
+Rollback uses the previous application release. The new task attempt timestamp is additive. Retain imported contacts, provenance and suppression records.

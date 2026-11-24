@@ -30,6 +30,7 @@ async function main() {
     app.use('/api/campaigns',require('../routes/campaigns'));app.use('/api/company-imports',require('../routes/companyImport'));
     app.use('/api/contacts',require('../routes/contact'));app.use('/api/mail',require('../routes/mail'));
     app.use('/api/crm',require('../routes/crm'));app.use('/api/contact-intake',require('../routes/contactIntake'));
+    app.use('/api/upload',require('../routes/upload'));app.use('/api/professional-discovery',require('../routes/professionalDiscovery'));
     await Promise.all(['OutreachCampaign','OutreachDispatch','OutreachRuntime'].map(m=>require(`../models/${m}`).init()));
     app.all('/submitted',(_req,res)=>{submissions++;res.send('Unexpected submission');});
     app.get('/fixture',(_req,res)=>res.type('html').send(`<!doctype html><title>Synthetic form QA</title><h1>Local Workday / Google-style fixture</h1><p>No real employer or applicant data.</p><form action="/submitted"><label>First name <input id="first" data-automation-id="legalNameSection_firstName"></label><label>Expected salary <input id="salary"></label><button type="button" role="combobox" aria-label="Country" aria-controls="countries">Select</button><div id="countries" role="listbox" hidden><div role="option">India</div></div><div role="combobox" aria-label="State" aria-controls="states">Canada</div><div id="states" hidden><div role="option">Karnataka</div></div><label><input id="consent" type="checkbox">I consent to use my email</label><button>Submit application</button></form><script>window.blocked=0;const trigger=document.querySelector('button[role=combobox]');trigger.onclick=()=>{document.querySelector('#countries').hidden=false};document.querySelector('[role=option]').onclick=()=>{trigger.setAttribute('data-value','India');trigger.textContent='India';for(const method of ['submit','requestSubmit']){try{document.querySelector('form')[method]()}catch{window.blocked++}}};</script>`));
@@ -169,6 +170,24 @@ async function main() {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     assert.equal(await require('../models/MailLog').countDocuments(),0);
     console.log('PASS: three mailbox sections and legacy URL redirects; real mail=0');
+    await page.goto(base+'/import');
+    await page.getByText(/Background discovery off/).waitFor();
+    await page.getByLabel('Contact file (XLSX, CSV, PDF or TXT)').setInputFiles({
+      name:'contacts.csv',mimeType:'text/csv',buffer:Buffer.from('Company,Email\nSynthetic Demo Employer,talent@fixture.example\nSynthetic Demo Employer,TALENT@fixture.example\n')
+    });
+    await page.getByRole('button',{name:'Preview file'}).click();
+    await page.getByText('1 contacts ready to review.',{exact:true}).waitFor();
+    assert.equal(await Contact.exists({userId:owner,email:'talent@fixture.example'}),null);
+    process.env.CONTACT_ADMISSION_ENABLED='true';
+    try {
+      await page.getByRole('button',{name:'Import 1 contacts'}).click();
+      await page.getByText(/0 added · 1 pending verification/).waitFor();
+    } finally {delete process.env.CONTACT_ADMISSION_ENABLED;}
+    assert.ok(await require('../models/ContactCandidate').exists({userId:owner,email:'talent@fixture.example'}));
+    await page.getByLabel('Paste contact text').fill('careers@fixture.example');
+    await page.getByRole('button',{name:'Preview pasted contacts'}).click();
+    await page.getByRole('row').filter({hasText:'careers@fixture.example'}).waitFor();
+    console.log('PASS: inline file and pasted-text preview, no write before approval, and unverified staging');
   } catch(error) {
     if(page){await page.screenshot({path:path.join(screenshots,'browser-failure.png'),fullPage:true}).catch(()=>{});console.error('Synthetic failing page:',await page.locator('body').innerText().catch(()=>''));}
     throw error;

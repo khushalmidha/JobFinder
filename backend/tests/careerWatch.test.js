@@ -245,10 +245,14 @@ test('background contact discovery runs independently of job portal mapping unde
  let calls=0;
  const discover=async options=>{
   calls++;assert.equal(options.allowPublicUnverified,true);assert.equal(options.saveToContacts,true);
+  assert.equal(options.maxRequests,3);
   assert.deepEqual(options.domains,['fixture.example']);return {companies:[{status:'complete'}]};
  };
- await Promise.all([service.scanDueContacts(config,{discover}),service.scanDueContacts(config,{discover})]);
+ const budgetFor=async()=>({remaining:3});
+ await Promise.all([service.scanDueContacts(config,{discover,budgetFor}),service.scanDueContacts(config,{discover,budgetFor})]);
  assert.equal(calls,1);assert.ok((await Task.findById(task._id)).lastContactScanAt);
+ assert.ok((await Task.findById(task._id)).lastContactAttemptAt);
+ assert.deepEqual(await service.scanDueContacts(config,{discover,budgetFor:async()=>({remaining:1})}),{status:'budget_exhausted'});
 });
 
 test('2027 profile selection rejects unknown batches, senior roles and untargeted fields',()=>{

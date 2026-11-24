@@ -21,6 +21,27 @@ router.get('/people',wrap(async(req,res)=>{
   res.json({people:people.filter(person=>!blocked.has(companyKey(person.company)))});
 }));
 router.get('/status',wrap(async(req,res)=>{const found=await rows(req);res.json({counts:found.reduce((out,r)=>{out[r.kind]=(out[r.kind]||0)+1;return out;},{}),total:found.length,paidProvidersEnabled:false,defaultDryRun:true});}));
+router.get('/background-status',wrap(async(req,res)=>{
+  const userId=req.user._id, now=new Date(), indiaOffset=330*60000;
+  const startOfDay=new Date(Math.floor((+now+indiaOffset)/86400000)*86400000-indiaOffset);
+  const Task=require('../models/CareerWatchTask'), Contact=require('../models/Contact');
+  const [config,budget,newContacts,newPublishedLeads,checkedDomains,lastAttempt]=await Promise.all([
+    require('../models/CareerWatchConfig').findOne({userId}).lean(),
+    require('../services/researchBudgetService').researchRequestBudget(userId,now),
+    Contact.countDocuments({userId,source:'career_crawler',createdAt:{$gte:startOfDay}}),
+    Lead.countDocuments({userId,inferenceFlag:{$ne:true},createdAt:{$gte:startOfDay}}),
+    Task.distinct('employerDomain',{userId,$or:[{lastContactAttemptAt:{$gte:startOfDay}},{lastContactScanAt:{$gte:startOfDay}}]}),
+    Task.findOne({userId,lastContactAttemptAt:{$ne:null}}).sort({lastContactAttemptAt:-1}).select('lastContactAttemptAt contactLastError').lean()
+  ]);
+  const lastSuccess=lastAttempt?null:await Task.findOne({userId,lastContactScanAt:{$ne:null}})
+    .sort({lastContactScanAt:-1}).select('lastContactScanAt').lean();
+  const enabled=process.env.CAREER_WATCH_ENABLED==='true'&&process.env.PROFESSIONAL_DISCOVERY_BACKGROUND_ENABLED==='true'&&
+    config?.enabled===true&&config?.discoverContacts!==false;
+  res.json({state:!enabled?'disabled':budget.stopped?'paused':budget.remaining<2?'budget_exhausted':'enabled',
+    dailyGoal:200,newContacts,newPublishedLeads,checkedDomains:checkedDomains.length,
+    autoImport:config?.autoImportContacts===true,lastAttemptAt:lastAttempt?.lastContactAttemptAt||lastSuccess?.lastContactScanAt||null,
+    lastAttemptFailed:Boolean(lastAttempt?.contactLastError),requestLimit:budget.limit,requestsUsed:budget.used});
+}));
 router.post('/scan',wrap(async(req,res)=>res.json(await require('../services/professionalDiscoveryService').runDiscovery({userId:req.user._id,domains:req.body.domains,dryRun:req.body.dryRun===undefined?true:req.body.dryRun,maxRequests:req.body.maxRequests===undefined?25:req.body.maxRequests,saveToContacts:req.body.saveToContacts===true}))));
 router.post('/import',wrap(async(req,res)=>res.json(await require('../services/professionalSheetService').importLeads({userId:req.user._id,leadIds:req.body.leadIds}))));
 router.post('/google-sheet',wrap(async(req,res)=>{

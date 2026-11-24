@@ -38,4 +38,11 @@ async function releaseUnusedRequests(userId, reserved, used, now) {
   if(!Number.isInteger(unused)||unused<=0||used<0)return;
   await Usage.updateOne({userId,key:'requests:'+now.toISOString().slice(0,10),reserved:{$gte:unused}},{$inc:{reserved:-unused}});
 }
-module.exports = { releaseUnusedRequests, policyFor, validatePolicy, reserveResearch, reserve };
+async function researchRequestBudget(userId, now = new Date()) {
+  const key = 'requests:' + now.toISOString().slice(0, 10);
+  const [policy, usage] = await Promise.all([policyFor(userId), Usage.findOne({ userId, key }).lean()]);
+  const used = usage?.reserved || 0;
+  return { limit: policy.dailyRequests, used, remaining: Math.max(0, policy.dailyRequests - used),
+    stopped: policy.stopped || process.env.RESEARCH_STOP === 'true' };
+}
+module.exports = { releaseUnusedRequests, policyFor, validatePolicy, reserveResearch, reserve, researchRequestBudget };

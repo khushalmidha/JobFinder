@@ -21,7 +21,7 @@ function App() {
           <Route path="campaigns" element={<LegacyWorkspaceLink path="/" />} />
           <Route path="email-checks" element={<LegacyWorkspaceLink path="/" />} />
           <Route path="crm" element={<LegacyWorkspaceLink path="/" />} />
-          <Route path="import" element={<LegacyWorkspaceLink path="/" />} />
+          <Route path="import" element={<LegacyWorkspaceLink path="/" importContacts />} />
           <Route path="logs" element={<LegacyWorkspaceLink path="/" />} />
           <Route path="settings" element={<Settings />} />
         </Route>
