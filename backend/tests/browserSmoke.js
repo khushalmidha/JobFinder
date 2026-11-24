@@ -591,28 +591,59 @@ async function main() {
     console.log('PASS: three mailbox sections and legacy URL redirects; real mail=0');
     await page.getByText(/Background discovery off/).waitFor();
     await page.getByRole('navigation').getByRole('link',{name:'Import contacts',exact:true}).click();
-    await page.getByRole('heading',{name:'Import contacts',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Import Contacts',exact:true}).waitFor();
     assert.equal(new URL(page.url()).pathname,'/import');
     assert.equal(await page.getByRole('navigation').getByRole('link',{name:'Import contacts',exact:true}).getAttribute('aria-current'),'page');
     await page.reload();
-    await page.getByRole('heading',{name:'Import contacts',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'AI Magic Paste',exact:true}).waitFor();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-    await page.getByLabel('Contact file (XLSX, CSV, PDF or TXT)').setInputFiles({
-      name:'contacts.csv',mimeType:'text/csv',buffer:Buffer.from('Company,Email\nSynthetic Demo Employer,talent@fixture.example\nSynthetic Demo Employer,TALENT@fixture.example\n')
+    await page.getByLabel('Contact file',{exact:true}).setInputFiles({
+      name:'contacts.csv',mimeType:'text/csv',buffer:Buffer.from('Company,Email,HR Name,Role,Package\nSynthetic Demo Employer,talent@fixture.example,Sample Person,Recruiter,18 LPA\nSynthetic Demo Employer,TALENT@fixture.example,,,\nSample,remove@fixture.example,,,\n')
     });
-    await page.getByRole('button',{name:'Preview file'}).click();
-    await page.getByText('1 contacts ready to review.',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Extract from File'}).click();
+    await page.getByRole('heading',{name:'Review Sheet Data'}).waitFor();
+    await page.getByRole('button',{name:'Remove row 2'}).click();
+    assert.equal(await page.getByRole('textbox',{name:'HR Name, row 1'}).inputValue(),'Sample Person');
+    assert.equal(await page.getByRole('textbox',{name:'Role, row 1'}).inputValue(),'Recruiter');
+    assert.equal(await page.getByRole('textbox',{name:'Package, row 1'}).inputValue(),'18 LPA');
+    await page.getByRole('textbox',{name:'Company, row 1'}).fill('Corrected Demo Employer');
     assert.equal(await Contact.exists({userId:owner,email:'talent@fixture.example'}),null);
     process.env.CONTACT_ADMISSION_ENABLED='true';
     try {
-      await page.getByRole('button',{name:'Import 1 contacts'}).click();
-      await page.getByText(/0 added · 1 pending verification/).waitFor();
+      await page.getByRole('button',{name:'Save All 1 Contact',exact:true}).click();
+      await page.getByText(/Added 0.+Pending verification 1.+Rejected 0.+Skipped 0/).waitFor();
     } finally {delete process.env.CONTACT_ADMISSION_ENABLED;}
-    assert.ok(await require('../models/ContactCandidate').exists({userId:owner,email:'talent@fixture.example'}));
+    const Candidate=require('../models/ContactCandidate');
+    assert.ok(await Candidate.exists({userId:owner,email:'talent@fixture.example',company:'Corrected Demo Employer'}));
+    assert.equal(await Candidate.exists({userId:owner,email:'remove@fixture.example'}),null);
+
+    const xlsx=require('xlsx');
+    const workbook=xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook,xlsx.utils.aoa_to_sheet([['Company','Email'],['Legacy Spreadsheet','jobs@legacy.example']]),'People');
+    const bytes=xlsx.write(workbook,{bookType:'biff8',type:'buffer'});
+    const drop=await page.evaluateHandle(bytes=>{
+      const transfer=new DataTransfer();
+      transfer.items.add(new File([new Uint8Array(bytes)],'contacts.xls',{type:'application/vnd.ms-excel'}));
+      return transfer;
+    },[...bytes]);
+    await page.getByText('Click to upload or drag and drop',{exact:true}).dispatchEvent('drop',{dataTransfer:drop});
+    await page.getByRole('button',{name:'Extract from File'}).click();
+    await page.getByRole('heading',{name:'Review Sheet Data'}).waitFor();
+    assert.equal(await page.getByRole('textbox',{name:'Email, row 1'}).inputValue(),'jobs@legacy.example');
+    await page.getByRole('button',{name:'Clear / Cancel'}).click();
+
+    await page.getByLabel('Force Company (Optional)').fill('Paste Override');
     await page.getByLabel('Paste contact text').fill('careers@fixture.example');
-    await page.getByRole('button',{name:'Preview pasted contacts'}).click();
-    await page.getByRole('row').filter({hasText:'careers@fixture.example'}).waitFor();
-    console.log('PASS: dedicated sidebar import, file and pasted-text preview, no write before approval, and unverified staging');
+    await page.getByRole('button',{name:'Extract from Text'}).click();
+    await page.getByRole('heading',{name:'Review Sheet Data'}).waitFor();
+    assert.equal(await page.getByRole('textbox',{name:'Email, row 1'}).inputValue(),'careers@fixture.example');
+    assert.equal(await page.getByRole('textbox',{name:'Company, row 1'}).inputValue(),'Paste Override');
+    await page.getByRole('button',{name:'Clear / Cancel'}).click();
+    await page.route('**/api/upload/parse-text',route=>route.abort());
+    await page.getByRole('button',{name:'Extract from Text'}).click();
+    await page.getByText('Extracted emails from the pasted text using local parsing.').waitFor();
+    assert.equal(await page.getByRole('textbox',{name:'Email, row 1'}).inputValue(),'careers@fixture.example');
+    console.log('PASS: classic sidebar import, CSV review/edit/remove/save, legacy XLS drag/drop, Magic Paste, and offline parsing');
   } catch(error) {
     if(page){await page.screenshot({path:path.join(screenshots,'browser-failure.png'),fullPage:true}).catch(()=>{});console.error('Synthetic failing page:',await page.locator('body').innerText().catch(()=>''));}
     throw error;

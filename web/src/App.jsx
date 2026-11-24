@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Layout from './components/Layout';
-import ContactImport from './components/ContactImport';
+import Import from './pages/Import';
 import { Workspace, LegacyWorkspaceLink } from './pages/Workspaces';
 
 function App() {
@@ -22,7 +22,7 @@ function App() {
           <Route path="campaigns" element={<LegacyWorkspaceLink path="/" />} />
           <Route path="email-checks" element={<LegacyWorkspaceLink path="/" />} />
           <Route path="crm" element={<LegacyWorkspaceLink path="/" />} />
-          <Route path="import" element={<ContactImport />} />
+          <Route path="import" element={<Import />} />
           <Route path="logs" element={<LegacyWorkspaceLink path="/" />} />
           <Route path="settings" element={<Settings />} />
         </Route>

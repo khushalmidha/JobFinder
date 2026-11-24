@@ -180,37 +180,46 @@ exports.parseFile = async (req, res) => {
     const ext = req.file.originalname.split('.').pop().toLowerCase();
 
     if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
-      const workbook = new ExcelJS.Workbook();
-      if (ext === 'csv') {
-        await workbook.csv.readFile(req.file.path);
-      } else {
-        await workbook.xlsx.readFile(req.file.path);
-      }
       let data = [];
-      
-      // Select the sheet with the most records (in case file has cover/info sheets)
-      workbook.eachSheet((sheet) => {
-        const sheetRows = [];
-        let headers = [];
-        sheet.eachRow((row, rowNumber) => {
-          const values = Array.isArray(row.values) ? row.values.slice(1) : [];
-          if (rowNumber === 1 || headers.length === 0) {
-            headers = values.map(v => v !== null && v !== undefined ? (typeof v === 'object' && v.text ? v.text : String(v).trim()) : '');
-          } else {
-            const rowObj = {};
-            headers.forEach((h, idx) => {
-              if (!h) return;
-              const val = values[idx];
-              rowObj[h] = val !== null && val !== undefined ? (typeof val === 'object' && val.text ? val.text : String(val).trim()) : '';
-            });
-            sheetRows.push(rowObj);
+      if (ext === 'xls') {
+        const xlsx = require('xlsx');
+        const workbook = xlsx.readFile(req.file.path, { cellFormula: false });
+        for (const sheet of workbook.SheetNames) {
+          const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheet], { raw: false, defval: '' });
+          if (rows.length > data.length) data = rows;
+        }
+      } else {
+        const workbook = new ExcelJS.Workbook();
+        if (ext === 'csv') {
+          await workbook.csv.readFile(req.file.path);
+        } else {
+          await workbook.xlsx.readFile(req.file.path);
+        }
+
+        // Select the sheet with the most records (in case file has cover/info sheets)
+        workbook.eachSheet((sheet) => {
+          const sheetRows = [];
+          let headers = [];
+          sheet.eachRow((row, rowNumber) => {
+            const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+            if (rowNumber === 1 || headers.length === 0) {
+              headers = values.map(v => v !== null && v !== undefined ? (typeof v === 'object' && v.text ? v.text : String(v).trim()) : '');
+            } else {
+              const rowObj = {};
+              headers.forEach((h, idx) => {
+                if (!h) return;
+                const val = values[idx];
+                rowObj[h] = val !== null && val !== undefined ? (typeof val === 'object' && val.text ? val.text : String(val).trim()) : '';
+              });
+              sheetRows.push(rowObj);
+            }
+          });
+          if (sheetRows.length > data.length) {
+            data = sheetRows;
           }
         });
-        if (sheetRows.length > data.length) {
-          data = sheetRows;
-        }
-      });
-      
+      }
+
       if (data.length > 0) {
         const headers = Object.keys(data[0]);
         const headerMap = {
@@ -282,11 +291,11 @@ exports.parseFile = async (req, res) => {
       }
 
       try {
-        await parseWithGeminiStream(pdfData.text.substring(0, 50000), user, '', res);
+        await parseWithGeminiStream(pdfData.text.substring(0, 50000), user, req.body?.companyOverride, res);
         return;
       } catch (pdfErr) {
         console.warn('PDF Gemini parse failed, falling back to local extractor:', pdfErr.message);
-        const local = extractContactsLocally(pdfData.text);
+        const local = extractContactsLocally(pdfData.text, req.body?.companyOverride);
         if (local.length > 0 && !res.headersSent) {
           return res.json({ contacts: local });
         }
@@ -296,7 +305,7 @@ exports.parseFile = async (req, res) => {
       contactsData = extractContactsLocally(fs.readFileSync(req.file.path, 'utf8'), req.body?.companyOverride);
     } else {
       fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: 'Upload an XLSX, CSV, PDF or TXT file.' });
+      return res.status(400).json({ error: 'Upload an XLSX, XLS, CSV, PDF or TXT file.' });
     }
 
     if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
