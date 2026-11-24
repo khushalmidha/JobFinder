@@ -27,6 +27,19 @@ export function isFinalSubmitButton(label, automationId = '', buttonType = '') {
 export function isSafeNavigationButton(label, automationId = '', buttonType = '') {
   return !isFinalSubmitButton(label, automationId, buttonType) && /^(next( step)?|continue|save (and|&) continue)$/i.test(norm(label));
 }
+// Some portals render a heading-like label beside a single input without linking it.
+function nearbyUnboundLabel(element) {
+  for (let wrapper = element.parentElement, depth = 0;
+    wrapper && depth < 3 && !wrapper.matches('form, body, fieldset');
+    wrapper = wrapper.parentElement, depth++) {
+    const controls = [...wrapper.querySelectorAll('input:not([type="hidden"]), textarea, select, [role="combobox"]')];
+    if (controls.some(control => control !== element)) return '';
+    const labels = [...wrapper.querySelectorAll('label:not([for])')].filter(label => !label.querySelector('input, textarea, select, button'));
+    if (labels.length === 1) return questionText(labels[0]);
+    if (labels.length > 1) return '';
+  }
+  return '';
+}
 export function extractQuestionContext(element) {
   if (!element) return { combined: '', labelText: '', isRequired: false, inputType: 'text' };
   const root = element.getRootNode();
@@ -39,7 +52,7 @@ export function extractQuestionContext(element) {
   const groupLabel = group?.getAttribute('aria-label') || (group?.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => questionText(get(id))).join(' ');
   let labelText = refs('aria-labelledby') || element.getAttribute('aria-label') ||
     [...(element.labels || [])].map(questionText).join(' ') || questionText(element.closest('label')) ||
-    questionText(container?.querySelector('[role="heading"], .M7eMe, label')) || questionText(legend) || groupLabel || '';
+    questionText(container?.querySelector('[role="heading"], .M7eMe, label')) || questionText(legend) || groupLabel || nearbyUnboundLabel(element);
   const descriptionText = refs('aria-describedby') || text(container?.querySelector('.zHQkBf, [data-automation-id="helpText"]'));
   let inputType = norm(element.getAttribute('type') || 'text');
   const role = element.getAttribute('role') || (element.getAttribute('aria-haspopup') === 'listbox' ? 'combobox' : null);
@@ -100,7 +113,7 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   const mappings = [
     [/first.?name|given.?name|fname/i, 'FIRST_NAME', profile.firstName],
     [/last.?name|family.?name|surname|lname/i, 'LAST_NAME', profile.lastName],
-    [/full.?name|your name|candidate name|^name\s*$/i, 'FULL_NAME', profile.fullName],
+    [/full.?name|your name|candidate name|^name(?:\s*\*)?$/i, 'FULL_NAME', profile.fullName],
     [/e.?mail/i, 'EMAIL', profile.email],
     [/phone|mobile|contact number/i, 'PHONE', profile.phoneRaw || profile.phone],
     [/linkedin/i, 'LINK_LINKEDIN', profile.links?.linkedin],
@@ -116,7 +129,7 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
     [/city|town/i, 'CITY', profile.location?.city]
   ];
   for (const [pattern, type, value] of mappings) {
-    if (!pattern.test(q)) continue;
+    if (!pattern.test(q) && !(type === 'FULL_NAME' && /^name\s*\*?$/.test(norm(context.labelText)))) continue;
     if (value === undefined || value === null || String(value).trim() === '') return review(type, 'Missing applicant-reviewed profile fact.');
     return { type, value: String(value), verified: true, confidence: null, source: profile.provenance?.[type] || 'applicant_reviewed_profile' };
   }

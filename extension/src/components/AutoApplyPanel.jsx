@@ -14,6 +14,8 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [runningTab, setRunningTab] = useState(null);
+  const working = busy || runningTab !== null;
   const [question, setQuestion] = useState('');
   const [company, setCompany] = useState('');
   const [role, setRole] = useState('');
@@ -35,11 +37,30 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
     });
   }, []);
   useEffect(() => {
-    if (!ready || !confirmed || !fillOnOpen || autoStarted.current ||
-      !chrome.extension.getViews({ type: 'popup' }).includes(window)) return;
+    if (!ready || autoStarted.current || !chrome.extension.getViews({ type: 'popup' }).includes(window)) return;
     autoStarted.current = true;
-    void command('JF_START_FILL');
+    void command('JF_STATUS', confirmed && fillOnOpen);
   }, [ready, confirmed, fillOnOpen]);
+  useEffect(() => {
+    if (runningTab === null) return;
+    let cancelled = false;
+    let timer;
+    async function poll() {
+      try {
+        const status = await chrome.tabs.sendMessage(runningTab, { action: 'JF_STATUS' }, { frameId: 0 });
+        if (cancelled) return;
+        if (status?.running) { timer = setTimeout(poll, 350); return; }
+        setRunningTab(null);
+        showRun(status?.result);
+      } catch {
+        if (cancelled) return;
+        setRunningTab(null);
+        setError('The form changed or closed. Open the application step and start again.');
+      }
+    }
+    timer = setTimeout(poll, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [runningTab]);
   async function saveProfile() {
     try {
       const profile = normalizeProfile(JSON.parse(profileText));
@@ -71,19 +92,38 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       setProfileText(JSON.stringify(profile, null, 2)); await command('JF_START_FILL');
     } catch (err) { setError(err.message); }
   }
-  async function command(action) {
-    if (action !== 'JF_STOP') setBusy(true);
+  function showRun(result) {
+    if (!result) return;
+    if (!result.success) { setError(result.error); return; }
+    setReport(result);
+    if (!result.fields?.length && result.state !== 'STOPPED') setError('No supported fields found. Open the application form and try again.');
+  }
+  async function command(action, startIfNew = false) {
+    setBusy(true);
     setError('');
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id || !/^https?:/.test(tab.url || '')) throw new Error('Open an online application form first.');
+      const tabId = action === 'JF_STOP' ? runningTab ?? tab?.id : tab?.id;
+      if (!tabId || !/^https?:/.test(tab.url || '')) {
+        if (action === 'JF_STATUS') return;
+        throw new Error('Open an online application form first.');
+      }
       if (/(^|\.)linkedin\.com$/i.test(new URL(tab.url).hostname)) throw new Error('LinkedIn is manual only.');
-      const response = await chrome.tabs.sendMessage(tab.id, { action }, { frameId: 0 });
+      const send = name => chrome.tabs.sendMessage(tabId, { action: name }, { frameId: 0 });
+      let response = await send(action);
+      if (action === 'JF_STATUS' && startIfNew && !response?.running && !response?.result) {
+        response = await send('JF_START_FILL');
+      }
       if (!response?.success) throw new Error(response?.error || 'Reload this page after updating the extension.');
-      setReport(response);
-      if (action !== 'JF_STOP' && !response.fields?.length) setError('No supported fields found on this page. Open the application form and try again.');
+      if (response.running) {
+        setReport(null);
+        setRunningTab(tabId);
+      } else {
+        setRunningTab(null);
+        showRun(action === 'JF_PREVIEW' ? response : response.result);
+      }
     } catch (err) { setError(err.message); }
-    finally { if (action !== 'JF_STOP') setBusy(false); }
+    finally { setBusy(false); }
   }
   function openDraft(field) {
     setDraftTarget(field);
@@ -153,10 +193,11 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       }} /> Start filling when I open this extension</label>
     </details>
     <div className="flex gap-2">
-      <button type="button" className="p-2 bg-yellow-500 text-black rounded" disabled={busy} onClick={() => command('JF_START_FILL')}>{busy ? 'Working…' : 'Fill this step'}</button>
-      <button type="button" className="p-2 border rounded" disabled={busy} onClick={() => command('JF_PREVIEW')}>Preview only</button>
-      {busy && <button type="button" className="p-2 border rounded" onClick={() => command('JF_STOP')}>Stop</button>}
+      <button type="button" className="p-2 bg-yellow-500 text-black rounded" disabled={working} onClick={() => command('JF_START_FILL')}>{runningTab !== null ? 'Filling this tab…' : 'Fill this step'}</button>
+      <button type="button" className="p-2 border rounded" disabled={working} onClick={() => command('JF_PREVIEW')}>Preview only</button>
+      {runningTab !== null && <button type="button" className="p-2 border rounded" onClick={() => command('JF_STOP')}>Stop</button>}
     </div>
+    {runningTab !== null && <p role="status">You can switch tabs. Reopen Smart Apply on this tab to review.</p>}
     {error && <p role="status">{error}</p>}
     {report && <div aria-live="polite"><p>{report.state} · {report.filledCount || 0} verified fills · {report.needsReviewCount || 0} need review</p>{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
       <ul>{report.fields?.map(field => <li key={field.context.scope || field.id} className="py-2 border-b border-zinc-700">
@@ -164,8 +205,8 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
         {field.action === 'fill' && <span> → {field.decision.value} ({field.decision.source})</span>}
         <p>{field.reason || field.decision.reason}</p>
         {field.action === 'needs_review' && field.decision.type === 'WRITTEN_ANSWER' &&
-          <button type="button" className="underline" disabled={busy} onClick={() => openDraft(field)}>Draft with AI</button>}
-        {field.action === 'needs_review' && !['LEGAL_CONSENT_OR_TERMS', 'VERIFICATION', 'MANUAL_UPLOAD'].includes(field.decision.type) && <AnswerEditor field={field} onSave={saveAnswer} disabled={busy}
+          <button type="button" className="underline" disabled={working} onClick={() => openDraft(field)}>Draft with AI</button>}
+        {field.action === 'needs_review' && !['LEGAL_CONSENT_OR_TERMS', 'VERIFICATION', 'MANUAL_UPLOAD'].includes(field.decision.type) && <AnswerEditor field={field} onSave={saveAnswer} disabled={working}
           draft={confirmed && reviewedProfile && field.decision.type === 'WRITTEN_ANSWER' ? resumeAnswerDraft(field.context, reviewedProfile) : null} />}
       </li>)}</ul>
     </div>}
@@ -178,10 +219,10 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       <input aria-label="Target role" className="w-full p-2 bg-zinc-900" placeholder="Target role" value={role} onChange={e => setRole(e.target.value)} />
       <select aria-label="Detected written question" className="w-full p-2 bg-zinc-900" value={question} onChange={e => { setDraftTarget(null); setAnswerDraft(null); setQuestion(e.target.value); }}><option value="">Choose a detected question</option>{report?.fields?.filter(f => f.decision.type === 'WRITTEN_ANSWER').map(f => <option key={f.id} value={f.context.labelText}>{f.context.labelText}</option>)}</select>
       <textarea aria-label="Actual application question" className="w-full p-2 bg-zinc-900" value={question} onChange={e => { setDraftTarget(null); setAnswerDraft(null); setQuestion(e.target.value); }} />
-      <button type="button" className="p-2 border rounded" disabled={busy || !question || !factSelections.length} onClick={() => draftAnswer(true)}>Draft with Chrome AI</button>
-      {token && <button type="button" className="p-2 border rounded" disabled={busy || !question || !factSelections.length} onClick={() => draftAnswer(false)}>Draft with JobFinder</button>}
+      <button type="button" className="p-2 border rounded" disabled={working || !question || !factSelections.length} onClick={() => draftAnswer(true)}>Draft with Chrome AI</button>
+      {token && <button type="button" className="p-2 border rounded" disabled={working || !question || !factSelections.length} onClick={() => draftAnswer(false)}>Draft with JobFinder</button>}
       {answerDraft && <div><textarea aria-label="Review written answer" rows={6} className="w-full p-2 bg-zinc-900" value={answerDraft.answer} onChange={e => setAnswerDraft({ ...answerDraft, answer: e.target.value })} /><p>{answerDraft.uncertainty?.join(' ')}</p><button type="button" disabled={!answerDraft.answer} onClick={() => navigator.clipboard.writeText(answerDraft.answer)}>Copy reviewed answer</button>{draftTarget && question === answerDraft.question && draftTarget.context.scope === answerDraft.scope &&
-        <button type="button" disabled={busy || !answerDraft.answer?.trim()} onClick={() => saveAnswer(draftTarget, answerDraft.answer, 'draft_approved')}>Approve & fill this question</button>}</div>}
+        <button type="button" disabled={working || !answerDraft.answer?.trim()} onClick={() => saveAnswer(draftTarget, answerDraft.answer, 'draft_approved')}>Approve & fill this question</button>}</div>}
     </details>
     <details><summary>Saved answers (editable in profile JSON)</summary><pre className="whitespace-pre-wrap">{(() => { try { return JSON.stringify(JSON.parse(profileText).answers_bank || [], null, 2); } catch { return 'Fix profile JSON first.'; } })()}</pre></details>
     <p>Review the page before using its navigation or submit controls. Cross-origin frames and unsupported controls may require manual completion.</p>

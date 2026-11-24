@@ -47,6 +47,31 @@ async function main() {
           document.querySelector('#dependent').innerHTML = '<label>College <input id="college"></label>';
         };
       </script>`));
+    app.get('/background-fixture', (_req, res) => res.type('html').send(`<!doctype html>
+      <form action="/submitted">
+        <div><div><label>Name *</label></div><div><input id="full"></div></div>
+        <div><div><label>Phone *</label></div><div><input id="phone" type="tel"></div></div>
+        <button type="button" role="combobox" aria-label="Degree" aria-controls="degrees">Choose degree</button>
+        <div id="degrees" role="listbox" hidden></div>
+        <button>Submit application</button>
+      </form>
+      <script>
+        const trigger = document.querySelector('[role=combobox]');
+        trigger.onclick = () => { window.waiting = true; };
+        window.showChoices = () => {
+          const box = document.querySelector('#degrees');
+          const choice = document.createElement('div');
+          choice.setAttribute('role', 'option');
+          choice.textContent = 'B.Tech';
+          choice.onclick = () => {
+            trigger.textContent = 'B.Tech';
+            box.hidden = true;
+            try { trigger.form.requestSubmit(); } catch { window.submitBlocked = true; }
+          };
+          box.append(choice);
+          box.hidden = false;
+        };
+      </script>`));
     const web=path.resolve(__dirname,'../../web/dist');app.use(express.static(web));app.get('/{*splat}',(_req,res)=>res.sendFile('index.html',{root:web}));
     await new Promise(resolve=>{server=app.listen(0,'127.0.0.1',resolve);});const base=`http://127.0.0.1:${server.address().port}`;
     const extensionPath=path.resolve(__dirname,'../../extension/dist');
@@ -138,6 +163,49 @@ async function main() {
     const changed=await popup.evaluate(async()=>{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});return chrome.tabs.sendMessage(tab.id,{action:'JF_FILL'},{frameId:0});});
     assert.equal(changed.success,false);assert.match(changed.error,/Profile changed/);assert.equal(submissions,0);
     console.log('PASS: actual MV3 JSON file import, mandatory fact review, canonical save and edit invalidation; submissions=0');
+    const first = await context.newPage();
+    const second = await context.newPage();
+    await Promise.all([first.goto(base + '/background-fixture?first'), second.goto(base + '/background-fixture?second')]);
+    const popupUrl = `chrome-extension://${extensionId}/index.html`;
+    const firstPopup = await context.newPage();
+    const secondPopup = await context.newPage();
+    await Promise.all([firstPopup.goto(popupUrl), secondPopup.goto(popupUrl)]);
+    await firstPopup.evaluate(() => chrome.storage.local.set({ candidateProfileReviewed:true }));
+    const startFill = (ui, url) => ui.evaluate(async url => {
+      const [tab] = await chrome.tabs.query({ url });
+      return chrome.tabs.sendMessage(tab.id, { action: 'JF_START_FILL' }, { frameId: 0 });
+    }, url);
+    const startedFirst = await startFill(firstPopup, first.url());
+    assert.equal(startedFirst.running, true);
+    await firstPopup.close();
+    const startedSecond = await startFill(secondPopup, second.url());
+    assert.equal(startedSecond.running, true);
+    await secondPopup.close();
+    for (const form of [first, second]) {
+      await form.waitForFunction(() => window.waiting);
+      assert.equal(await form.locator('#full').inputValue(), 'Reviewed Synthetic Applicant');
+      assert.notEqual(await form.locator('#phone').inputValue(), '');
+      await form.evaluate(() => window.showChoices());
+    }
+    const recoveredPopup = await context.newPage();
+    await recoveredPopup.goto(popupUrl);
+    for (const form of [first, second]) {
+      await form.waitForFunction(() => document.querySelector('[role=combobox]').textContent === 'B.Tech');
+      await form.waitForFunction(() => window.submitBlocked);
+      const status = await recoveredPopup.evaluate(async url => {
+        const [tab] = await chrome.tabs.query({ url });
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const result = await chrome.tabs.sendMessage(tab.id, { action: 'JF_STATUS' }, { frameId: 0 });
+          if (!result.running) return result;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error('Background fill never completed');
+      }, form.url());
+      assert.equal(status.result.filledCount, 3);
+    }
+    assert.equal(submissions, 0);
+    await Promise.all([first.close(), second.close(), recoveredPopup.close()]);
+    console.log('PASS: two tab fills survive popup closure, reports recover and submits stay blocked');
     page=await context.newPage();const token=jwt.sign({_id:String(owner)},process.env.JWT_SECRET);
     page.on('pageerror',error=>console.error('Browser page error:',error.message));
     page.on('response',response=>{if(response.url().includes('/api/') && response.status()>=400)console.error('API failed:',response.status(),response.url());});
