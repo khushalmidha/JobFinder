@@ -1,10 +1,13 @@
-import { FormFillSession, collectFields, extractQuestionContext, profileLinkField } from '../utils/formFillerCore.js';
+import { FormFillSession, collectFields, extractQuestionContext, profileLinkField, submittedFieldValue } from '../utils/formFillerCore.js';
 
 import { createFormNotice } from './formNotice.js';
 import { perceptionApplicationDraft } from '../utils/perceptionApplicationDraft.js';
 import { resumeBulletDraft } from '../utils/resumeAnswerDraft.js';
 import { attachReviewedResume, findResumeTarget } from './resumeAttachment.js';
 import { readApplicantFormDetails, readSmartApplyPreferences, rememberProfileLink } from '../utils/profileMemory.js';
+
+import { draftFacts, draftQuestion, draftSettingsKey } from '../utils/fieldDraftProviders.js';
+import { captureSubmittedAnswers, memoryIdentity, reusableAnswer, submissionKey, submissionPreference } from '../utils/submissionMemory.js';
 
 const version = chrome.runtime.getManifest().version;
 if (window.__JOBFINDER_INJECTED__ !== version) {
@@ -21,10 +24,35 @@ if (window.__JOBFINDER_INJECTED__ !== version) {
   let latestRun = null;
   let progress = null;
   let activeProfile = null;
+  let submitGesture = null;
   const editedLinks = new WeakSet();
+  document.addEventListener('click', event => {
+    if (!event.isTrusted || fillBusy || activeProfile?.url !== location.href) return;
+    const button = event.target.closest?.('button, input[type="submit"]');
+    const label = button?.getAttribute('aria-label') || button?.value || button?.textContent || '';
+    if (button?.form && /submit|apply|finish|send application/i.test(label) && !/next|continue|review|save|draft/i.test(label))
+      submitGesture = { button, time: Date.now() };
+  }, true);
+  document.addEventListener('submit', event => {
+    const active = activeProfile;
+    const gesture = submitGesture;
+    submitGesture = null;
+    if (!event.isTrusted || fillBusy || !active?.learning || active.url !== location.href || gesture?.button !== event.submitter ||
+        !gesture || Date.now() - gesture.time > 1200 || !(event.target instanceof HTMLFormElement)) return;
+    const entries = captureSubmittedAnswers(event.target, active.profile, submittedFieldValue);
+    if (!entries.length) return;
+    const reusable = entries.filter(([key]) => reusableAnswer(key));
+    void chrome.storage.local.get(active.reusableKey).then(data => {
+      const previous = Array.isArray(data[active.reusableKey]) ? data[active.reusableKey] : [];
+      return chrome.storage.local.set({
+        [active.memoryKey]: entries,
+        ...(reusable.length ? { [active.reusableKey]: [...new Map([...previous, ...reusable])].slice(-40) } : {})
+      });
+    }).catch(() => {});
+  }, true);
   const learnInput = event => {
     const input = event.target;
-    if (activeProfile?.url === location.href && event.isTrusted && input?.tagName === 'INPUT' &&
+    if (activeProfile?.rememberLinks && activeProfile.url === location.href && event.isTrusted && input?.tagName === 'INPUT' &&
         profileLinkField(extractQuestionContext(input))) editedLinks.add(input);
   };
   const learnChange = event => {
@@ -75,14 +103,51 @@ if (window.__JOBFINDER_INJECTED__ !== version) {
       const start = detached;
       if (!start && (!data.candidateProfileReviewed || session.profileVersion !== data.candidateProfileVersion)) throw new Error('Profile changed; save and preview again.');
       if (!data.candidateProfileReviewed || !data.candidateProfile) throw new Error('Review and save your candidate profile first.');
-      activeProfile = data.rememberLinks && data.owner ? { url, owner: data.owner } : null;
+      const memoryKey = data.owner && globalThis.crypto?.subtle ? await submissionKey(data.owner, url) : '';
+      const reusableKey = memoryKey ? await submissionKey(data.owner) : '';
+      const keys = [submissionPreference, draftSettingsKey, ...(memoryKey ? [memoryKey, reusableKey] : [])];
+      const preferences = await chrome.storage.local.get(keys);
+      activeProfile = data.owner ? { url, owner: data.owner, profile: data.profile, memoryKey, reusableKey,
+        learning: !!memoryKey && preferences[submissionPreference] !== false, rememberLinks: data.rememberLinks } : null;
+      session.submitted = new Map(activeProfile?.learning
+        ? [reusableKey, memoryKey].flatMap(key => Array.isArray(preferences[key]) ? preferences[key] : [])
+        : []);
+      session.memoryIdentity = memoryIdentity;
+      session.generated = new Map();
       const guard = await chrome.runtime.sendMessage({ action: 'JF_GUARD_SUBMIT', enabled: true });
       if (!guard?.success) throw new Error('Submission guard unavailable; fill manually.');
       try {
         if (stopRequested) return session.report();
         if (start) {
           session.profileVersion = data.candidateProfileVersion;
-          const report = await session.fillStep(data.profile, showProgress);
+          let report = await session.fillStep(data.profile, showProgress);
+          if (preferences[draftSettingsKey]?.enabled && !stopRequested && location.href === url) {
+            const targets = session.rows.filter(row => row.action === 'needs_review' &&
+              ['WRITTEN_ANSWER', 'UNKNOWN_REQUIRED', 'UNMATCHED_OPTIONAL'].includes(row.decision.type))
+              .flatMap(row => {
+                const question = draftQuestion(row.context, row.id);
+                return question ? [{ row, question }] : [];
+              }).slice(0, 12);
+            const facts = draftFacts(data.profile);
+            if (targets.length && facts.length) {
+              notice.feedback('Drafting remaining professional questions…');
+              let result;
+              try {
+                result = await chrome.runtime.sendMessage({ action: 'JF_DRAFT_FIELDS', questions: targets.map(target => target.question), facts });
+              } catch { result = { errors: ['AI drafts unavailable'] }; }
+              if (stopRequested || location.href !== url) return session.report();
+              for (const draft of result?.answers || []) {
+                const target = targets.find(item => item.question.id === draft.id);
+                if (target) session.generated.set(target.row.context.scope, { value: draft.answer, source: draft.source });
+              }
+              if (session.generated.size) {
+                const prior = new Map(session.rows.filter(row => row.outcome === 'filled').map(row => [row.context.scope, row]));
+                report = await session.fillStep(data.profile, showProgress, prior);
+              }
+              const message = result?.errors?.join(' · ');
+              report.aiStatus = session.generated.size ? 'AI drafts inserted for review.' : message || 'AI found no grounded drafts.';
+            }
+          }
           if (data.defaultResume && !stopRequested && location.href === url) {
             let target;
             try { target = findResumeTarget(document); } catch { /* This step may have no accessible resume control. */ }
@@ -105,7 +170,7 @@ if (window.__JOBFINDER_INJECTED__ !== version) {
       fillBusy = false;
       progress = null;
       if (result.success) {
-        if (result.resumeStatus) notice.feedback(result.resumeStatus);
+        if (result.resumeStatus || result.aiStatus) notice.feedback([result.resumeStatus, result.aiStatus].filter(Boolean).join(' · '));
         const preserved = result.fields.filter(row => row.action === 'preserve' && row.outcome !== 'filled').length;
         const counts = `${result.filledCount} filled · ${preserved} already entered · ${result.needsReviewCount} to review`;
         if (result.state === 'STOPPED') {

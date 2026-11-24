@@ -2,12 +2,21 @@
  * Background Service Worker for JobFinder AI Auto-Apply
  */
 
+import { draftSettingsKey, generateFieldDrafts } from '../utils/fieldDraftProviders.js';
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log('JobFinder AI Auto-Apply extension installed.');
 });
 
 // Message listener for coordinating content script, popup, and backend
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'JF_DRAFT_FIELDS') {
+    if (sender.id !== chrome.runtime.id || !sender.tab?.id || sender.frameId !== 0) return false;
+    chrome.storage.local.get(draftSettingsKey)
+      .then(data => generateFieldDrafts(data[draftSettingsKey], request))
+      .then(sendResponse, () => sendResponse({ answers: [], errors: ['AI drafts unavailable'] }));
+    return true;
+  }
   if (request.action === 'JF_GUARD_SUBMIT') {
     if (sender.id !== chrome.runtime.id || !sender.tab?.id || sender.frameId !== 0) return false;
     chrome.scripting.executeScript({ target: { tabId: sender.tab.id, frameIds: [0] }, world: 'MAIN',

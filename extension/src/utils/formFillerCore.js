@@ -54,6 +54,7 @@ function controlledPopup(element) {
   return menus.length === 1 ? menus[0] : null;
 }
 function choiceLabel(option) {
+  if (!option) return '';
   if (option.tagName === 'OPTION') return option.label;
   return option.getAttribute('aria-label') || [...(option.labels || [])].map(text).join(' ') ||
     text(option) || option.getAttribute('data-value') || option.value || '';
@@ -75,7 +76,7 @@ export function extractQuestionContext(element) {
   let inputType = norm(element.getAttribute('type') || 'text');
   const role = element.getAttribute('role') || (popupKind(element) ? 'combobox' : null);
   if (element.matches('button[aria-haspopup="dialog"]') && /date/i.test(labelText)) inputType = 'date-picker';
-  if (element.tagName === 'TEXTAREA') inputType = 'textarea';
+  if (element.tagName === 'TEXTAREA' || element.matches('[role="textbox"][contenteditable="true"], [role="textbox"][contenteditable="plaintext-only"]')) inputType = 'textarea';
   if (element.tagName === 'SELECT') inputType = 'select';
   if (['combobox', 'listbox', 'radio', 'radiogroup', 'checkbox'].includes(role)) inputType = role;
   const fallback = ['name', 'id', 'placeholder', 'autocomplete', 'data-automation-id'].map(a => element.getAttribute(a) || '').join(' ');
@@ -194,7 +195,13 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
     return value ? profileChoice('PROFILE_LINK', value) : review('PROFILE_LINK', 'Enter your profile URL once to reuse it on future forms.');
   }
   if (context.inputType === 'date-picker' || context.inputType === 'date') return review('DATE_REVIEW', 'Choose and approve the exact date.');
-  if (context.inputType === 'checkbox') return review('CHECKBOX_REVIEW', 'Confirm whether this option applies to you.');
+  if (context.inputType === 'checkbox') {
+    const [group, option] = String(context.labelText).split(' — ');
+    const skills = Object.values(profile.skills || {}).flat().filter(skill => typeof skill === 'string');
+    if (option && /^(?:technical skills|skills|technologies|programming languages|tools)(?: you (?:know|use|have used))?\s*\*?$/i.test(group.trim()) &&
+        skills.some(skill => norm(skill) === norm(option))) return profileChoice('PROFILE_SKILL_CHECKBOX', 'Yes');
+    return review('CHECKBOX_REVIEW', 'Confirm whether this option applies to you.');
+  }
   if (profile.preferences?.confirmed_internship_start_month &&
       internshipStartMonth(context.labelText) === profile.preferences.confirmed_internship_start_month) {
     const yes = (context.options || []).filter(option => norm(option) === 'yes');
@@ -216,11 +223,15 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
       const options = (context.options || []).filter(option =>
         [String(years), `${years} year`, `${years} years`].includes(norm(option)) || (years === 0 && norm(option) === 'no experience'));
       if (options.length === 1) return profileChoice('EXPERIENCE_YEARS', options[0]);
+      if (!context.options?.length && ['combobox', 'listbox'].includes(context.inputType))
+        return profileChoice('EXPERIENCE_YEARS', String(years));
     }
   }
   const months = profile.preferences?.internship_duration_months;
   if (Number.isInteger(months) && months > 0 && /^(?:availability|internship duration)\s*\*?$/.test(norm(context.labelText))) {
     const options = (context.options || []).filter(option => !/^(?:please )?(?:choose|select)(?: an option)?[.\s]*$/.test(norm(option)));
+    if (!options.length && ['combobox', 'listbox'].includes(context.inputType))
+      return profileChoice('INTERNSHIP_DURATION', String(months) + ' months');
     if (options.length > 1 && options.every(option => /^\d+ months?$/.test(norm(option)))) {
       const match = options.filter(option => [`${months} month`, `${months} months`].includes(norm(option)));
       if (match.length === 1) return profileChoice('INTERNSHIP_DURATION', match[0]);
@@ -263,7 +274,7 @@ export function classifyQuestion(context, profile = CANDIDATE_PROFILE) {
   return review(context.isRequired ? 'UNKNOWN_REQUIRED' : 'UNMATCHED_OPTIONAL', 'No supported profile evidence for this question.');
 }
 
-const selector = 'input, textarea, select, [role="combobox"], [aria-haspopup="listbox"], button[aria-haspopup="menu"], button[aria-haspopup="dialog"], [role="listbox"], [role="radiogroup"], [role="checkbox"]';
+const selector = 'input, textarea, select, [role="textbox"][contenteditable="true"], [role="textbox"][contenteditable="plaintext-only"], [role="combobox"], [aria-haspopup="listbox"], button[aria-haspopup="menu"], button[aria-haspopup="dialog"], [role="listbox"], [role="radiogroup"], [role="checkbox"]';
 function rendered(el) {
   for (let node=el;node?.nodeType===1;node=node.parentElement || node.getRootNode()?.host) {
     const style=node.ownerDocument.defaultView.getComputedStyle(node);
@@ -332,12 +343,20 @@ function currentValue(el) {
     // Match a known prompt or this field's label, never arbitrary Select-prefixed text.
     return emptyDropdownPrompt(el, displayed) ? '' : displayed;
   }
-  return el.value || '';
+  return el.isContentEditable ? el.textContent : el.value || '';
+}
+export function submittedFieldValue(el) {
+  const { inputType } = extractQuestionContext(el);
+  if (inputType === 'radio') return choiceLabel(radioGroup(el).find(option => option.checked));
+  if (inputType === 'checkbox') return currentValue(el) ? 'Yes' : 'No';
+  if (inputType === 'select') return el.multiple ? '' : el.selectedOptions[0]?.label || '';
+  return currentValue(el);
 }
 function setValue(el, value) {
   const win = el.ownerDocument.defaultView;
   const proto = el.tagName === 'TEXTAREA' ? win.HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? win.HTMLSelectElement.prototype : win.HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
+  if (el.isContentEditable) el.textContent = value;
+  else Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
   el.dispatchEvent(new win.Event('input', { bubbles: true, composed: true }));
   el.dispatchEvent(new win.Event('change', { bubbles: true, composed: true }));
 }
@@ -465,10 +484,23 @@ export class FormFillSession {
     if (this.state === 'FILL') throw new Error('Fill already running.');
     this.profile = normalizeProfile(profile);
     this.stopped = false; this.state = 'SCAN'; this.rescanRequired = false;
-    this.rows = collectFields(this.root).map((element, index) => {
+    const controls = collectFields(this.root);
+    const questionCounts = new Map();
+    for (const element of controls) {
+      const key = this.memoryIdentity?.(extractQuestionContext(element));
+      if (key) questionCounts.set(key, (questionCounts.get(key) || 0) + 1);
+    }
+    this.rows = controls.map((element, index) => {
       const context = this.contextFor(element);
       const before = currentValue(element);
       let decision = classifyQuestion(context, profile);
+      const memoryKey = this.memoryIdentity?.(context);
+      const submitted = questionCounts.get(memoryKey) === 1 && this.submitted?.get(memoryKey);
+      if (submitted && !['LEGAL_CONSENT_OR_TERMS', 'VERIFICATION', 'MANUAL_UPLOAD'].includes(decision.type)) {
+        const choice = ['select', 'radio', 'radiogroup'].includes(context.inputType);
+        if (!choice || context.options.filter(option => norm(option) === norm(submitted)).length === 1)
+          decision = { ...profileChoice('REMEMBERED_ANSWER', submitted), source: 'previous_manual_submit' };
+      }
       if (element.tagName === 'SELECT' && ['COLLEGE', 'DEGREE', 'MAJOR', 'PROFILE_ADDRESS'].includes(decision.type) && !decision.requiresManualReview) {
         const candidates = [...element.options].filter(option => !option.matches(':disabled') &&
           choiceKey(option.label, decision.type) === choiceKey(decision.value, decision.type));
@@ -490,7 +522,7 @@ export class FormFillSession {
       }
       const draft = this.proposeDraft && !before && decision.requiresManualReview &&
         ['WRITTEN_ANSWER', 'UNKNOWN_REQUIRED', 'UNMATCHED_OPTIONAL'].includes(decision.type) &&
-        this.proposeDraft(context, profile, element);
+        (this.proposeDraft(context, profile, element) || this.generated?.get(context.scope));
       if (draft) decision = { type: 'REVIEW_DRAFT', value: draft.value, source: draft.source, reason: 'Review this draft before submitting.' };
       return { id: index, element, context, before, decision,
         action: before ? 'preserve' : decision.requiresManualReview ? 'needs_review' : 'fill' };
@@ -504,13 +536,12 @@ export class FormFillSession {
       filledCount: this.rows.filter(r => r.outcome === 'filled').length,
       needsReviewCount: this.rows.filter(r => r.action === 'needs_review' || r.outcome === 'needs_review' || r.decision.type === 'REVIEW_DRAFT').length };
   }
-  async fillStep(profile, onProgress) {
+  async fillStep(profile, onProgress, attempted = new Map()) {
     this.scan(profile);
     const guardedDocuments = new Set(this.rows.map(row => row.element.ownerDocument));
-    const attempted = new Map();
     for (let pass = 0; pass < 3; pass++) {
-      if (pass) {
-        this.scan(profile);
+      if (pass || attempted.size) {
+        if (pass) this.scan(profile);
         for (const row of this.rows) {
           const previous = attempted.get(row.context.scope);
           if (previous?.outcome === 'filled' && row.before === previous.committedValue) {
@@ -565,14 +596,14 @@ export class FormFillSession {
           if (currentValue(el) !== row.before) { row.outcome = 'preserved_manual_change'; continue; }
           const { value } = row.decision;
           if (row.decision.type === 'REVIEW_DRAFT' &&
-              this.proposeDraft?.(row.context, this.profile, el, true)?.value !== value)
+              (this.proposeDraft?.(row.context, this.profile, el, true) || this.generated?.get(row.context.scope))?.value !== value)
             throw new Error('The selected direction changed. Fill again to propose a matching draft.');
           const type = row.context.inputType;
           if (row.decision.type === 'EXPERIENCE_YEARS' && type === 'number' && el.min !== '' && Number(value) < Number(el.min))
             throw new Error('The form does not accept your default experience value.');
           if (el.maxLength >= 0 && value.length > el.maxLength) throw new Error('Answer exceeds character limit.');
           if (el.type === 'checkbox' || type === 'checkbox') {
-            if (row.decision.type !== 'REMEMBERED_ANSWER' || !/^(yes|no)$/i.test(value)) throw new Error('Review checkbox manually.');
+            if (!['REMEMBERED_ANSWER', 'PROFILE_SKILL_CHECKBOX'].includes(row.decision.type) || !/^(yes|no)$/i.test(value)) throw new Error('Review checkbox manually.');
             const checked = () => el.checked || el.getAttribute('aria-checked') === 'true';
             const desired = norm(value) === 'yes';
             if (checked() !== desired) safeClick(el);
@@ -603,7 +634,15 @@ export class FormFillSession {
             const snapshot = this.choiceSnapshots.get(el);
             if (snapshot && JSON.stringify(choices.map(choiceLabel).sort()) !== JSON.stringify([...snapshot.options].sort()))
               throw new Error('Dropdown options changed. Read the options again.');
-            const option = exactOption(choices, value);
+            const dynamic = classifyQuestion({ ...row.context, options: choices.map(choiceLabel) }, this.profile);
+            const aliases = ['COLLEGE', 'DEGREE', 'MAJOR', 'PROFILE_ADDRESS'].includes(row.decision.type) ?
+              choices.filter(option => choiceKey(choiceLabel(option), row.decision.type) === choiceKey(value, row.decision.type)) : [];
+            const targetValue = aliases.length === 1 ? choiceLabel(aliases[0]) :
+              (['EXPERIENCE_YEARS', 'INTERNSHIP_DURATION', 'INTERNSHIP_START_MONTH'].includes(dynamic.type) && !dynamic.requiresManualReview &&
+                row.decision.type !== 'REMEMBERED_ANSWER' ? dynamic.value : value);
+            if (row.decision.type === 'INTERNSHIP_DURATION' && dynamic.requiresManualReview)
+              throw new Error('These options do not specify an internship duration.');
+            const option = exactOption(choices, targetValue);
             if (this.stopped) break;
             const identity = row.context.scope;
             safeClick(option);
@@ -616,13 +655,13 @@ export class FormFillSession {
               const controls = el.isConnected
                 ? (rendered(el) && !el.closest('[aria-hidden="true"], [inert]') && answerScope(el) === identity ? [el] : [])
                 : collectFields(this.root).filter(candidate => answerScope(candidate) === identity);
-              if (controls.length === 1 && norm(currentValue(controls[0])) === norm(value)) {
+              if (controls.length === 1 && norm(currentValue(controls[0])) === norm(targetValue)) {
                 committed = controls[0];
                 break;
               }
             }
             if (this.stopped) break;
-            if (!committed || norm(currentValue(committed)) !== norm(value) ||
+            if (!committed || norm(currentValue(committed)) !== norm(targetValue) ||
               (committed.tagName === 'INPUT' && !committed.getAttribute('aria-valuetext') && !committed.getAttribute('data-value') &&
                 option.getAttribute('aria-selected') !== 'true')) throw new Error('Dropdown selection was not retained.');
             row.element = committed;
@@ -632,7 +671,7 @@ export class FormFillSession {
             setValue(el, value);
           } else throw new Error('Unsupported control; complete manually.');
           if (!row.element.isConnected) throw new Error('Field rerendered; preview the updated step.');
-          if (el.type!=='radio' && !['combobox', 'listbox', 'radiogroup', 'checkbox', 'date-picker'].includes(type) && norm(el.value) !== norm(type === 'select' ? exactOption(el.options, value).value : value)) throw new Error('Value was not retained.');
+          if (el.type!=='radio' && !['combobox', 'listbox', 'radiogroup', 'checkbox', 'date-picker'].includes(type) && norm(currentValue(el)) !== norm(type === 'select' ? exactOption(el.options, value).value : value)) throw new Error('Value was not retained.');
           if (typeof row.element.checkValidity === 'function' && !row.element.checkValidity()) throw new Error('Site validation requires review.');
           row.outcome = 'filled';
           row.committedValue = currentValue(row.element);

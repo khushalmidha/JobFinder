@@ -1,3 +1,4 @@
+import SmartApplyLearning from './SmartApplyLearning.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { normalizeProfile, rememberAnswer } from '../utils/candidateProfile.js';
 import { formDraftPayload } from '../utils/formDraftPayload.js';
@@ -341,7 +342,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
       <button type="button" className="p-2 border rounded" disabled={!resume?.scope || working} onClick={attachResume}>Attach PDF to this form</button>
       {resumeStatus && <p role="status">{resumeStatus}</p>}
     </details>
-    {report && <div aria-live="polite"><p>{report.state === 'PLAN' ? 'Preview' : report.state === 'STOPPED' ? 'Stopped' : report.needsReviewCount || report.rescanRequired ? 'Fill done · Review needed' : 'Fill done'} · {report.filledCount || 0} verified fills · {report.fields?.filter(field => field.action === 'preserve' && field.outcome !== 'filled').length || 0} already entered · {report.needsReviewCount || 0} need review</p>{report.resumeStatus && <p>{report.resumeStatus}</p>}{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
+    {report && <div aria-live="polite"><p>{report.state === 'PLAN' ? 'Preview' : report.state === 'STOPPED' ? 'Stopped' : report.needsReviewCount || report.rescanRequired ? 'Fill done · Review needed' : 'Fill done'} · {report.filledCount || 0} verified fills · {report.fields?.filter(field => field.action === 'preserve' && field.outcome !== 'filled').length || 0} already entered · {report.needsReviewCount || 0} need review</p>{report.resumeStatus && <p>{report.resumeStatus}</p>}{report.aiStatus && <p>{report.aiStatus}</p>}{report.rescanRequired && <p>More fields appeared. Run fill again to check them.</p>}
       <ul>{report.fields?.map(field => <li key={field.context.scope || field.id} className="py-2 border-b border-zinc-700">
         <strong>{field.context.labelText || 'Unlabelled field'}</strong> · {field.action === 'preserve' && !field.outcome ? 'Already entered' : (field.outcome || field.action).replaceAll('_', ' ')}
         {field.action === 'fill' && <span> → {field.decision.value} ({field.decision.source})</span>}
@@ -352,6 +353,7 @@ export const AutoApplyPanel = ({ token, backendUrl }) => {
           draft={confirmed && reviewedProfile && field.decision.type === 'WRITTEN_ANSWER' ? resumeAnswerDraft(field.context, reviewedProfile) : null} />}
       </li>)}</ul>
     </div>}
+    <SmartApplyLearning />
     <details ref={draftPanel}><summary>Draft a written answer</summary>
       <p>Add supportingEvidence entries (text and resume source) to your reviewed profile. Company reasons also need companyFacts entries with a public source URL.</p>
       <p>Choose up to five facts. Chrome AI drafts on this device. The JobFinder draft uses the selected facts on your configured server.</p>
