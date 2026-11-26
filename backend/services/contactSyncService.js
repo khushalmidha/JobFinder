@@ -58,6 +58,7 @@ async function syncContactsToTargetAccounts(sourceUserId, contactsToSync) {
             email: contact.email,
             package: contact.package || '',
             role: contact.role || '',
+            contactKind: contact.contactKind || 'unknown',
             source: contact.source || 'excel_upload',
             linkedinUrl: contact.linkedinUrl || '',
             status: 'pending',

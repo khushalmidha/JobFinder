@@ -639,6 +639,33 @@ async function main() {
     assert.equal(await page.getByRole('textbox',{name:'Email, row 1'}).inputValue(),'careers@fixture.example');
     assert.equal(await page.getByRole('textbox',{name:'Company, row 1'}).inputValue(),'Paste Override');
     await page.getByRole('button',{name:'Clear / Cancel'}).click();
+    await page.getByLabel('Paste contact text').fill(
+      'Anya, Hiring Manager, anya@fixture.example\n' +
+      'Dev, SDE, dev@fixture.example\n' +
+      'Campus recruiter, careers@fixture.example\n' +
+      'Talent Acquisition, talent-person@fixture.example'
+    );
+    await page.getByRole('button',{name:'Extract from Text'}).click();
+    const typeFilter=page.getByLabel('Filter by contact type');
+    await typeFilter.selectOption('engineer');
+    assert.equal(await page.getByRole('textbox',{name:'Email, row 1'}).inputValue(),'dev@fixture.example');
+    await typeFilter.selectOption('role_inbox');
+    assert.equal(await page.getByRole('textbox',{name:'Email, row 1'}).inputValue(),'careers@fixture.example');
+    await typeFilter.selectOption('hiring_manager');
+    assert.equal(await page.getByRole('textbox',{name:'Email, row 1'}).inputValue(),'anya@fixture.example');
+    await page.getByRole('combobox',{name:'Contact Type, row 1'}).selectOption('engineer');
+    await typeFilter.selectOption('recruiter');
+    process.env.CONTACT_ADMISSION_ENABLED='true';
+    try {
+      await page.getByRole('button',{name:'Save Filtered 1 Contact',exact:true}).click();
+      await page.getByText(/Added 0.+Pending verification 1/).waitFor();
+    } finally {delete process.env.CONTACT_ADMISSION_ENABLED;}
+    assert.ok(await Candidate.exists({userId:owner,email:'talent-person@fixture.example','payload.contactKind':'recruiter'}));
+    assert.equal(await Candidate.exists({userId:owner,email:'dev@fixture.example'}),null);
+    await typeFilter.selectOption('engineer');
+    assert.equal(await page.getByRole('button',{name:'Save Filtered 2 Contacts',exact:true}).count(),1);
+    await page.getByRole('button',{name:'Clear / Cancel'}).click();
+    await page.getByLabel('Paste contact text').fill('careers@fixture.example');
     await page.route('**/api/upload/parse-text',route=>route.abort());
     await page.getByRole('button',{name:'Extract from Text'}).click();
     await page.getByText('Extracted emails from the pasted text using local parsing.').waitFor();

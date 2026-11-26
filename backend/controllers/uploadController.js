@@ -79,11 +79,14 @@ function extractContactsLocally(text, companyOverride = '') {
         }
       }
 
+      const role = lineEmails.length === 1
+        ? cleanLine.match(/\b(?:hiring manager|engineering manager|head of engineering|(?:technical |campus )?recruiter|talent acquisition|human resources|software engineer|software developer|backend engineer|frontend engineer|SDE(?:[- ]?\d+)?|HR)\b/i)?.[0] || ''
+        : '';
       contacts.push({
         company: comp,
         email: lowerEmail,
         hrName: hrName,
-        role: '',
+        role,
         package: ''
       });
     }
@@ -226,6 +229,7 @@ exports.parseFile = async (req, res) => {
           company: headers.find(h => /^company$/i.test(h.trim())) || headers.find(h => /company|org|employer|firm|startup/i.test(h)),
           email: headers.find(h => /^email$/i.test(h.trim())) || headers.find(h => /email|e-mail/i.test(h) && !/extracted|who|by/i.test(h)) || headers.find(h => /mail/i.test(h)),
           hrName: headers.find(h => /^name$/i.test(h.trim())) || headers.find(h => /name|hr|recruiter|contact|person/i.test(h) && !/company|org|volunteer/i.test(h)),
+          contactKind: headers.find(h => /^(?:contact[ _-]*type|contact[ _-]*kind|contact[ _-]*category)$/i.test(h.trim())),
           role: headers.find(h => /^role$/i.test(h.trim())) || headers.find(h => /role|position|job|title|designation/i.test(h)),
           package: headers.find(h => /^package$/i.test(h.trim())) || headers.find(h => /package|ctc|salary|pay/i.test(h))
         };
@@ -274,6 +278,7 @@ exports.parseFile = async (req, res) => {
             company: comp,
             email: originalEmail,
             hrName: headerMap.hrName ? String(row[headerMap.hrName]).trim() : '',
+            contactKind: headerMap.contactKind ? String(row[headerMap.contactKind]).trim() : '',
             role: headerMap.role ? String(row[headerMap.role]).trim() : '',
             package: headerMap.package ? String(row[headerMap.package]).trim() : ''
           };

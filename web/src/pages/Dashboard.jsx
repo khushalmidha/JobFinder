@@ -4,16 +4,8 @@ import api from '../services/api';
 import { Search, Mail, Filter, AlertCircle, Briefcase, ChevronDown, ChevronUp, Download, Play, Pause, RefreshCw, Trash2, Sparkles, CheckCircle2, ShieldCheck, XCircle, AlertTriangle, RotateCcw, ArrowRightLeft, X, FileText, Copy } from 'lucide-react';
 import ComposePanel from '../components/ComposePanel';
 import ContactDiscoveryStatus from '../components/ContactDiscoveryStatus';
+import { contactRole, contactTypes } from '../services/contactTypes';
 
-function contactRole(contact) {
-  if (contact.contactKind && contact.contactKind !== 'unknown') return contact.contactKind;
-  const title = contact.role || '';
-  if (/recruit|human resources|talent acquisition|\bhr\b/i.test(title)) return 'recruiter';
-  if (/hiring manager|engineering manager|head of engineering/i.test(title)) return 'hiring_manager';
-  if (/software engineer|software developer|\bsde\b|backend engineer|frontend engineer/i.test(title)) return 'engineer';
-  if (/^(?:careers|jobs|recruiting|recruitment|talent|hr)@/i.test(contact.email || '')) return 'role_inbox';
-  return 'unknown';
-}
 const Dashboard = () => {
   const { state: linkedJob } = useLocation();
   const [contacts, setContacts] = useState([]);
@@ -330,7 +322,7 @@ const Dashboard = () => {
     if (contactSection(contact) !== activeTab) return false;
     const term = search.trim().toLowerCase();
     const kind = contactRole(contact);
-    const matchesRole = !kindFilter || kind === kindFilter || (kindFilter === 'recruiter' && kind === 'role_inbox');
+    const matchesRole = !kindFilter || kind === kindFilter;
     if (term.startsWith('@')) return matchesRole && String(contact.email||'').toLowerCase().endsWith(term);
     return matchesRole && [contact.company,contact.hrName,contact.email].some(value=>String(value||'').toLowerCase().includes(term));
   });
@@ -778,7 +770,7 @@ const Dashboard = () => {
           </div>
 
           <select aria-label="Contact type" value={kindFilter} onChange={event=>{setKindFilter(event.target.value);setSelectedIds(new Set());}} className="rounded border border-zinc-700 bg-zinc-800 p-2 text-sm">
-            <option value="">All roles</option><option value="recruiter">HR / Recruiters</option><option value="hiring_manager">Hiring managers</option><option value="engineer">SDE / Engineers</option><option value="unknown">Unclassified</option>
+            <option value="">All roles</option>{contactTypes.map(([type, label]) => <option key={type} value={type}>{label}</option>)}
           </select>
         </div>
 
@@ -980,7 +972,7 @@ const Dashboard = () => {
                             className="rounded border-zinc-700 bg-zinc-800 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-zinc-900"
                           />
                         </td>
-                        <td className="p-3 text-zinc-300 font-medium w-1/4"><span>{contact.hrName || 'Professional contact'}</span>{contact.mailboxVerified ? <span className="ml-2 text-xs text-emerald-300">Mailbox verified</span> : contact.ownerVerifiedAt ? <span className="ml-2 text-xs text-yellow-300">Personally checked</span> : null}{contact.inferenceFlag && <span className="ml-2 text-xs text-amber-300">Guessed · mailbox unverified</span>}{!contact.inferenceFlag&&contact.verificationStatus==='publicly_sourced'&&<span className="ml-2 text-xs text-zinc-500">{contact.deliverabilityStatus==='unverified'?'Public source · mailbox unverified':'Public source'}</span>}{contact.contactKind&&contact.contactKind!=='unknown'&&<span className="ml-2 text-xs text-zinc-500">{contact.contactKind}</span>}{contact.source==='career_crawler'&&contact.contactKind!=='unknown'&&contact.role&&<span className="block text-xs text-zinc-500">{contact.role}</span>}</td>
+                        <td className="p-3 text-zinc-300 font-medium w-1/4"><span>{contact.hrName || 'Professional contact'}</span>{contact.mailboxVerified ? <span className="ml-2 text-xs text-emerald-300">Mailbox verified</span> : contact.ownerVerifiedAt ? <span className="ml-2 text-xs text-yellow-300">Personally checked</span> : null}{contact.inferenceFlag && <span className="ml-2 text-xs text-amber-300">Guessed · mailbox unverified</span>}{!contact.inferenceFlag&&contact.verificationStatus==='publicly_sourced'&&<span className="ml-2 text-xs text-zinc-500">{contact.deliverabilityStatus==='unverified'?'Public source · mailbox unverified':'Public source'}</span>}{contact.contactKind&&contact.contactKind!=='unknown'&&<span className="ml-2 text-xs text-zinc-500">{contactTypes.find(([type]) => type === contact.contactKind)?.[1]}</span>}{contact.source==='career_crawler'&&contact.contactKind!=='unknown'&&contact.role&&<span className="block text-xs text-zinc-500">{contact.role}</span>}</td>
                         <td className="p-3 text-zinc-400 w-1/4">{contact.email}</td>
                         <td className="p-3 w-1/4">
                           <div className="flex flex-wrap items-center gap-1.5">

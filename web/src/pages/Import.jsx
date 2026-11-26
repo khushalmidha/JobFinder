@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { UploadCloud, FileType, CheckCircle, AlertCircle } from 'lucide-react';
 import api from '../services/api';
+import { contactRole, contactTypes, explicitContactType } from '../services/contactTypes';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const literalEmail = /[\w.%+-]+@[\w.-]+\.[a-z]{2,}/gi;
@@ -25,11 +26,19 @@ export default function Import() {
   const [syncAccounts, setSyncAccounts] = useState([]);
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(0);
+  const [typeFilter, setTypeFilter] = useState('');
   const [operation, setOperation] = useState('');
   const [progress, setProgress] = useState(null);
   const [status, setStatus] = useState(null);
   const [dragging, setDragging] = useState(false);
   const busy = Boolean(operation);
+  const typeCounts = rows.reduce((counts, row) => {
+    const type = contactRole(row);
+    counts[type] = (counts[type] || 0) + 1;
+    return counts;
+  }, {});
+  const visibleRows = typeFilter ? rows.filter(row => contactRole(row) === typeFilter) : rows;
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(visibleRows.length / pageSize) - 1));
 
   useEffect(() => {
     let active = true;
@@ -91,12 +100,14 @@ export default function Import() {
           company: override || contact.company || 'Unknown',
           hrName: contact.hrName || '',
           role: contact.role || '',
+          contactKind: explicitContactType(contact.contactKind),
           package: contact.package || ''
         });
       }
       if (!unique.size) setStatus({ error: true, text: data?.error || 'No email addresses found.' });
       else if (fallback || data?.error) setStatus({ text: fallback ? 'Extracted emails from the pasted text using local parsing.' : 'Extraction ended early. Review the returned rows.' });
       setRows([...unique.values()]);
+      setTypeFilter('');
       setPage(0);
     } catch (error) {
       setStatus({ error: true, text: errorMessage(error, 'Could not extract contacts.') });
@@ -108,20 +119,20 @@ export default function Import() {
 
   async function save() {
     const queue = new Map();
-    for (const { id: _id, ...row } of rows) {
+    for (const { id: _id, ...row } of visibleRows) {
       const email = row.email.trim().toLowerCase();
       if (!emailPattern.test(email)) {
         setStatus({ error: true, text: 'Correct or remove invalid emails before saving.' });
         return;
       }
-      if (!queue.has(email)) queue.set(email, { ...row, email, source: 'excel_upload' });
+      if (!queue.has(email)) queue.set(email, { ...row, email, contactKind: contactRole(row), source: 'excel_upload' });
     }
     const contacts = [...queue.values()];
     setOperation('save');
     setStatus(null);
     setProgress(0);
     let processed = 0, added = 0, staged = 0, rejected = 0;
-    const reviewDuplicates = rows.length - contacts.length;
+    const reviewDuplicates = visibleRows.length - contacts.length;
     try {
       for (; processed < contacts.length;) {
         const chunk = contacts.slice(processed, processed + 200);
@@ -133,12 +144,19 @@ export default function Import() {
         setProgress(processed);
       }
       setStatus({ text: `Added ${added} · Pending verification ${staged} · Rejected ${rejected} · Skipped ${reviewDuplicates + processed - added - staged - rejected}.` });
-      setRows([]);
-      setFile(null);
-      setText('');
+      const savedIds = new Set(visibleRows.map(row => row.id));
+      const remaining = rows.filter(row => !savedIds.has(row.id));
+      setRows(remaining);
+      setTypeFilter('');
+      setPage(0);
+      if (!remaining.length) {
+        setFile(null);
+        setText('');
+      }
     } catch (error) {
       const completed = new Set(contacts.slice(0, processed).map(row => row.email));
-      setRows(rows.filter(row => !completed.has(row.email.trim().toLowerCase())));
+      const attempted = new Set(visibleRows.map(row => row.id));
+      setRows(rows.filter(row => !attempted.has(row.id) || !completed.has(row.email.trim().toLowerCase())));
       setPage(0);
       setStatus({ error: true, text: `${processed} of ${contacts.length} rows processed. ${errorMessage(error, 'Import paused. Retry the remaining rows.')}` });
     } finally {
@@ -152,14 +170,13 @@ export default function Import() {
   }
   function removeRow(id) {
     setRows(current => current.filter(row => row.id !== id));
-    setPage(Math.min(page, Math.max(0, Math.ceil((rows.length - 1) / pageSize) - 1)));
   }
 
   return (
     <section className="p-4 md:p-8 max-w-5xl mx-auto font-sans">
       {busy && <progress className="fixed top-0 left-0 z-50 h-1 w-full accent-yellow-500"
         aria-label={operation === 'save' ? 'Import progress' : 'Extracting contacts'}
-        {...(operation === 'save' ? { value: progress || 0, max: rows.length } : {})} />}
+        {...(operation === 'save' ? { value: progress || 0, max: visibleRows.length } : {})} />}
       <header className="mb-8 flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Import Contacts</h1>
@@ -225,34 +242,54 @@ export default function Import() {
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={() => { setRows([]); setStatus(null); }} className="px-4 py-2 rounded-lg text-sm text-zinc-400 hover:bg-zinc-800">Clear / Cancel</button>
-            <button type="button" disabled={busy} onClick={save} className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-400 text-sm font-bold text-zinc-950 disabled:opacity-50">
-              {operation === 'save' ? `Importing… ${progress} / ${rows.length}` : `Save All ${rows.length} ${rows.length === 1 ? 'Contact' : 'Contacts'}`}
+            <button type="button" disabled={busy || !visibleRows.length} onClick={save} className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-400 text-sm font-bold text-zinc-950 disabled:opacity-50">
+              {operation === 'save' ? `Importing… ${progress} / ${visibleRows.length}` : `Save ${typeFilter ? 'Filtered' : 'All'} ${visibleRows.length} ${visibleRows.length === 1 ? 'Contact' : 'Contacts'}`}
             </button>
           </div>
         </div>
+        <div className="border-b border-zinc-800 px-4 py-3">
+          <label className="flex flex-wrap items-center gap-2 text-sm">
+            Filter by contact type
+            <select value={typeFilter} disabled={busy} onChange={event => { setTypeFilter(event.target.value); setPage(0); }}
+              className="rounded border border-zinc-700 bg-zinc-950 p-2">
+              <option value="">All types ({rows.length})</option>
+              {contactTypes.map(([type, label]) => <option key={type} value={type}>{label} ({typeCounts[type] || 0})</option>)}
+            </select>
+          </label>
+        </div>
+        {!visibleRows.length && <p className="p-4 text-sm text-zinc-400">No contacts match this filter.</p>}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px] text-left">
             <thead><tr className="border-b border-zinc-800 text-zinc-400 text-xs uppercase">
               {columns.map(([field, label]) => <th key={field} scope="col" className="p-4">{label}</th>)}
+              <th scope="col" className="p-4">Contact Type</th>
               <th scope="col" className="p-4 text-right">Actions</th>
             </tr></thead>
             <tbody className="divide-y divide-zinc-800/50">
-              {rows.slice(page * pageSize, (page + 1) * pageSize).map((row, index) => <tr key={row.id} className="hover:bg-zinc-800/50">
+              {visibleRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize).map((row, index) => <tr key={row.id} className="hover:bg-zinc-800/50">
                 {columns.map(([field, label]) => <td key={field} className={`p-2 ${field === 'email' ? 'min-w-56' : ''}`}>
-                  <input type={field === 'email' ? 'email' : 'text'} aria-label={`${label}, row ${page * pageSize + index + 1}`}
+                  <input type={field === 'email' ? 'email' : 'text'} aria-label={`${label}, row ${currentPage * pageSize + index + 1}`}
                     value={row[field]} onChange={event => updateRow(row.id, field, event.target.value)} disabled={busy}
                     className="w-full bg-transparent focus:bg-zinc-800 focus:ring-1 focus:ring-yellow-500 rounded p-2 text-sm text-zinc-200" />
                 </td>)}
-                <td className="p-4 text-right"><button type="button" aria-label={`Remove row ${page * pageSize + index + 1}`} disabled={busy}
+                <td className="p-2">
+                  <select aria-label={`Contact Type, row ${currentPage * pageSize + index + 1}`} value={row.contactKind}
+                    onChange={event => updateRow(row.id, 'contactKind', event.target.value)} disabled={busy}
+                    className="rounded border border-zinc-700 bg-zinc-950 p-2 text-sm">
+                    <option value="">Auto · {contactTypes.find(([type]) => type === contactRole({ ...row, contactKind: '' }))[1]}</option>
+                    {contactTypes.slice(0, -1).map(([type, label]) => <option key={type} value={type}>{label}</option>)}
+                  </select>
+                </td>
+                <td className="p-4 text-right"><button type="button" aria-label={`Remove row ${currentPage * pageSize + index + 1}`} disabled={busy}
                   onClick={() => removeRow(row.id)} className="text-red-400 hover:text-red-300 text-sm">Remove</button></td>
               </tr>)}
             </tbody>
           </table>
         </div>
-        {rows.length > pageSize && <div className="p-4 border-t border-zinc-800 flex flex-wrap justify-between gap-2 text-sm">
-          <button type="button" disabled={busy || page === 0} onClick={() => setPage(page - 1)} className="disabled:opacity-40">Previous</button>
-          <span>{page * pageSize + 1}–{Math.min((page + 1) * pageSize, rows.length)} of {rows.length}</span>
-          <button type="button" disabled={busy || (page + 1) * pageSize >= rows.length} onClick={() => setPage(page + 1)} className="disabled:opacity-40">Next</button>
+        {visibleRows.length > pageSize && <div className="p-4 border-t border-zinc-800 flex flex-wrap justify-between gap-2 text-sm">
+          <button type="button" disabled={busy || currentPage === 0} onClick={() => setPage(currentPage - 1)} className="disabled:opacity-40">Previous</button>
+          <span>{currentPage * pageSize + 1}–{Math.min((currentPage + 1) * pageSize, visibleRows.length)} of {visibleRows.length}</span>
+          <button type="button" disabled={busy || (currentPage + 1) * pageSize >= visibleRows.length} onClick={() => setPage(currentPage + 1)} className="disabled:opacity-40">Next</button>
         </div>}
       </div>}
     </section>
